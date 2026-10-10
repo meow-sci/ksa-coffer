@@ -1,0 +1,112 @@
+# yaml-language-server: $schema=./references.schema.json
+#
+# Git repositories checked out under references/, one entry per folder.
+# Must conform to data/references.schema.json.
+# Maintained by scripts/references_check_refs.ts (run with --update to record new refs).
+# Comments other than this header are not preserved when the script rewrites this file.
+
+repos:
+  - name: Compendium
+    git: https://github.com/meow-sci/Compendium.git
+    ref: 62cfbe7aafabc58cf71f7c6d618d0c5ece7c504c
+    license: MIT
+
+  - name: gatOS
+    git: https://github.com/meow-sci/gatOS.git
+    ref: b88c28588e013841cfec58a1b3a09fcbd2cbc47e
+    license: MIT
+
+  - name: Kitten-Engineer-Redux
+    git: https://github.com/BarneyCompiler/Kitten-Engineer-Redux.git
+    ref: d5786a0e75203a18a96936fb3537220d44b7a18b
+    license: MIT
+
+  - name: KittenExtensions
+    git: https://github.com/AMPW-german/KittenExtensions.git
+    ref: b52467541a4fda3c3771eb2c157ed7574f9e2d7c
+    license: MIT
+
+  - name: KSA_AircraftHUD
+    git: https://github.com/uriahgnu/KSA_AircraftHUD.git
+    ref: 4e4c71719a8355afb1fc608f54d531676bec4ef3
+    license: MIT
+
+  - name: KSA-AdvancedFlightComputer
+    git: https://github.com/Maximilian-Nesslauer/KSA-AdvancedFlightComputer.git
+    ref: 77c0ccf5608e49c459eec72c3a56d0b30d62da63
+    license: MIT
+
+  - name: KSA-DeltaVMap
+    git: https://github.com/Maximilian-Nesslauer/KSA-DeltaVMap
+    ref: 0441981a4c59b90e462fd81fc20d3924b356841a
+    license: MIT
+
+  - name: KSA-MeasureTools
+    git: https://github.com/Maximilian-Nesslauer/KSA-MeasureTools.git
+    ref: aed7f874f1c925c10c733b1dee72bd04b9b1985c
+    license: MIT
+
+  - name: KSA-Public-Telemetry
+    git: https://github.com/elevatorctln/KSA-Public-Telemetry/
+    ref: 90608fb465f87d6008208798cc4d20ed8182c9a0
+    license: MIT
+
+  - name: KSACars
+    git: https://github.com/LaurensDeV/KSACars
+    ref: 1f0a84f623ef7a8edb0792d5c46c0fecfc2abd7f
+    license: MIT
+
+  - name: KSAero
+    git: https://github.com/cairn5/KSAero.git
+    ref: 3e7e26c9c694a563048261bd6e426e817377d404
+    license: MIT
+
+  - name: KSAGolf
+    git: https://github.com/LaurensDeV/KSAGolf.git
+    ref: f3e6ab72b5b963f615cb4ed41f7765a7bce42688
+    license: MIT
+
+  - name: KSArmory
+    git: https://github.com/LaurensDeV/KSArmory.git
+    ref: cbd63d6d84da7a48a13641a641d3557bad216435
+    license: MIT
+
+  - name: KSAStructures
+    git: https://github.com/LaurensDeV/KSAStructures
+    ref: c24759358381fb10290c61f9a6980b7d832ba3d4
+    license: MIT
+
+  - name: MPFX
+    git: https://github.com/AMPW-german/MPFX.git
+    ref: fbdeeebca9bd2e0f0001348b6903af3a652cecd0
+    license: MIT
+
+  - name: OhMyStars
+    git: https://github.com/nanonestor/OhMyStars.git
+    ref: 4bb602e3bfe36bcd3670b71b88bf644fe95fa407
+    license: GPL-2.0
+
+  - name: purrtty
+    git: https://github.com/meow-sci/purrtty.git
+    ref: 71da9efe9ed7b8ec533cad7a0bb15bea9f59a9a5
+    license: MIT
+
+  - name: RealAtmospheres
+    git: https://github.com/Brimfyr/RealAtmospheres.git
+    ref: 19dc37a55b2e359bd8eec2f5b41722ab11ae0c46
+    license: MIT
+
+  - name: ShaderExtensions
+    git: https://github.com/AMPW-german/ShaderExtensions.git
+    ref: 6a2eb66ea85bcaa2d4657e502a4f75e92693ea77
+    license: MIT
+
+  - name: StarMap
+    git: https://github.com/StarMapLoader/StarMap.git
+    ref: 4dc60f8dfeb1d9b035d44af2601d09115c16d2aa
+    license: MIT
+
+  - name: unscience
+    git: https://github.com/meow-sci/unscience.git
+    ref: 1829b3b298dd0fa5a67342cafff29074c8c29286
+    license: MIT

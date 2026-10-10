@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "KSA Coffer reference repositories",
+  "description": "Inventory of the git repositories checked out under references/. Used to detect when reference material is out of date. Maintained by scripts/references_check_refs.ts.",
+  "type": "object",
+  "required": ["repos"],
+  "additionalProperties": false,
+  "properties": {
+    "repos": {
+      "description": "One entry per folder under references/.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/repo" }
+    }
+  },
+  "$defs": {
+    "repo": {
+      "type": "object",
+      "required": ["name", "git", "ref", "license"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "Folder name of the checkout under references/. Unique within repos.",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^/\\\\]+$"
+        },
+        "git": {
+          "description": "Git remote URI the checkout was cloned from (the 'origin' remote).",
+          "type": "string",
+          "minLength": 1
+        },
+        "ref": {
+          "description": "Full commit hash (SHA-1, or SHA-256 for sha256 repositories) of the checkout's HEAD when it was last recorded.",
+          "type": "string",
+          "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+        },
+        "license": {
+          "description": "License of the repository as an SPDX identifier or expression, e.g. MIT, Apache-2.0, GPL-2.0, GPL-3.0.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}
