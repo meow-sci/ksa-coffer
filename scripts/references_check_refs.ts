@@ -14,9 +14,10 @@
  *   when it is the only difference for that folder.
  * - attribution.yml in the project root (name, web link and license of every
  *   recorded repo) is regenerated from the data file whenever it is stale.
- * - attribution/ holds a copy of each recorded repo's license file, named
- *   LICENSE.<folder name>.txt; copies are refreshed when the checkout's file
- *   changes and removed when the repo is no longer recorded.
+ * - attribution/ holds a copy of every license file at the root of each
+ *   recorded repo, named LICENSE.<folder name>.txt, or LICENSE.<folder name>-1.txt,
+ *   -2.txt, ... when a repo has several. Copies are refreshed when the
+ *   checkout's files change and removed when they are no longer needed.
  *
  * Runs on Node 24 with native type stripping and uses only built-in modules,
  * so it carries its own minimal YAML reader/writer and JSON Schema validator.
@@ -48,7 +49,8 @@ const USAGE = `Usage: node scripts/references_check_refs.ts [--update]
 Checks every git checkout under ${REL_REFERENCES} against ${REL_DATA}.
 Folders missing from the data file are derived and added automatically.
 ${REL_ATTRIBUTION} is regenerated from ${REL_DATA} whenever it is out of date, and
-each repo's license file is copied to ${REL_ATTRIBUTION_DIR}LICENSE.<folder name>.txt.
+each repo's license files are copied to ${REL_ATTRIBUTION_DIR}LICENSE.<folder name>.txt
+(LICENSE.<folder name>-1.txt, -2.txt, ... when a repo has several).
 
 Options:
   --update    Record the checkout's current commit for repos whose only
@@ -183,25 +185,17 @@ function identifyLicenseText(raw: string): string | undefined {
   return LICENSE_RULES.find(([, test]) => test(text))?.[0];
 }
 
-/** License files at the repository root, with the license each one was identified as. */
-function listLicenseFiles(dir: string): Array<{ file: string; id: string | undefined }> {
+/** Names of the license files at the repository root, sorted. */
+function licenseFileNames(dir: string): string[] {
   return readdirSync(dir)
     .filter((f) => LICENSE_FILE.test(f))
     .filter((f) => statSync(join(dir, f)).isFile())
-    .sort()
-    .map((file) => ({ file, id: identifyLicenseText(readFileSync(join(dir, file), 'utf8')) }));
+    .sort();
 }
 
-/**
- * Choose the license file to ship for attribution: the first one whose text
- * matches the recorded license, or the only license file if there is just one.
- */
-function pickLicenseFile(dir: string, license: string): { file?: string; reason?: string } {
-  const files = listLicenseFiles(dir);
-  if (files.length === 0) return { reason: 'no LICENSE/COPYING file found at the repository root' };
-  const match = files.find((f) => f.id === license) ?? (files.length === 1 ? files[0] : undefined);
-  if (match) return { file: match.file };
-  return { reason: `none of ${files.map((f) => f.file).join(', ')} is identifiable as ${license}` };
+/** License files at the repository root, with the license each one was identified as. */
+function listLicenseFiles(dir: string): Array<{ file: string; id: string | undefined }> {
+  return licenseFileNames(dir).map((file) => ({ file, id: identifyLicenseText(readFileSync(join(dir, file), 'utf8')) }));
 }
 
 function detectLicense(dir: string): { license?: string; note?: string } {
@@ -505,7 +499,8 @@ function stringifyData(data: ReferencesData): string {
 
 const ATTRIBUTION_HEADER = `# Third-party projects used as reference material,
 # with a link to each project and the license it is distributed under.
-# The full license text of each project is in attribution/LICENSE.<name>.txt.
+# The full license text of each project is in attribution/LICENSE.<name>.txt, or in
+# attribution/LICENSE.<name>-1.txt, -2.txt, ... when a project has several license files.
 #
 # GENERATED FILE, do not edit by hand. It is rebuilt from ${REL_DATA}
 # by scripts/references_check_refs.ts.
@@ -536,7 +531,14 @@ function writeIfChanged(file: string, content: string | Buffer): boolean {
 }
 
 const LICENSE_COPY = /^LICENSE\..+\.txt$/;
-const licenseCopyName = (name: string): string => `LICENSE.${name}.txt`;
+
+/** Attribution file names for a repo with `count` license files. */
+const licenseCopyNames = (name: string, count: number): string[] =>
+  count === 1 ? [`LICENSE.${name}.txt`] : Array.from({ length: count }, (_, i) => `LICENSE.${name}-${i + 1}.txt`);
+
+/** Whether `file` is (or could be) one of the attribution copies for repo `name`. */
+const isLicenseCopyOf = (file: string, name: string): boolean =>
+  file === `LICENSE.${name}.txt` || (file.startsWith(`LICENSE.${name}-`) && /^-\d+\.txt$/.test(file.slice(`LICENSE.${name}`.length)));
 
 interface LicenseSync {
   written: string[];
@@ -545,29 +547,40 @@ interface LicenseSync {
 }
 
 /**
- * Mirror each recorded repo's license file into attribution/ as
- * LICENSE.<name>.txt, and delete copies for repos that are no longer recorded.
+ * Mirror every license file at the root of each recorded repo into attribution/
+ * as LICENSE.<name>.txt, or LICENSE.<name>-1.txt, -2.txt, ... (in file name
+ * order) when there are several, and delete copies that are no longer needed.
  * Copies for repos whose checkout is missing are left as they are.
  */
 function syncLicenseCopies(repos: readonly RepoEntry[]): LicenseSync {
   const result: LicenseSync = { written: [], removed: [], warnings: [] };
   mkdirSync(ATTRIBUTION_DIR, { recursive: true });
 
+  const existing = readdirSync(ATTRIBUTION_DIR);
+  const expected = new Set<string>();
+
   for (const repo of repos) {
     const dir = join(REFERENCES_DIR, repo.name);
-    if (!existsSync(dir)) continue; // reported elsewhere as a missing checkout
-    const { file, reason } = pickLicenseFile(dir, repo.license);
-    if (file === undefined) {
-      result.warnings.push(`${repo.name}: no license file copied, ${reason}`);
+    if (!existsSync(dir)) {
+      // Reported elsewhere as a missing checkout; keep whatever copies it had.
+      for (const f of existing) if (isLicenseCopyOf(f, repo.name)) expected.add(f);
       continue;
     }
-    const copy = licenseCopyName(repo.name);
-    if (writeIfChanged(join(ATTRIBUTION_DIR, copy), readFileSync(join(dir, file)))) {
-      result.written.push(`${copy} (from ${REL_REFERENCES}${repo.name}/${file})`);
+    const files = licenseFileNames(dir);
+    if (files.length === 0) {
+      result.warnings.push(`${repo.name}: no license file copied, no LICENSE/COPYING file found at the repository root`);
+      continue;
     }
+    const copies = licenseCopyNames(repo.name, files.length);
+    files.forEach((file, i) => {
+      const copy = copies[i]!;
+      expected.add(copy);
+      if (writeIfChanged(join(ATTRIBUTION_DIR, copy), readFileSync(join(dir, file)))) {
+        result.written.push(`${copy} (from ${REL_REFERENCES}${repo.name}/${file})`);
+      }
+    });
   }
 
-  const expected = new Set(repos.map((r) => licenseCopyName(r.name)));
   for (const f of readdirSync(ATTRIBUTION_DIR).sort()) {
     if (LICENSE_COPY.test(f) && !expected.has(f)) {
       rmSync(join(ATTRIBUTION_DIR, f));
@@ -892,7 +905,7 @@ function main(): number {
   if (added.length > 0 || updated.length > 0) say(`Wrote ${REL_DATA}`);
   if (wroteAttribution) say(`Wrote ${REL_ATTRIBUTION}`);
   for (const w of licenses.written) say(`Wrote ${REL_ATTRIBUTION_DIR}${w}`);
-  for (const r of licenses.removed) say(`Removed ${REL_ATTRIBUTION_DIR}${r} (repo no longer recorded)`);
+  for (const r of licenses.removed) say(`Removed ${REL_ATTRIBUTION_DIR}${r} (no longer needed)`);
   if (failed.length > 0) {
     say(paint('red', `Exiting with status 1 because of: ${failed.join(', ')}`));
     return 1;

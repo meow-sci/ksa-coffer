@@ -1,6 +1,7 @@
 # Third-party projects used as reference material,
 # with a link to each project and the license it is distributed under.
-# The full license text of each project is in attribution/LICENSE.<name>.txt.
+# The full license text of each project is in attribution/LICENSE.<name>.txt, or in
+# attribution/LICENSE.<name>-1.txt, -2.txt, ... when a project has several license files.
 #
 # GENERATED FILE, do not edit by hand. It is rebuilt from data/references.yml
 # by scripts/references_check_refs.ts.
