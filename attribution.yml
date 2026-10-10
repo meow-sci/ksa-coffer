@@ -1,0 +1,91 @@
+# Third-party projects used as reference material,
+# with a link to each project and the license it is distributed under.
+# The full license text of each project is in attribution/LICENSE.<name>.txt.
+#
+# GENERATED FILE, do not edit by hand. It is rebuilt from data/references.yml
+# by scripts/references_check_refs.ts.
+
+projects:
+  - name: Compendium
+    url: https://github.com/meow-sci/Compendium
+    license: MIT
+
+  - name: gatOS
+    url: https://github.com/meow-sci/gatOS
+    license: MIT
+
+  - name: Kitten-Engineer-Redux
+    url: https://github.com/BarneyCompiler/Kitten-Engineer-Redux
+    license: MIT
+
+  - name: KittenExtensions
+    url: https://github.com/AMPW-german/KittenExtensions
+    license: MIT
+
+  - name: KSA_AircraftHUD
+    url: https://github.com/uriahgnu/KSA_AircraftHUD
+    license: MIT
+
+  - name: KSA-AdvancedFlightComputer
+    url: https://github.com/Maximilian-Nesslauer/KSA-AdvancedFlightComputer
+    license: MIT
+
+  - name: KSA-DeltaVMap
+    url: https://github.com/Maximilian-Nesslauer/KSA-DeltaVMap
+    license: MIT
+
+  - name: KSA-MeasureTools
+    url: https://github.com/Maximilian-Nesslauer/KSA-MeasureTools
+    license: MIT
+
+  - name: KSA-Public-Telemetry
+    url: https://github.com/elevatorctln/KSA-Public-Telemetry
+    license: MIT
+
+  - name: KSACars
+    url: https://github.com/LaurensDeV/KSACars
+    license: MIT
+
+  - name: KSAero
+    url: https://github.com/cairn5/KSAero
+    license: MIT
+
+  - name: KSAGolf
+    url: https://github.com/LaurensDeV/KSAGolf
+    license: MIT
+
+  - name: KSArmory
+    url: https://github.com/LaurensDeV/KSArmory
+    license: MIT
+
+  - name: KSAStructures
+    url: https://github.com/LaurensDeV/KSAStructures
+    license: MIT
+
+  - name: MPFX
+    url: https://github.com/AMPW-german/MPFX
+    license: MIT
+
+  - name: OhMyStars
+    url: https://github.com/nanonestor/OhMyStars
+    license: GPL-2.0
+
+  - name: purrtty
+    url: https://github.com/meow-sci/purrtty
+    license: MIT
+
+  - name: RealAtmospheres
+    url: https://github.com/Brimfyr/RealAtmospheres
+    license: MIT
+
+  - name: ShaderExtensions
+    url: https://github.com/AMPW-german/ShaderExtensions
+    license: MIT
+
+  - name: StarMap
+    url: https://github.com/StarMapLoader/StarMap
+    license: MIT
+
+  - name: unscience
+    url: https://github.com/meow-sci/unscience
+    license: MIT
