@@ -235,6 +235,8 @@ celestials | generate-measured-atmosphere-tables-offline | 1 | realatmospheres |
 celestials | add-or-restyle-planetary-rings | 2 | unscience | add-planetary-rings-to-a-body, swap-planetary-ring-meshes-and-textures, render-planetary-rings-with-custom-textures
 celestials | change-loaded-game-data-and-make-the-renderer-notice | 4 | unscience, ksastructures | edit-planet-biome-materials-live
 celestials | choose-which-body-the-game-renders-in-detail | 1 | realatmospheres | -
+celestials | compose-reduced-star-systems | 1 | lonelyplanets | -
+celestials | place-starting-vessels-in-custom-systems | 1 | lonelyplanets | -
 celestials | enumerate-star-systems-and-bodies | 3 | ksa-deltavmap, compendium, gatos | handle-multi-star-systems-and-barycenters
 celestials | read-body-properties-and-orbit-elements | 4 | gatos, ksa-deltavmap, compendium | read-atmosphere-and-ocean-parameters-of-a-body, read-rotation-tilt-and-tidal-lock-of-a-body, read-celestial-orbit-and-body-data
 celestials | cache-and-key-body-data-per-loaded-system | 5 | ksa-deltavmap, gatos, compendium | cache-derived-data-per-loaded-celestial-system, attach-extra-data-to-bodies-by-stable-key

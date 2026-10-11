@@ -63,6 +63,10 @@ projects:
     url: https://github.com/LaurensDeV/KSAStructures
     license: MIT
 
+  - name: LonelyPlanets
+    url: https://github.com/Jared-Melchers/LonelyPlanets
+    license: CC-BY-NC-SA-4.0
+
   - name: MPFX
     url: https://github.com/AMPW-german/MPFX
     license: MIT

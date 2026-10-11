@@ -55,6 +55,7 @@ The [attribution/](./attribution/) folder contains a copy of each source materia
 * KSAGolf
 * KSArmory
 * KSAStructures
+* LonelyPlanets
 * MPFX
 * OhMyStars
 * purrtty

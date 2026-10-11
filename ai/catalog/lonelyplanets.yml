@@ -1,0 +1,77 @@
+mod: lonelyplanets
+repo: LonelyPlanets
+ref: a5dd50de5ffad938d9737f86526a2fae00aa4c98
+summary: >-
+  Lonely Planets is a native XML/TOML content mod by Jared Melchers. It registers Mars,
+  Jupiter and Saturn systems that reference Sol, one stock planet and a locally defined
+  Dummy body, and places the stock Gemini7 vessel through per-planet orbit situations
+  in Testing mode. Venus XML ships but is disabled. The copied Core filenames in its
+  manifest are absent locally and do not fall back to Core's folder; runtime behavior
+  and VRAM savings have not been tested against the pinned game build.
+features:
+  - id: mods/lonelyplanets/features/single-planet-system-presets
+    title: Single-planet system presets
+    category: celestials
+    submod: null
+    summary: >-
+      Three selectable System XML files compose Sol with one stock planet using
+      LoadFromLibrary references and set the planet as HomeBody; declared texture
+      summaries are metadata that can feed KSA's estimator method.
+    novelty: medium
+    techniques: [xml-asset, toml-config]
+    lifecycle: [startup:asset-load, startup:game-loaded]
+    hooks: ["native KSA.Mod.PrepareSystems", "native KSA.Mod.LoadSystems", "native KSA.Universe.LoadSystem"]
+    game_types: [KSA.Mod, KSA.SystemInfo, KSA.SystemTemplate, KSA.AstronomicalReference, KSA.CelestialSystem]
+    key_paths: [mod.toml, MarsOnly.xml, JupiterOnly.xml, SaturnOnly.xml, VenusOnly.xml]
+    howto_topics:
+      - slug: compose-reduced-star-systems
+        title: Compose a reduced native star system
+        note: Register local System XML in mod.toml, select stock bodies by ID and set HomeBody
+      - slug: mod-toml-reference
+        title: Reference the mod.toml manifest
+        note: systems paths are resolved inside the defining mod folder
+      - slug: mod-xml-load-order
+        title: Understand when and in which order KSA loads mod XML
+        note: headers are prepared before selection, then chosen system templates load in full
+  - id: mods/lonelyplanets/features/dummy-companion-body
+    title: Dummy companion body
+    category: celestials
+    submod: null
+    summary: >-
+      A local Assets XML defines a small AtmosphericBody with height, ocean and
+      terrain references; three reduced systems load it by ID, though its purpose
+      and runtime effect are undocumented.
+    novelty: medium
+    techniques: [xml-asset]
+    lifecycle: [startup:asset-load, startup:game-loaded]
+    hooks: ["native KSA.Mod.LoadAssetBundles", "native KSA.Universe.LoadSystem"]
+    game_types: [KSA.AssetBundle, KSA.SystemInfo, KSA.AstronomicalTemplate, KSA.AtmosphericBodyTemplate, KSA.CelestialSystem, KSA.TextureReference]
+    key_paths: [mod.toml, Dummy.xml, MarsOnly.xml, JupiterOnly.xml, SaturnOnly.xml]
+    howto_topics:
+      - slug: compose-reduced-star-systems
+        title: Compose a reduced native star system
+        note: Define a local celestial asset and include its ID in selected systems; do not assume Dummy is required
+      - slug: resolve-asset-ids-and-mod-relative-paths
+        title: Resolve asset IDs and mod-relative paths
+        note: system references resolve library IDs, while Dummy texture paths resolve in LonelyPlanets
+  - id: mods/lonelyplanets/features/planet-starting-situations
+    title: Planet starting situations
+    category: flight-and-orbits
+    submod: null
+    summary: >-
+      Four Situation assets define orbital elements; each planet system places the
+      stock Gemini7 vessel under its planet with a matching SituationRef, and KSA
+      includes those vehicle templates only in Testing mode.
+    novelty: medium
+    techniques: [xml-asset]
+    lifecycle: [startup:asset-load, startup:game-loaded]
+    hooks: ["native KSA.Mod.LoadAssetBundles", "native KSA.Mod.LoadSystems", "native KSA.Universe.LoadSystem"]
+    game_types: [KSA.AssetBundle, KSA.SystemTemplate, KSA.VehicleTemplate, KSA.SituationTemplate, KSA.OrbitTemplate, KSA.Vehicle]
+    key_paths: [mod.toml, LonelySituations.xml, MarsOnly.xml, JupiterOnly.xml, SaturnOnly.xml, VenusOnly.xml]
+    howto_topics:
+      - slug: place-starting-vessels-in-custom-systems
+        title: Place starting vessels in custom systems
+        note: Pair a Situation orbit asset with LoadVehicleFromLibrary and a matching SituationRef; select Testing mode
+      - slug: mod-xml-load-order
+        title: Understand when and in which order KSA loads mod XML
+        note: situation assets must register before the selected system instantiates its vehicle

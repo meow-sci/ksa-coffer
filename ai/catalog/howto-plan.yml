@@ -14389,8 +14389,8 @@ categories:
         clutter and latitude and longitude picks.'
       atmospheres-and-rings: 'How bodies look: atmosphere and cloud XML, measured atmosphere tables, planetary rings, renderer
         rebuilds after data changes and the detailed-body choice.'
-      systems-and-stars: 'The loaded universe: enumerating systems and bodies, reading and caching body data, moving bodies,
-        and the star catalog and star binaries.'
+      systems-and-stars: 'The loaded universe: composing systems and starting situations, enumerating systems and bodies,
+        reading and caching body data, moving bodies, and the star catalog and star binaries.'
     topics:
     - slug: query-terrain-height-and-line-of-sight
       title: Query the terrain height field and test line of sight across terrain
@@ -15204,6 +15204,71 @@ categories:
       - write-a-harmony-transpiler
       - branch-per-body-inside-shared-game-shaders
       - keep-vessels-rendered-at-any-distance
+    - slug: compose-reduced-star-systems
+      title: Compose a reduced star system from library bodies
+      kind: howto
+      group: systems-and-stars
+      batch: lonelyplanets
+      summary: Register a native XML system preset that selects only the desired library bodies, assigns parents and a home body, and includes a locally defined support body when needed by the design.
+      game_types:
+      - KSA.Mod
+      - KSA.SystemTemplate
+      - KSA.AstronomicalReference
+      - KSA.AtmosphericBodyTemplate
+      - KSA.CelestialSystem
+      engine_pointers:
+      - current/decomp/KSA/Mod.cs PrepareSystems, LoadSystems, LoadAssetBundles
+      - current/decomp/KSA/SystemTemplate.cs OnDataLoad
+      - current/decomp/KSA/AstronomicalReference.cs
+      - current/decomp/KSA/CelestialSystem.cs CreateTreeFromRoot, HomeBody
+      lifecycle:
+      - startup:asset-load
+      - startup:game-loaded
+      approaches:
+      - n: 1
+        title: Native system XML with library references and a local body asset
+        mod: lonelyplanets
+        features:
+        - mods/lonelyplanets/features/single-planet-system-presets
+        - mods/lonelyplanets/features/dummy-companion-body
+        technique: xml-asset
+        note: Explain mod-local manifest paths versus separately loaded Core assets, parent and HomeBody selection, and declared texture estimates; the dummy's purpose is not documented and must not be presented as a proven required workaround or physically realistic body.
+      related:
+      - place-starting-vessels-in-custom-systems
+      - enumerate-star-systems-and-bodies
+      - mod-xml-load-order
+      - resolve-asset-ids-and-mod-relative-paths
+    - slug: place-starting-vessels-in-custom-systems
+      title: Place starting vessels in a custom system with reusable situations
+      kind: howto
+      group: systems-and-stars
+      batch: lonelyplanets
+      summary: Define reusable orbital situations in an asset bundle and reference them from a system's library-loaded starter vessels, with explicit parent bodies and Testing-mode limits.
+      game_types:
+      - KSA.SystemTemplate
+      - KSA.VehicleTemplate
+      - KSA.SituationTemplate
+      - KSA.OrbitTemplate
+      engine_pointers:
+      - current/decomp/KSA/SystemTemplate.cs OnDataLoad
+      - current/decomp/KSA/VehicleTemplate.cs
+      - current/decomp/KSA/SituationTemplate.cs OnDataLoad, GetTemplate
+      - current/decomp/KSA/OrbitTemplate.cs
+      lifecycle:
+      - startup:asset-load
+      - startup:game-loaded
+      approaches:
+      - n: 1
+        title: Situation assets referenced by LoadVehicleFromLibrary
+        mod: lonelyplanets
+        features:
+        - mods/lonelyplanets/features/planet-starting-situations
+        technique: xml-asset
+        note: Use the shipped orbital parameters as source examples, distinguish orbital radius from surface altitude, and explain that non-Testing loads remove VehicleTemplate entries and selected start settings may override the declared situation and parent.
+      related:
+      - compose-reduced-star-systems
+      - read-orbit-elements-and-timing
+      - spawn-a-vehicle-at-runtime
     - slug: enumerate-star-systems-and-bodies
       title: Enumerate every star system, star, planet and moon of the loaded universe
       kind: howto

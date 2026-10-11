@@ -308,3 +308,5 @@ draw-a-monospace-text-grid: done  # ui/draw-lists; overview + 3 articles (purrTT
 build-a-pan-zoom-canvas-in-imgui: done  # ui/draw-lists; overview + 2 articles (DeltaVMap 2D canvas, Pebbles 3D orbit canvas with undo)
 lay-out-a-tree-or-graph-diagram: done  # ui/draw-lists; overview + 4 articles, all DeltaVMap; layout runs in frame:draw-ui because CalcTextSize needs the ImGui frame
 load-a-custom-font-into-imgui: done  # ui/draw-lists; overview + 4 articles; approach 4 is an untested adapted guard: a game font-settings change calls RegenerateFonts, which clears the atlas, and no reference mod re-adds its fonts
+compose-reduced-star-systems: done  # celestials/systems-and-stars; overview + 1 article; native system XML, optional local body requires permitted textures; no runtime or VRAM test
+place-starting-vessels-in-custom-systems: done  # celestials/systems-and-stars; overview + 1 article; Testing-only starter, selected start settings can override its parent/situation

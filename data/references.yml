@@ -76,6 +76,11 @@ repos:
     ref: c24759358381fb10290c61f9a6980b7d832ba3d4
     license: MIT
 
+  - name: LonelyPlanets
+    git: https://github.com/Jared-Melchers/LonelyPlanets.git
+    ref: a5dd50de5ffad938d9737f86526a2fae00aa4c98
+    license: CC-BY-NC-SA-4.0
+
   - name: MPFX
     git: https://github.com/AMPW-german/MPFX.git
     ref: fbdeeebca9bd2e0f0001348b6903af3a652cecd0
