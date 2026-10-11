@@ -1,0 +1,4 @@
+# Game build whose changelog has been triaged for new how-to topics or lifecycle-reference edits.
+# Maintained by scripts/content_refresh_plan.ts --ack game; do not edit by hand.
+ref: 935a32b4dbc34cbcd16e87d16cf9732eb90030c0
+build: 2026.10.10.5554

@@ -1,6 +1,8 @@
 # Project documentation history
 
 ## 2026-10-11
+* **Update**: Added the refresh workflow: [Knowledge extraction pipeline](knowledge-pipeline.md) now explains line-level refresh planning, hunk triage and triage baselines; [Content bundle conventions](content-conventions.md) gained refresh-safe citation rules. New scripts `scripts/content_refresh_plan.ts` and `scripts/references_pull.ts`, brief `ai/briefs/REFRESH_BRIEF.md`, baseline `ai/catalog/game.yml`.
+* **Update**: Documented the `--tarball` option in [Agent Skill build](skill.md) and the home-page skill download, its build prerequisite and the extra deploy triggers in [Documentation site](site.md).
 * **Update**: Documented the home-page source mods attribution table in [Documentation site](site.md).
 * **Creation**: Added [Agent Skill build](skill.md) describing scripts/skill_build.ts, the ksa-modding skill layout under dist/skill/ and its validation.
 

@@ -3,7 +3,7 @@ type: Guide
 title: Knowledge extraction pipeline
 description: How the mod bundles and how-to articles under content/ were produced and how to refresh them when a reference mod or the game changes
 tags: [process, pipeline, refresh, agents]
-generated: { by: claude-code/fable-5.1, at: 2026-10-10T21:40:00Z }
+generated: { by: claude-code/opus-5.5, at: 2026-10-11T22:30:00Z }
 status: stable
 sources:
   - id: conventions
@@ -49,16 +49,29 @@ build it was checked against, which is what makes incremental refreshes possible
 
 ## Refreshing after an update
 
-1. Update the checkout under `references/` (or the game assemblies) and run
-   `node scripts/references_check_refs.ts --update` to record the new commit.
-2. Run `node scripts/content_check_refs.ts content --stale`: every page whose `repos[].ref` or
-   `game.ref` no longer matches is listed. Those pages (and the catalog entries behind them) are the
-   re-analysis set; pages that cite only unchanged repos need nothing.
-3. Re-run the mod coordinator brief for the changed mod with a scope limited to the listed pages, then
-   the review brief, then regenerate `REFERENCES.md` (`node scripts/references_build_md.ts`) and the
-   indexes (`python3 .claude/skills/okf/scripts/build_indexes.py content`).
-4. How-to articles cite feature pages through `demonstrated_by`; re-check the articles whose
-   `demonstrated_by` includes a re-analyzed feature.
+Refreshes are incremental and mostly mechanical. The full procedure, with exact commands, is the
+"maintaining the corpus" section of `AGENTS.md`; this section explains why it is cheap.
+
+- `scripts/references_pull.ts` fast-forwards every reference checkout and the game assemblies (and
+  clones or unshallows as needed); `scripts/references_check_refs.ts --update` records the new
+  commits and any new checkout in `data/references.yml`.
+- `scripts/content_refresh_plan.ts` reads every concept's pins and cited line ranges, diffs each cited
+  file from its pin to HEAD, ignores decompiler noise, and classifies each page as current, repin
+  (cited code unchanged: rewritten mechanically with remapped anchors), review (a real hunk overlaps
+  a cited range) or unknown (pinned commit missing locally). In a simulated one-build game update
+  (2026.10.7.5541 to 2026.10.10.5554) file-level matching would have sent 1,268 pages to review;
+  range-level matching sent 367, grouped into 88 distinct changes, and marking a dozen frame-loop
+  profiling hunks benign moved 208 of those to repin. Of the 8,068 anchors remapped, every one
+  pointed at identical code afterwards, apart from ranges that correctly grew to include the
+  inserted benign lines.
+- Review work is grouped by change (`h-` hunk or `f-` file id), so each change is judged once.
+  Changes judged irrelevant are recorded in `ai/refresh/triage.yml` (`--benign`); the remaining
+  pages go to agents with `ai/briefs/REFRESH_BRIEF.md`, who finish each with `--accept`.
+- New upstream code that no page cites is reported per mod against a triage baseline (`ref:` in
+  `ai/catalog/<slug>.yml`), and each new game build's changelog against `ai/catalog/game.yml`.
+  Baselines move only with `--ack` after triage, so the signal is never lost between runs.
+- New mods appear as inventory drift (a recorded repo with no bundle) and go through the phase 1
+  briefs; their features reach how-tos through `--coverage` and the how-to brief.
 
 Progress and decisions of the original run are recorded in the status tracker.[^status]
 

@@ -1,6 +1,7 @@
 name: Deploy site to GitHub Pages
 
-# Builds the Astro/Starlight site under site/ (which renders content/ in place) and
+# Builds the ksa-modding Agent Skill tarball into site/public/downloads/ (linked from the home
+# page), then the Astro/Starlight site under site/ (which renders content/ in place), and
 # publishes it to GitHub Pages at https://meow.science.fail/ksa-coffer/ (base set in
 # site/astro.config.ts). Pages source must be "GitHub Actions" (artifact flow).
 
@@ -11,6 +12,12 @@ on:
       - "site/**"
       - "content/**"
       - "ai/catalog/howto-plan.yml"
+      - "scripts/skill_build.ts"
+      - "scripts/skill/**"
+      - "docs/content-conventions.md"
+      - "attribution/**"
+      - "attribution.yml"
+      - "LICENSE"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
       - ".github/workflows/site-deploy.yml"
@@ -51,6 +58,9 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Build skill tarball
+        run: node scripts/skill_build.ts --tarball site/public/downloads/ksa-modding.tar.gz
 
       - name: Build
         run: pnpm --filter site build

@@ -12,7 +12,22 @@ Everything lives in one [OKF v0.2](.claude/skills/okf/SKILL.md) bundle rooted at
 - [content/howto/](./content/howto/index.md) - how-to articles organised by category and group, one topic per modding problem; when several mods solve a problem differently each solution is a numbered article and the topic overview compares them. Start with the [game loop and lifecycle reference](./content/howto/getting-started/lifecycle/game-loop-and-lifecycle/overview.md).
 - [docs/content-conventions.md](./docs/content-conventions.md) - the layout, frontmatter pins, lifecycle vocabulary and code-reference rules every page follows.
 
-Every page pins the exact commit of each reference repository and the decompiled game build it was checked against (`repos` and `game` frontmatter). `node scripts/content_check_refs.ts content --stale` lists the pages whose pins no longer match the checkouts, which is the refresh signal after a mod or game update.
+Every page pins the exact commit of each reference repository and the decompiled game build it was checked against (`repos` and `game` frontmatter), and cites code by exact line ranges.
+
+## Keeping it current
+
+When a mod or the game updates, or a new mod appears, the refresh is incremental: scripts work out exactly which pages are affected and do the mechanical updates; agents only look at real code changes that touch what a page cites.
+
+```bash
+node scripts/references_pull.ts                       # fetch and fast-forward every checkout + game assemblies
+node scripts/references_check_refs.ts --update        # record new commits and new mod checkouts
+node scripts/content_refresh_plan.ts --out ai/refresh/plan.md --json ai/refresh/plan.json   # the worklist
+node scripts/content_refresh_plan.ts --benign <ids>   # changes judged irrelevant (from the plan)
+node scripts/content_refresh_plan.ts --repin          # move every unaffected page to the new commits
+node scripts/content_refresh_plan.ts --check          # exit 0 when nothing is left to do
+```
+
+The plan classifies each page as *current*, *repin* (cited code unchanged; rewritten automatically with line anchors remapped), *review* (a real change overlaps a cited line range; handled by an agent with [ai/briefs/REFRESH_BRIEF.md](./ai/briefs/REFRESH_BRIEF.md)) or *unknown*, groups review work by diff hunk so each change is judged once, lists upstream code no page cites yet (possible new features) and each new game build's changelog, and flags new or removed mods. The complete step-by-step procedure is the "maintaining the corpus" section of [AGENTS.md](./AGENTS.md); the reasoning behind it is in [docs/knowledge-pipeline.md](./docs/knowledge-pipeline.md).
 
 ## Attribution
 

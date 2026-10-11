@@ -3,7 +3,7 @@ type: Guide
 title: Content bundle conventions
 description: Layout, frontmatter, code-reference and body rules for the OKF knowledge bundle under content/ (mods and how-to articles)
 tags: [okf, conventions, content, starlight]
-generated: { by: claude-code/opus-5.5, at: 2026-10-10T17:35:24Z }
+generated: { by: claude-code/opus-5.5, at: 2026-10-11T22:30:00Z }
 status: stable
 sources:
   - id: okf-skill
@@ -281,6 +281,19 @@ lifecycle values to use:
   paraphrase code into pseudo-code and present it as a quote.
 - For how-to articles, minimal adapted code is allowed when it is clearly labelled as adapted
   (`// adapted from KSAero/AirForcePatch.cs`) and compiles against the named game types.
+
+### Refresh-safe citations
+
+`scripts/content_refresh_plan.ts` decides which pages need re-verification by intersecting diff
+hunks with the line ranges each page cites, and remaps anchors when code merely moves. It only sees
+ranges written in these forms, so keep to them:
+
+- Link anchors `#L10` or `#L10-L40` on pinned blob links.
+- Snippet header first lines `<comment> <exact repo-relative path> L10-L40[, L50-L60]`.
+- Prefer citing a line range over citing a whole file: a page that cites a changed file without any
+  range is always sent to review, even when the change is elsewhere in the file.
+- Never move a pin, anchor or snippet header by hand; use `--repin` or `--accept` (see the
+  maintenance procedure in `AGENTS.md`).
 
 ### Links and footnotes
 
