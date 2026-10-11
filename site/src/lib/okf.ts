@@ -11,8 +11,13 @@ export const SITE_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 export const REPO_ROOT = path.resolve(SITE_ROOT, "..");
 export const CONTENT_ROOT = path.join(REPO_ROOT, "content");
 
+const ACRONYMS: Record<string, string> = { ui: "UI", io: "I/O", eva: "EVA", ksa: "KSA", api: "API", mcp: "MCP", xml: "XML", glb: "GLB", rcs: "RCS", hud: "HUD", imgui: "ImGui" };
+
 export function humanize(slug: string): string {
-  const s = slug.replace(/-/g, " ");
+  const s = slug
+    .split("-")
+    .map((w) => ACRONYMS[w] ?? w)
+    .join(" ");
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
