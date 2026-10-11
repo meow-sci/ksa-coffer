@@ -3,7 +3,7 @@ type: Guide
 title: Documentation site
 description: How the Astro Starlight site under site/ renders the content/ bundle in place, how it is built and checked, and how it deploys to GitHub Pages
 tags: [site, starlight, astro, github-pages]
-generated: { by: claude-code/opus-5.5, at: 2026-10-11T15:10:00Z }
+generated: { by: codex/gpt-6, at: 2026-10-11T13:30:44Z }
 status: stable
 sources:
   - id: conventions
@@ -18,11 +18,12 @@ into `site/`, so the same bundle can feed other consumers (for example an agent 
 ## Commands
 
 Run from the repository root after `pnpm install`. Build the skill tarball first: the home page
-links to it, and a production build fails if it is missing (the dev server shows a hint instead).
+links to it, and a production build fails if its manifest or archive is missing or invalid (the dev
+server shows a hint instead).
 
 | Command | Purpose |
 |---|---|
-| `node scripts/skill_build.ts --tarball site/public/downloads/ksa-modding.tar.gz` | Prerequisite: build the [Agent Skill](skill.md) and pack it into `site/public/` (git-ignored), which Astro copies to `site/dist/downloads/` |
+| `node scripts/skill_build.ts --tarball site/public/downloads/ksa-modding.tar.gz` | Prerequisite: build the [Agent Skill](skill.md), add its UTC build timestamp to the archive filename and write `ksa-modding.json` in `site/public/downloads/` (git-ignored); Astro copies these to `site/dist/downloads/` |
 | `pnpm --filter site dev` | Local dev server at `http://localhost:4321/ksa-coffer/` |
 | `pnpm --filter site build` | Static build to `site/dist` (includes the Pagefind search index) |
 | `pnpm --filter site check-links` | Walk `site/dist` and report internal hrefs that do not resolve |
@@ -36,7 +37,8 @@ links to it, and a production build fails if it is missing (the dev server shows
 | Link rewrite | `site/src/plugins/remark-okf-links.ts` | Rewrites file-relative `.md` links to site routes (`index.md` maps to its directory); links leaving `content/` become GitHub blob URLs; demotes body h1 to h2 on pages without a frontmatter title |
 | Contextual sidebar | `site/src/routeMiddleware.ts` | The base sidebar lists how-to categories and groups plus the mods; the middleware expands only the current group, topic or mod |
 | Page badges | `site/src/components/PageTitle.astro` | Shows `type`, `difficulty` and non-stable `status` under the title |
-| Skill download | `site/src/components/SkillDownload.astro`, `MarkdownContent.astro`, hero action in `content.config.ts` | Home page only: "Download agent skill" hero button and an Agent skill section with the tarball size and install commands; throws in production builds when the tarball is missing |
+| Content freshness | `site/src/components/ContentStatus.astro`, `MarkdownContent.astro`, `site/src/lib/skill-download.ts` | Home page only: last content refresh date/time in UTC and the KSA builds pinned by the content, read from the skill manifest |
+| Skill download | `site/src/components/SkillDownload.astro`, `site/src/lib/skill-download.ts`, hero action in `content.config.ts` and `routeMiddleware.ts` | Home page only: dated archive link, size, UTC skill build date/time and install commands; the middleware resolves the hero link at render time so cached content cannot retain an older filename |
 | Source mods table | `site/src/components/ModAttribution.astro`, `MarkdownContent.astro` | Home page only: one row per mod (author, pinned source commit, license file, feature count, how-to articles and topics citing the mod in `demonstrated_by`), computed from collection frontmatter joined with `data/references.yml` and `attribution/` |
 
 The base sidebar is rendered on every one of the ~2,750 pages, so it is kept small on purpose. Do not
@@ -44,6 +46,19 @@ autogenerate the full tree into it.
 
 Routes follow the file paths: `content/mods/gatos/overview.md` is served at
 `/ksa-coffer/mods/gatos/overview/` and `content/mods/gatos/index.md` at `/ksa-coffer/mods/gatos/`.
+
+## Dates and game versions
+
+`Content last refreshed` is the timestamp of the latest Git commit that changed `content/`, so a
+site-only rebuild does not make the corpus appear newer. Uncommitted local content changes are not
+included in that date. Builds without Git history fall back to the latest `generated.at` or
+`verified[].at` recorded in the concept frontmatter. Use a full Git checkout when publishing.
+
+`Checked against KSA` lists every distinct `game.build` pinned in the concept frontmatter. During
+a partial refresh this can show more than one version. The skill build time is recorded separately;
+its UTC value supplies both the archive filename and the date/time below the download link. All
+three values and the download filename come from `downloads/ksa-modding.json`, generated alongside
+the archive by `skill_build.ts`.
 
 ## Authoring implications
 
@@ -59,8 +74,10 @@ Routes follow the file paths: `content/mods/gatos/overview.md` is served at
 GitHub Pages artifact flow (repo Pages source: GitHub Actions). It runs on pushes to `main` that touch
 `site/`, `content/`, `ai/catalog/howto-plan.yml`, the skill build inputs (`scripts/skill_build.ts`,
 `scripts/skill/`, `docs/content-conventions.md`, `attribution/`, `attribution.yml`, `LICENSE`), the
-lockfile, the workspace file or the workflow itself, and on manual dispatch. The skill is published at
-https://meow.science.fail/ksa-coffer/downloads/ksa-modding.tar.gz. `site` and `base` in
-`site/astro.config.ts` must match the published URL.
+lockfile, the workspace file or the workflow itself, and on manual dispatch. Checkout uses
+`fetch-depth: 0` so content history remains available on site-only deployments. The skill is published
+under `https://meow.science.fail/ksa-coffer/downloads/` as
+`ksa-modding-YYYY-MM-DDTHHmmssZ.tar.gz`; the home page links to the manifest's exact filename. `site`
+and `base` in `site/astro.config.ts` must match the published URL.
 
 [^conventions]: Content bundle conventions

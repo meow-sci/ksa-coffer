@@ -1,5 +1,6 @@
 import { defineRouteMiddleware } from "@astrojs/starlight/route-data";
 import { getCollection } from "astro:content";
+import { readSkillDownload } from "./lib/skill-download.ts";
 
 type Entry = Awaited<ReturnType<typeof getCollection<"docs">>>[number];
 
@@ -72,6 +73,16 @@ function replaceLink(entries: any[], target: string, make: () => any): boolean {
 
 export const onRequest = defineRouteMiddleware(async (context) => {
   const route = context.locals.starlightRoute;
+  if (route.id === "" || route.id === "index") {
+    const skill = readSkillDownload(import.meta.env.PROD);
+    const hero = route.entry.data.hero;
+    if (hero) {
+      // Resolve on every render: Astro can reuse cached content data after a skill-only rebuild.
+      hero.actions = hero.actions.map((action) => action.icon?.type === "icon" && action.icon.name === "download"
+        ? { ...action, link: skill?.href ?? "#agent-skill" }
+        : action);
+    }
+  }
   if (!route.hasSidebar) return;
   const entry = route.entry as any;
   const fp = String(entry.filePath).replace(/\\/g, "/");

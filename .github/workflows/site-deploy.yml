@@ -38,6 +38,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # The home-page refresh time comes from the last commit touching content/.
+          fetch-depth: 0
 
       - name: Setup Pages
         uses: actions/configure-pages@v6

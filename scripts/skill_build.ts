@@ -2,14 +2,16 @@
 /**
  * Compile the OKF knowledge corpus under content/ into an Agent Skill (agentskills.io spec).
  *
- *   node scripts/skill_build.ts [--out dist/skill] [--tarball <file.tar.gz>]
+ *   node scripts/skill_build.ts [--out dist/skill] [--tarball <base.tar.gz>]
  *
  * Wipes and regenerates <out>/ksa-modding/ : SKILL.md (from scripts/skill/SKILL.template.md),
  * references/ (slimmed copy of content/ minus log.md, plus generated catalogs and vocabulary pages),
  * assets/index.jsonl + assets/licenses/, scripts/search.py (from scripts/skill/search.py) and LICENSE.
  * Validates the result and exits non-zero on failure. With --tarball, also packs the validated skill
  * directory into a gzipped tar (top-level entry ksa-modding/) using the system `tar`; the docs site
- * build uses this to publish site/public/downloads/ksa-modding.tar.gz. Runs on Node 24; needs the `yaml` package.
+ * build uses --tarball site/public/downloads/ksa-modding.tar.gz as a base name: a UTC timestamp
+ * is inserted before .tar.gz and a sibling ksa-modding.json records download/content metadata.
+ * Runs on Node 24; needs the `yaml` package.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -23,7 +25,7 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { parseArgs } from 'node:util';
 import { Document, parse as parseYaml, visit } from 'yaml';
 
@@ -175,6 +177,10 @@ function section(lines: string[], startRe: RegExp, stopRe: RegExp): string[] {
 
 function main(): number {
   const args = parseArgs({ options: { out: { type: 'string', default: 'dist/skill' }, tarball: { type: 'string' } } });
+  const builtAt = new Date().toISOString();
+  if (args.values.tarball && !args.values.tarball.endsWith('.tar.gz')) {
+    throw new Error('--tarball must end in .tar.gz (a UTC timestamp is added to this base name)');
+  }
   const outRoot = resolve(ROOT, args.values.out as string);
   const skill = join(outRoot, SKILL_NAME);
   const refs = join(skill, 'references');
@@ -207,7 +213,9 @@ function main(): number {
   const mods = byType('Mod');
   const features = byType('Mod Feature');
   const submods = byType('Submod');
-  const gameBuild = asStr((mods[0]?.fm.game as Fm | undefined)?.build ?? (topics[0]?.fm.game as Fm | undefined)?.build);
+  const gameBuilds = [...new Set(concepts.map((c) => asStr((c.fm.game as Fm | undefined)?.build)).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
+  const gameBuild = gameBuilds.join(', ');
   if (!gameBuild) throw new Error('game build not found in frontmatter');
 
   // c. catalogs
@@ -363,7 +371,7 @@ function main(): number {
     COMPATIBILITY: q('Search script needs Python 3.8+ (stdlib only). Code links point to GitHub.'),
     GAME_BUILD: q(gameBuild),
     CORPUS_COMMIT: q(sha),
-    GENERATED: q(new Date().toISOString().slice(0, 10)),
+    GENERATED: q(builtAt.slice(0, 10)),
     N_HOWTO: String(howtos.length),
     N_TOPICS: String(topics.length),
     N_FEATURES: String(features.length),
@@ -458,7 +466,28 @@ function main(): number {
   console.log('validation: OK');
 
   if (args.values.tarball) {
-    const tarball = resolve(ROOT, args.values.tarball as string);
+    // Content freshness must survive site-only rebuilds. CI checks out full history so this
+    // finds the last content commit, even when the current commit only changes the website.
+    let contentRefreshedAt = '';
+    try {
+      contentRefreshedAt = execFileSync('git', ['log', '-1', '--format=%cI', '--', 'content/'], {
+        cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim();
+    } catch {
+      /* source archive without Git: use the latest recorded generation/verification time */
+    }
+    if (!contentRefreshedAt) {
+      const dates = concepts.flatMap(({ fm }) => {
+        const verified = Array.isArray(fm.verified) ? fm.verified : [fm.verified];
+        return [fm.generated, ...verified].map((v) => Date.parse(asStr((v as Fm | undefined)?.at)));
+      }).filter(Number.isFinite);
+      if (!dates.length) throw new Error('content refresh date not found in Git history or frontmatter');
+      contentRefreshedAt = new Date(Math.max(...dates)).toISOString();
+    }
+    contentRefreshedAt = new Date(contentRefreshedAt).toISOString();
+    const base = resolve(ROOT, args.values.tarball as string).slice(0, -'.tar.gz'.length);
+    const timestamp = builtAt.replace(/:/g, '').replace(/\.\d{3}Z$/, 'Z');
+    const tarball = `${base}-${timestamp}.tar.gz`;
     mkdirSync(dirname(tarball), { recursive: true });
     rmSync(tarball, { force: true });
     // macOS bsdtar would otherwise add AppleDouble ._ entries and xattr headers.
@@ -467,7 +496,10 @@ function main(): number {
       stdio: 'inherit',
       env: { ...process.env, COPYFILE_DISABLE: '1' },
     });
+    // Written only after packing succeeds; both home-page download links read this manifest.
+    writeOut(`${base}.json`, JSON.stringify({ filename: basename(tarball), builtAt, contentRefreshedAt, gameBuilds }, null, 2) + '\n');
     console.log(`tarball: ${relative(ROOT, tarball)} (${(statSync(tarball).size / 1048576).toFixed(1)} MB)`);
+    console.log(`metadata: ${relative(ROOT, `${base}.json`)}; content refreshed ${contentRefreshedAt}; KSA ${gameBuild}`);
   }
   return 0;
 }

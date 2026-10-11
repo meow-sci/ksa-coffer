@@ -1,20 +1,8 @@
 ---
-import { existsSync, statSync } from "node:fs";
-import path from "node:path";
-import { BASE, SITE_ROOT } from "../lib/okf.ts";
+import { formatUtcDate, readSkillDownload, SKILL_BUILD_COMMAND } from "../lib/skill-download.ts";
 
-// Produced before the site build by: node scripts/skill_build.ts --tarball site/public/downloads/ksa-modding.tar.gz
-const SKILL_TARBALL = "downloads/ksa-modding.tar.gz";
-const file = path.join(SITE_ROOT, "public", SKILL_TARBALL);
-const exists = existsSync(file);
-if (!exists && import.meta.env.PROD) {
-  throw new Error(
-    `missing ${path.relative(SITE_ROOT, file)}; run \`node scripts/skill_build.ts --tarball site/public/${SKILL_TARBALL}\` before building the site`,
-  );
-}
-const href = `${BASE}${SKILL_TARBALL}`;
-const url = new URL(href, "https://meow.science.fail").href;
-const size = exists ? `${(statSync(file).size / 1048576).toFixed(1)} MB` : "not built";
+const skill = readSkillDownload(import.meta.env.PROD);
+const url = skill ? new URL(skill.href, "https://meow.science.fail").href : undefined;
 ---
 
 <h2 id="agent-skill">Agent skill</h2>
@@ -24,21 +12,19 @@ const size = exists ? `${(statSync(file).size / 1048576).toFixed(1)} MB` : "not 
   > for coding agents such as Claude Code: a short <code>SKILL.md</code> workflow, category catalogs, every how-to and
   mod page under <code>references/</code> and a keyword search script.
 </p>
-<p>
-  <a href={href} download>Download ksa-modding.tar.gz</a> ({size}){
-    !exists && (
-      <>
-        {" "}
-        <small>
-          (dev server: run <code>node scripts/skill_build.ts --tarball site/public/{SKILL_TARBALL}</code>)
-        </small>
-      </>
-    )
-  }
-</p>
+{skill ? (
+  <>
+    <p><a href={skill.href} download>Download {skill.filename}</a> ({skill.size})</p>
+    <p>Skill built <time datetime={skill.builtAt}>{formatUtcDate(skill.builtAt)}</time>.</p>
+  </>
+) : (
+  <p><small>Skill download not built. Run <code>{SKILL_BUILD_COMMAND}</code>.</small></p>
+)}
+{skill && <>
 <p>Extract it into a skills directory, for example your personal Claude Code skills:</p>
 <pre><code>mkdir -p ~/.claude/skills
 curl -fsSL {url} | tar -xz -C ~/.claude/skills</code></pre>
 <p>
   <small>Use <code>.claude/skills</code> inside a project instead to share it with that project only.</small>
 </p>
+</>}
