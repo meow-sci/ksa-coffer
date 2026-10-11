@@ -4,6 +4,9 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { parse as parseYaml } from "yaml";
 
+/** Site base path; must match the GitHub Pages project URL. */
+export const BASE = "/ksa-coffer/";
+
 export const SITE_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 export const REPO_ROOT = path.resolve(SITE_ROOT, "..");
 export const CONTENT_ROOT = path.join(REPO_ROOT, "content");

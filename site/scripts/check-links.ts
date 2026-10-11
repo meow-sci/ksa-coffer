@@ -3,7 +3,7 @@ import { readdirSync, readFileSync, existsSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const BASE = "/ksa-coffer/";
+import { BASE } from "../src/lib/okf.ts";
 const dist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../dist");
 
 function* walk(dir: string): Generator<string> {
@@ -14,7 +14,7 @@ function* walk(dir: string): Generator<string> {
   }
 }
 
-const hrefRe = /href="(\/ksa-coffer\/[^"]*)"/g;
+const hrefRe = /href="(\/(?!\/)[^"]*)"/g;
 const seen = new Map<string, boolean>();
 const broken: string[] = [];
 let total = 0;
@@ -24,6 +24,10 @@ for (const file of walk(dist)) {
   const html = readFileSync(file, "utf8");
   for (const m of html.matchAll(hrefRe)) {
     total++;
+    if (!m[1].startsWith(BASE)) {
+      broken.push(`${path.relative(dist, file)} -> ${m[1]} (missing base)`);
+      continue;
+    }
     const clean = m[1].split(/[#?]/)[0].slice(BASE.length);
     let ok = seen.get(clean);
     if (ok === undefined) {

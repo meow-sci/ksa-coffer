@@ -2,7 +2,7 @@ import { defineCollection } from "astro:content";
 import { glob } from "astro/loaders";
 import { docsSchema } from "@astrojs/starlight/schema";
 import { z } from "astro/zod";
-import { dirDescription, dirTitle } from "./lib/okf.ts";
+import { BASE, dirDescription, dirTitle } from "./lib/okf.ts";
 
 const loose = z.any().optional();
 
@@ -33,9 +33,10 @@ function okfLoader() {
               hero: {
                 tagline:
                   "A knowledge corpus for building Kitten Space Agency mods: how-to articles and analyzed community mods",
+                // Starlight does not prefix hero action links with the base path.
                 actions: [
-                  { text: "Browse how-to articles", link: "/howto/", icon: "right-arrow", variant: "primary" },
-                  { text: "Browse analyzed mods", link: "/mods/", variant: "minimal" },
+                  { text: "Browse how-to articles", link: `${BASE}howto/`, icon: "right-arrow", variant: "primary" },
+                  { text: "Browse analyzed mods", link: `${BASE}mods/`, variant: "minimal" },
                 ],
               },
             };

@@ -1,10 +1,8 @@
 import { defineConfig } from "astro/config";
 import starlight from "@astrojs/starlight";
 import { unified } from "@astrojs/markdown-remark";
-import { buildSidebar, CONTENT_ROOT, REPO_ROOT } from "./src/lib/okf.ts";
+import { BASE as base, buildSidebar, CONTENT_ROOT, REPO_ROOT } from "./src/lib/okf.ts";
 import remarkOkfLinks from "./src/plugins/remark-okf-links.ts";
-
-const base = "/ksa-coffer/";
 
 export default defineConfig({
   site: "https://meow.science.fail",
