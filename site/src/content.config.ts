@@ -37,6 +37,7 @@ function okfLoader() {
                 actions: [
                   { text: "Browse how-to articles", link: `${BASE}howto/`, icon: "right-arrow", variant: "primary" },
                   { text: "Browse analyzed mods", link: `${BASE}mods/`, variant: "minimal" },
+                  { text: "Download agent skill", link: `${BASE}downloads/ksa-modding.tar.gz`, icon: "download", variant: "secondary" },
                   { text: "Source mods", link: "#source-mods", variant: "minimal" },
                 ],
               },

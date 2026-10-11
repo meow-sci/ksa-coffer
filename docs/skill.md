@@ -3,7 +3,7 @@ type: Guide
 title: Agent Skill build
 description: How scripts/skill_build.ts compiles the content/ bundle into the ksa-modding Agent Skill under dist/skill/, what the skill contains and how it is validated
 tags: [skill, agent-skills, build, dist]
-generated: { by: claude-code/opus-5.5, at: 2026-10-11T00:30:00Z }
+generated: { by: claude-code/opus-5.5, at: 2026-10-11T15:10:00Z }
 status: stable
 sources:
   - id: spec
@@ -14,8 +14,8 @@ sources:
     title: Agent Skills best practices
 ---
 
-`node scripts/skill_build.ts [--out dist/skill]` compiles `content/` into an Agent Skill at
-`dist/skill/ksa-modding/` (git-ignored). The skill directory name must equal the `name` in
+`node scripts/skill_build.ts [--out dist/skill] [--tarball <file.tar.gz>]` compiles `content/` into
+an Agent Skill at `dist/skill/ksa-modding/` (git-ignored). The skill directory name must equal the `name` in
 `SKILL.md`, which is why the output sits one level below `dist/skill/`.[^spec] The build takes
 about two seconds and never needs to read the corpus into an agent's context.
 
@@ -48,6 +48,14 @@ leftover `log.md` references. The official validator also passes:
 ```bash
 uvx --from skills-ref agentskills validate dist/skill/ksa-modding
 ```
+
+## Distribution
+
+`--tarball <file>` packs the validated skill directory with the system `tar` into a gzipped archive
+whose single top-level entry is `ksa-modding/`, so it extracts straight into a skills directory
+(on macOS it passes `--no-mac-metadata` and `COPYFILE_DISABLE=1` to keep `._` files out). The site
+deploy runs it with `site/public/downloads/ksa-modding.tar.gz` and the home page links the result;
+see [Documentation site](site.md).
 
 ## When to change things
 

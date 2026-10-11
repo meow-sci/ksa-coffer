@@ -3,3 +3,8 @@ node_modules/
 site/dist/
 site/.astro/
 /dist/
+site/public/downloads/
+
+# regenerated refresh reports (ai/refresh/triage.yml is tracked)
+ai/refresh/plan.md
+ai/refresh/plan.json

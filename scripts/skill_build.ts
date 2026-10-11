@@ -2,12 +2,14 @@
 /**
  * Compile the OKF knowledge corpus under content/ into an Agent Skill (agentskills.io spec).
  *
- *   node scripts/skill_build.ts [--out dist/skill]
+ *   node scripts/skill_build.ts [--out dist/skill] [--tarball <file.tar.gz>]
  *
  * Wipes and regenerates <out>/ksa-modding/ : SKILL.md (from scripts/skill/SKILL.template.md),
  * references/ (slimmed copy of content/ minus log.md, plus generated catalogs and vocabulary pages),
  * assets/index.jsonl + assets/licenses/, scripts/search.py (from scripts/skill/search.py) and LICENSE.
- * Validates the result and exits non-zero on failure. Runs on Node 24; needs the `yaml` package.
+ * Validates the result and exits non-zero on failure. With --tarball, also packs the validated skill
+ * directory into a gzipped tar (top-level entry ksa-modding/) using the system `tar`; the docs site
+ * build uses this to publish site/public/downloads/ksa-modding.tar.gz. Runs on Node 24; needs the `yaml` package.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -172,7 +174,7 @@ function section(lines: string[], startRe: RegExp, stopRe: RegExp): string[] {
 // ---------------------------------------------------------------- main
 
 function main(): number {
-  const args = parseArgs({ options: { out: { type: 'string', default: 'dist/skill' } } });
+  const args = parseArgs({ options: { out: { type: 'string', default: 'dist/skill' }, tarball: { type: 'string' } } });
   const outRoot = resolve(ROOT, args.values.out as string);
   const skill = join(outRoot, SKILL_NAME);
   const refs = join(skill, 'references');
@@ -454,6 +456,19 @@ function main(): number {
     return 1;
   }
   console.log('validation: OK');
+
+  if (args.values.tarball) {
+    const tarball = resolve(ROOT, args.values.tarball as string);
+    mkdirSync(dirname(tarball), { recursive: true });
+    rmSync(tarball, { force: true });
+    // macOS bsdtar would otherwise add AppleDouble ._ entries and xattr headers.
+    const macFlags = process.platform === 'darwin' ? ['--no-mac-metadata'] : [];
+    execFileSync('tar', [...macFlags, '-czf', tarball, '-C', outRoot, SKILL_NAME], {
+      stdio: 'inherit',
+      env: { ...process.env, COPYFILE_DISABLE: '1' },
+    });
+    console.log(`tarball: ${relative(ROOT, tarball)} (${(statSync(tarball).size / 1048576).toFixed(1)} MB)`);
+  }
   return 0;
 }
 

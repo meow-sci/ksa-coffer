@@ -1,0 +1,44 @@
+---
+import { existsSync, statSync } from "node:fs";
+import path from "node:path";
+import { BASE, SITE_ROOT } from "../lib/okf.ts";
+
+// Produced before the site build by: node scripts/skill_build.ts --tarball site/public/downloads/ksa-modding.tar.gz
+const SKILL_TARBALL = "downloads/ksa-modding.tar.gz";
+const file = path.join(SITE_ROOT, "public", SKILL_TARBALL);
+const exists = existsSync(file);
+if (!exists && import.meta.env.PROD) {
+  throw new Error(
+    `missing ${path.relative(SITE_ROOT, file)}; run \`node scripts/skill_build.ts --tarball site/public/${SKILL_TARBALL}\` before building the site`,
+  );
+}
+const href = `${BASE}${SKILL_TARBALL}`;
+const url = new URL(href, "https://meow.science.fail").href;
+const size = exists ? `${(statSync(file).size / 1048576).toFixed(1)} MB` : "not built";
+---
+
+<h2 id="agent-skill">Agent skill</h2>
+<p>
+  The whole corpus is also packaged as <code>ksa-modding</code>, an <a href="https://agentskills.io/specification"
+    >Agent Skill</a
+  > for coding agents such as Claude Code: a short <code>SKILL.md</code> workflow, category catalogs, every how-to and
+  mod page under <code>references/</code> and a keyword search script.
+</p>
+<p>
+  <a href={href} download>Download ksa-modding.tar.gz</a> ({size}){
+    !exists && (
+      <>
+        {" "}
+        <small>
+          (dev server: run <code>node scripts/skill_build.ts --tarball site/public/{SKILL_TARBALL}</code>)
+        </small>
+      </>
+    )
+  }
+</p>
+<p>Extract it into a skills directory, for example your personal Claude Code skills:</p>
+<pre><code>mkdir -p ~/.claude/skills
+curl -fsSL {url} | tar -xz -C ~/.claude/skills</code></pre>
+<p>
+  <small>Use <code>.claude/skills</code> inside a project instead to share it with that project only.</small>
+</p>
