@@ -1,4 +1,5 @@
 packages:
   - scripts
+  - site
 minimumReleaseAgeExclude:
   - '@types/node@24.19.2'

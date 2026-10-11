@@ -311,9 +311,10 @@ points at a pinned ref and an existing file, and that `game` matches the assembl
 
 - `title` and `description` are the Starlight page frontmatter; everything else is extra and can
   be stripped or mapped by a schema extension at import time.
-- `index.md` files have no frontmatter in OKF; the import step adds a `title` to them (or
-  regenerates landing pages from the same data). This is the only planned transformation.
-- Relative `.md` links are resolved by a rehype plugin at import time; keep them file-relative.
+- `index.md` and `log.md` files have no frontmatter in OKF; the site loader injects a `title` at
+  build time (see [Documentation site](site.md)). Do not add frontmatter to them.
+- Relative `.md` links are rewritten to site routes by a remark plugin at build time; keep them
+  file-relative.
 - Footnotes, tables and fenced code render as-is.
 
 [^okf-skill]: OKF v0.2 authoring skill

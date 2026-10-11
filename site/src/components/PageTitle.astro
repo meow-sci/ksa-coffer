@@ -1,0 +1,28 @@
+---
+import Default from "@astrojs/starlight/components/PageTitle.astro";
+import { Badge } from "@astrojs/starlight/components";
+
+const data = Astro.locals.starlightRoute.entry.data as Record<string, any>;
+const type = data.type as string | undefined;
+const difficulty = data.difficulty as string | undefined;
+const status = data.status as string | undefined;
+---
+
+<Default><slot /></Default>
+{
+  type && (
+    <p class="okf-badges">
+      <Badge text={String(type)} variant="note" />
+      {difficulty && <Badge text={String(difficulty)} variant="tip" />}
+      {status && status !== "stable" && <Badge text={String(status)} variant="caution" />}
+    </p>
+  )
+}
+
+<style>
+  .okf-badges {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+  }
+</style>
