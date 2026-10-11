@@ -1,0 +1,1053 @@
+batch: camera-1
+game_loop_reference: getting-started/game-loop-and-lifecycle
+category: camera
+category_description: Camera modes and their controllers, writing the pose in phase with the frame, replacing or borrowing
+  the main view, following arbitrary points, secondary viewports and part-mounted cameras, IVA, first-person kitten views,
+  cinematic camera animation and field of view.
+groups:
+  controllers: 'How KSA cameras are driven: modes and controllers, replacing a controller, writing the pose in phase with
+    the frame, and Fixed mode.'
+  main-view: 'Taking over the main view: borrowing and handing back, following arbitrary points, chasing fast bodies and field
+    of view.'
+  special-views: IVA, first-person kitten views and scripted cinematic camera animation.
+  secondary-viewports: 'Secondary viewports: leasing one, aiming its camera and mounting cameras on parts.'
+topics:
+- slug: understand-camera-modes-and-controllers
+  title: Understand KSA camera modes, controllers, the viewport frame order and which camera is which
+  kind: reference
+  group: controllers
+  batch: camera-1
+  summary: Reference for every camera mod. Each GameViewport owns an Orbit, Free, Map, IVA and Fixed controller; OnFrameViewports
+    calls controller.OnFrame and then Camera.OnFrame for every viewport, so a write made anywhere else lands one frame late.
+    Covers which mode changes are immediate, what Fixed requires, which Camera members the engine reads back, and how to choose
+    the right camera object (Program.GetMainCamera is the map camera in Map mode; Camera patches fire for every viewport and
+    must be scoped to the main one).
+  game_types:
+  - KSA.Program
+  - KSA.GameViewport
+  - KSA.ViewportBase
+  - KSA.Controller
+  - KSA.Camera
+  - KSA.CameraMode
+  - KSA.FixedController
+  - KSA.OrbitController
+  - KSA.FlyController
+  - KSA.IVAController
+  - KSA.MapController
+  - KSA.ViewportRegistry
+  - KSA.IGameViewport
+  engine_pointers:
+  - current/decomp/KSA/Program.cs OnFrameViewports, OnFrameController, GetMainCamera, GetCameraMode, FrameViewport
+  - current/decomp/KSA/GameViewport.cs OnFrame, GetActiveController, SetCameraMode, NextCameraMode
+  - current/decomp/KSA/Camera.cs OnFrame, ClampCamera, SetFollow, ChangeFieldOfView
+  - current/decomp/KSA/FixedController.cs OnFrame
+  - references/KSArmory/docs/KSA-CAMERAS.md, references/KSAGolf/docs/KSA-CAMERAS.md and references/KSACars/docs/KSA-CAMERAS.md
+    (one analysis, three near-identical copies; its citations predate build 5400 so re-check every line against current/decomp)
+  - current/decomp/KSA/Program.cs GetMainCamera, GetHoveredCamera, GetRenderCamera, GetCamera, GetCameraMode, MainViewport,
+    FrameViewport
+  - current/decomp/KSA/GameViewport.cs GetCamera (map camera in Map mode)
+  lifecycle:
+  - frame:viewports
+  - frame:controller
+  - frame:input
+  - frame:draw-ui
+  - frame:render
+  approaches:
+  - n: 1
+    title: The decompiled frame order, per-mode behaviour and crash inventory in the KSA-CAMERAS analysis
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/level-horizon-camera-controller
+    - mods/ksarmory/features/chase-camera-on-a-round
+    technique: starmap-lifecycle
+    note: Both feature pages show the rules in use. Cover the one-controller-per-mode layout, the order controller.OnFrame
+      then Camera.OnFrame then the StarMap GUI hooks (a hook write is rendered a frame late), that SetCameraMode changes the
+      field at once but the pose only moves on the next OnFrame, that the player's mode key cannot leave Fixed, and that a
+      bogus Mode value throws every frame. Mark the doc's viewport sections as stale after 5400 (Viewport class replaced by
+      IViewport, ViewportBase and ViewportRegistry).
+  - n: 2
+    title: MainViewport.BaseCamera when the scene camera is wanted even in map mode
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/burst-flash-and-view-shake
+    technique: reflection
+    note: 'Sub-step: give this its own section, "Which camera is the main one". Borrowed from the shaders category. GetMainCamera()
+      is MainViewport.GetCamera(), which is the map camera in Map mode, so a view effect that needs the scene camera reads
+      BaseCamera.'
+  - n: 3
+    title: Gate Camera patches on the camera being the main viewport's
+    mod: unscience
+    features:
+    - mods/unscience/features/glass-fov-override
+    technique: harmony-prefix
+    note: 'Sub-step: give this its own section, "Which camera is the main one". The FOV prefixes on Camera.ChangeFieldOfView
+      and UpdateProjection run for every viewport''s camera, so they test that the instance is the main one before writing.'
+  - n: 4
+    title: Run per-frame work from a prefix on the main viewport's GameViewport.OnFrame only
+    mod: gatos
+    features:
+    - mods/gatos/features/programmable-camera-director
+    technique: harmony-prefix
+    note: 'Sub-step: give this its own section, "Which camera is the main one". The sampler, command drain and camera driver
+      hang off a prefix filtered to the main viewport, and a postfix publishes the final clamped transform.'
+  related:
+  - replace-a-viewport-camera-controller
+  - write-the-camera-pose-in-phase-with-the-frame
+  - drive-the-main-camera-in-fixed-mode
+  - understand-ksa-coordinate-frames-and-epochs
+  - borrow-a-secondary-viewport
+  - override-the-camera-field-of-view
+  - pack-parameters-for-a-compute-effect
+  - draw-a-fullscreen-click-through-overlay
+  merged_from:
+  - read-the-main-camera-pose-and-mode
+- slug: replace-a-viewport-camera-controller
+  title: Replace a viewport's camera controller and take input through it
+  kind: howto
+  group: controllers
+  batch: camera-1
+  summary: GameViewport.FixedController and IvaController are get-only for mods, so installing a FixedController or IVAController
+    subclass needs reflection. Write the auto-property backing field, or call the protected setter once, verify it took, fall
+    back safely and restore the stock controller on unload. A replacement controller also receives the camera input callbacks
+    (OnKey, OnMouseButton, OnCursorPos, OnScroll, IsMouseDrag), so the article covers right-drag look, orbit drag and wheel
+    zoom that feel like stock without opening part windows or reacting to ImGui-owned clicks.
+  game_types:
+  - KSA.GameViewport
+  - KSA.ViewportBase
+  - KSA.FixedController
+  - KSA.IVAController
+  - KSA.Controller
+  - KSA.Program
+  - Brutal.GlfwApi.GlfwCursorMode
+  - Brutal.GlfwApi.GlfwMouseButton
+  engine_pointers:
+  - current/decomp/KSA/GameViewport.cs FlyController, OrbitController, MapController, IvaController, FixedController (all
+    { get; protected set; })
+  - current/decomp/KSA/ViewportBase.cs Mode
+  - current/decomp/KSA/Controller.cs IsMouseDrag, GetCursorMode, OnMouseButton, OnCursorPos, OnScroll
+  - current/decomp/KSA/OrbitController.cs (drag rate, threshold and wheel step)
+  - current/decomp/KSA/Program.cs OnMouseButton, OnFrameController
+  lifecycle:
+  - frame:viewports
+  - startup:all-mods-loaded
+  - frame:input
+  - frame:controller
+  approaches:
+  - n: 1
+    title: Write the FixedController auto-property backing field, check, fall back, restore on unload
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/level-horizon-camera-controller
+    - mods/ksastructures/features/level-horizon-camera-controller
+    - mods/ksarmory/features/chase-camera-on-a-round
+    technique: reflection
+    note: Three mods share the same pattern. The field is <FixedController>k__BackingField, read back after the write to confirm
+      it, and the stock controller is put back from StarMapUnload.
+  - n: 2
+    title: Fetch the protected setters once with GetSetMethod(nonPublic true) and park the viewport in Fixed
+    mod: gatos
+    features:
+    - mods/gatos/features/programmable-camera-director
+    technique: reflection
+    note: ViewportSeam caches the FixedController and Mode setters, saves the stock controller and releases it afterwards.
+      Also the general recipe for a protected-set property.
+  - n: 3
+    title: Typed open-instance delegate on the IvaController setter; Forward every callback to a private FlyController, blocking
+      when another input owner is active
+    mod: unscience
+    features:
+    - mods/unscience/features/kitchen-sink-iva-camera-unlock
+    technique: reflection
+    note: 'AccessTools.PropertySetter then CreateDelegate gives an Action<GameViewport, IVAController>; failed lookups unpatch
+      everything and record the error. Sub-step: give this its own section, "Take input through the controller". Movement
+      is released when another viewport has input, a modal window or the console is open, or ImGui wants keyboard or text
+      input.'
+  - n: 4
+    title: Right-drag look with orbit-camera constants, IsMouseDrag to suppress part clicks
+    mod: ksastructures
+    features:
+    - mods/ksastructures/features/level-horizon-camera-controller
+    technique: controller-subclass
+    note: 'Sub-step: give this its own section, "Take input through the controller". Override OnMouseButton, OnCursorPos,
+      IsMouseDrag and GetCursorMode; the controller owns the right button while a look is active.'
+  - n: 5
+    title: Orbit drag, swing and builder input, with ImGui-captured releases dropped
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/level-horizon-camera-controller
+    technique: controller-subclass
+    note: 'Sub-step: give this its own section, "Take input through the controller". Releases that ImGui captured are discarded
+      so a drag cannot stick, and the cursor mode is captured for the swing.'
+  - n: 6
+    title: Match the orbit camera's drag feel (0.003 rad/px, 2 px threshold, x1.1 per wheel notch, ease back)
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/borrowed-chase-camera
+    technique: camera-arbitration
+    note: 'Sub-step: give this its own section, "Take input through the controller". ChaseOrbit copies KSA''s orbit-camera
+      constants. At the pinned ref only the constants of this class are wired into the game, the rest is headless-tested;
+      say so in the article.'
+  related:
+  - write-the-camera-pose-in-phase-with-the-frame
+  - unlock-the-iva-camera
+  - call-private-game-members-through-reflection-and-delegates
+  - block-game-hotkeys-while-typing
+  - coordinate-imgui-focus-with-game-input
+  - first-person-camera-for-a-kitten
+  merged_from:
+  - take-input-through-a-camera-controller
+- slug: write-the-camera-pose-in-phase-with-the-frame
+  title: Write the camera pose inside the viewport pass so it has no frame of lag, or pre-empt a stock controller
+  kind: howto
+  group: controllers
+  batch: camera-1
+  summary: StarMap's GUI hooks run after OnFrameViewports, so a pose set there is drawn a frame late and jitters against a
+    moving target. Solve and write the pose where the engine's own controller writes it, immediately before Camera.OnFrame
+    builds the matrices. Includes the variant of prefixing OrbitController.OnFrame and FlyController.OnFrame to skip the stock
+    math while a script owns the camera, so the stock controller resumes from the pose left behind.
+  game_types:
+  - KSA.FixedController
+  - KSA.GameViewport
+  - KSA.Camera
+  - KSA.IViewport
+  - KSA.OrbitController
+  - KSA.FlyController
+  - KSA.Controller
+  - KSA.Transform3D
+  engine_pointers:
+  - current/decomp/KSA/GameViewport.cs OnFrame (controller.OnFrame then Camera.OnFrame)
+  - current/decomp/KSA/FixedController.cs OnFrame
+  - current/decomp/KSA/Camera.cs OnFrame, ClampCamera
+  - current/decomp/KSA/OrbitController.cs OnFrame
+  - current/decomp/KSA/FlyController.cs OnFrame
+  lifecycle:
+  - frame:viewports
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: FixedController subclass that asks a pose source from inside OnFrame
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/level-horizon-camera-controller
+    - mods/ksastructures/features/level-horizon-camera-controller
+    - mods/ksarmory/features/chase-camera-on-a-round
+    technique: controller-subclass
+    note: The mod calls its pose source (an IViewPose) from the overridden OnFrame, so the aim is computed with this frame's
+      follow target and matrices. Hooks that only record intent run earlier from the GUI hook.
+  - n: 2
+    title: Offset against the followed object sampled in the same call, with sampler and publish on GameViewport.OnFrame
+    mod: gatos
+    features:
+    - mods/gatos/features/programmable-camera-director
+    - mods/gatos/features/synthetic-camera-follow-anchor
+    technique: controller-subclass
+    note: The controller reads following.GetPositionEcl() at that instant and writes PositionEcl and LocalRotation, the same
+      two writes as stock; this removes the lag an earlier prefix-write design showed. Offsets from a followed object also
+      keep precision at orbital speed.
+  - n: 3
+    title: Harmony prefix on FixedController.OnFrame scoped to the mod's own viewports
+    mod: unscience
+    features:
+    - mods/unscience/features/hot-pursuit-part-mounted-cameras
+    - mods/unscience/features/hot-pursuit-mesh-ray-placement
+    technique: harmony-prefix
+    note: No controller replacement; the prefix returns false only for viewports the mod leases and lets every other Fixed
+      camera (docking, portraits) run stock. Also repeats ClampCamera so the next step sees the final position.
+  - n: 4
+    title: Shared name-resolved prefix on both controllers' OnFrame
+    mod: unscience
+    features:
+    - mods/unscience/features/camera-controller-override-camera-animations
+    technique: harmony-prefix
+    note: 'Sub-step: give this its own section, "Pre-empt Orbit or Free instead of swapping controllers". The patch is resolved
+      by name so one patch class covers both controllers, only acts while a sequence plays, and returns false to replace that
+      frame''s stock camera math. Play, pause and stop come from an ImGui panel.'
+  related:
+  - replace-a-viewport-camera-controller
+  - drive-the-main-camera-in-fixed-mode
+  - mount-a-camera-on-a-part
+  - understand-camera-modes-and-controllers
+  - draw-ui-while-the-hud-is-hidden
+  - chain-camera-moves-into-keyframe-sequences
+  merged_from:
+  - pre-empt-a-stock-camera-controller-for-a-while
+- slug: drive-the-main-camera-in-fixed-mode
+  title: Drive the main camera through Fixed mode without crashing it, with a stable up vector
+  kind: howto
+  group: controllers
+  batch: camera-1
+  summary: Fixed mode is the mod camera mode, but it divides by zero on an unset or axis-aligned CameraRotation, needs a follow
+    target (or none) to behave, has no player exit and an alert on entry. Set CameraRotation before the mode, keep it finite
+    and park the viewport cleanly. The stock fixed controller also derives up from the followed object and flips with it,
+    so the article covers supplying a carried, rate-limited up vector (or the local up to LookAt) to keep the horizon level
+    near the poles or on a tumbling body.
+  game_types:
+  - KSA.FixedController
+  - KSA.GameViewport
+  - KSA.ViewportBase
+  - KSA.Camera
+  - KSA.CameraMode
+  - KSA.IFollowable
+  - KSA.OrbitView
+  engine_pointers:
+  - current/decomp/KSA/FixedController.cs OnFrame, OnSwitchOn, CameraOffset, CameraRotation
+  - current/decomp/KSA/GameViewport.cs SetCameraMode, NextCameraMode
+  - references/KSArmory/docs/KSA-CAMERAS.md section 4.5 and section 7 (crash inventory)
+  - current/decomp/KSA/Camera.cs LookAt, LookAtRotation
+  - current/decomp/KSA/FixedController.cs OnFrame
+  lifecycle:
+  - frame:viewports
+  - frame:controller
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: Never enter Fixed with a zero or along-axis forward
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/level-horizon-camera-controller
+    technique: reflection
+    note: Set CameraRotation first, guard against a zero or along-up forward, and re-assert Fixed each step because the player's
+      mode key cannot leave it.
+  - n: 2
+    title: Set CameraRotation before the mode, restore the previous mode explicitly
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/borrow-main-view-camera
+    technique: state-record-and-restore
+    note: Fixed has no player exit, so the borrower records the mode before the first write and is the only thing that can
+      put it back.
+  - n: 3
+    title: Park through the Mode setter, suppress the entry alert, keep CameraRotation coherent
+    mod: gatos
+    features:
+    - mods/gatos/features/programmable-camera-director
+    technique: controller-subclass
+    note: The controller writes CameraOffset and CameraRotation after each pose so a fallback into base.OnFrame never sees
+      a zero rotation; OnSwitchOn silences the Fixed Camera alert for its own park.
+  - n: 4
+    title: Unfollowed Fixed camera on a secondary viewport, where your LookAt is the pose; LookAt with the platform's local
+      up on an unfollowed secondary camera
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/director-camera-window
+    technique: direct-camera-write
+    note: 'Unfollow(changeControl false) every frame, then Fixed; with nothing followed FixedController.OnFrame does nothing,
+      so the camera pose the mod wrote stands. Sub-step: give this its own section, "Control roll with an up vector". The
+      head''s boresight (local up at the platform) is the up argument, so the horizon sits level.'
+  - n: 5
+    title: Carried, rate-limited StableUp with no switching threshold
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/level-horizon-camera-controller
+    - mods/ksastructures/features/level-horizon-camera-controller
+    - mods/ksagolf/features/borrowed-chase-camera
+    technique: controller-subclass
+    note: 'Sub-step: give this its own section, "Control roll with an up vector". The pure StableUp class (also in the chase
+      view) carries the previous up forward and rotates it toward the new one at a bounded rate, so no hard switch happens
+      near vertical.'
+  - n: 6
+    title: Controller adds an up vector the stock FixedController does not have
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/chase-camera-on-a-round
+    technique: controller-subclass
+    note: 'Sub-step: give this its own section, "Control roll with an up vector". Stock FixedController takes up from the
+      followed object type, which is wrong for a mod-simulated body; the subclass solves up and aim together.'
+  related:
+  - replace-a-viewport-camera-controller
+  - borrow-the-main-camera-and-hand-it-back
+  - understand-camera-modes-and-controllers
+  - chase-a-fast-body-with-the-main-camera
+  - aim-a-secondary-viewport-camera
+  merged_from:
+  - control-camera-roll-with-an-up-vector
+- slug: borrow-the-main-camera-and-hand-it-back
+  title: Borrow the main camera, hand it back and arbitrate between camera users
+  kind: howto
+  group: main-view
+  batch: camera-1
+  summary: Record the follow target, camera mode and field of view before the first write, drive the view, then restore each
+    half only if the player did not change it meanwhile. Covers save loads, hidden-HUD frames and the order the halves go
+    back in. When several features or mods want the one main view, use a ranked claim ladder so the loser yields without restoring
+    over the winner, and detect a second writer so you stand down rather than fight.
+  game_types:
+  - KSA.Program
+  - KSA.Camera
+  - KSA.CameraMode
+  - KSA.GameViewport
+  - KSA.IFollowable
+  - KSA.Vehicle
+  - KSA.FixedController
+  engine_pointers:
+  - current/decomp/KSA/Camera.cs SetFollow, Following, SetFieldOfView, DeserializeSave
+  - current/decomp/KSA/GameViewport.cs SetCameraMode
+  - current/decomp/KSA/Program.cs OnGameLoaded, OnFrameCelestials
+  - current/decomp/KSA/GameViewport.cs FixedController, Mode
+  - current/decomp/KSA/Camera.cs Following
+  lifecycle:
+  - frame:draw-ui
+  - frame:celestials
+  - frame:viewports
+  - event:save
+  approaches:
+  - n: 1
+    title: Record mode, follow and FOV; stand down when the player changes either half; restore halves separately
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/borrow-main-view-camera
+    technique: state-record-and-restore
+    note: Record before SetCameraMode or SetFollow, because a recording taken after describes the borrowed state. Stepped
+      from the GUI hook, a hidden-HUD OnFrameCelestials prefix and an AfterOnFrame fallback; a save load is consumed from
+      an OnGameLoaded postfix.
+  - n: 2
+    title: Hand-back that always returns FOV first and the follow only if it is still the borrower's; StandDown, Yield, Hold,
+      GiveBack and Take decisions
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/borrowed-chase-camera
+    technique: state-record-and-restore
+    note: 'KSA-free rules in Sim with a thin KsaWorld adapter; the FOV is returned unconditionally since the mod always changed
+      it. Sub-step: give this its own section, "Arbitrate between features and mods". A headless-tested ViewClaim with mode
+      and follow halves that decides each frame what to do with the view.'
+  - n: 3
+    title: Record the main view before the first write when flying another craft or a first-person kitten
+    mod: ksastructures
+    features:
+    - mods/ksastructures/features/computer-flies-nearest-craft
+    - mods/ksastructures/features/first-person-kitten-view
+    technique: state-record-and-restore
+    note: Mode, FOV and follow are restored by Leave; the first-person view re-asserts Fixed every step it holds the view.
+  - n: 4
+    title: Capture baseline pose, follow, mode and tidal locking; blend back on release; Detect a second writer and stand
+      down
+    mod: gatos
+    features:
+    - mods/gatos/features/programmable-camera-director
+    technique: controller-subclass
+    note: 'Release blends over camera_release_blend_s and then restores everything captured. Sub-step: give this its own section,
+      "Arbitrate between features and mods". Each frame checks it still owns the camera; if the controller faulted, another
+      mod replaced the fixed controller, the mode changed or the follow changed, the director releases instead of fighting.'
+  - n: 5
+    title: Pure ViewClaim ladder in the mod core, drivers called in claim order
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/borrow-main-view-camera
+    - mods/ksarmory/features/file-command-bridge-and-mcp
+    technique: view-claim-ladder
+    note: 'Sub-step: give this its own section, "Arbitrate between features and mods". A claim loser yields instead of restoring;
+      the dev bridge''s held camera pose is just another claimant written in claim order.'
+  related:
+  - follow-a-point-that-is-not-a-vehicle
+  - drive-the-main-camera-in-fixed-mode
+  - take-control-of-another-vehicle
+  - draw-ui-while-the-hud-is-hidden
+  - replace-a-viewport-camera-controller
+  merged_from:
+  - arbitrate-camera-ownership-between-features
+- slug: follow-a-point-that-is-not-a-vehicle
+  title: Make the camera follow a point or mod-simulated object, and change the follow target without a jump
+  kind: howto
+  group: main-view
+  batch: camera-1
+  summary: Camera.Following takes any IFollowable. Implement it so it re-resolves its position on every call, answers a stable
+    OrbitView and a non-zero MeanRadius, and the stock camera follows a vessel part, a held point or a mod-simulated body
+    without registering anything. Camera.SetFollow teleports to 2.5 mean radii, raises an alert and by default swaps the controlled
+    vehicle; the article also covers the flags that suppress both and restoring the pose when the view must stay put.
+  game_types:
+  - KSA.IFollowable
+  - KSA.Camera
+  - KSA.OrbitView
+  - KSA.WreckageMarker
+  - KSA.OrbitController
+  - KSA.FixedController
+  - KSA.CameraReferenceFrame
+  - KSA.Program
+  - KSA.Vehicle
+  engine_pointers:
+  - current/decomp/KSA/IFollowable.cs
+  - current/decomp/KSA/Camera.cs Following, PositionEcl, PositionCce, SetFollow
+  - current/decomp/KSA/WreckageMarker.cs (engine's own non-vehicle IFollowable)
+  - references/KSArmory/docs/KSA-CAMERAS.md section 6 (requirements on a mod's IFollowable; a mod follow target does not survive
+    a save load)
+  - current/decomp/KSA/Camera.cs SetFollow, Unfollow
+  - current/decomp/KSA/Program.cs ControlledVehicle
+  lifecycle:
+  - frame:viewports
+  - frame:celestials
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: Anchor that re-resolves a vessel, part, body or held point on each call
+    mod: gatos
+    features:
+    - mods/gatos/features/synthetic-camera-follow-anchor
+    technique: custom-followable
+    note: GetBodyFixed2Ecl is identity so offsets do not roll with a vessel, MeanRadius is 1 m because the engine divides
+      by it, a vanished anchor keeps its last sample.
+  - n: 2
+    title: RoundFollowable reporting the drawn position of a mod-simulated round
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/chase-camera-on-a-round
+    technique: custom-followable
+    note: Reports the position the round is drawn at this frame, so the camera and the picture agree. Stock controllers dereference
+      OrbitView without a null check, so supply one.
+  - n: 3
+    title: SetFollow with changeControl false and alert false, then write the captured position back
+    mod: gatos
+    features:
+    - mods/gatos/features/programmable-camera-director
+    technique: direct-camera-write
+    note: 'Sub-step: give this its own section, "Change the follow target without a jump". The director captures the baseline,
+      follows its own anchor and restores the position because SetFollow teleports.'
+  - n: 4
+    title: TryFollowOnMainViewport that follows without taking control
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/borrow-main-view-camera
+    technique: state-record-and-restore
+    note: 'Sub-step: give this its own section, "Change the follow target without a jump". Follow and mode are separate halves
+      of a borrowed view; following a non-Vehicle with changeControl true would null the controlled vehicle.'
+  - n: 5
+    title: Re-apply follow after every viewport claim on a secondary camera
+    mod: unscience
+    features:
+    - mods/unscience/features/hot-pursuit-part-mounted-cameras
+    technique: viewport-lease
+    note: 'Sub-step: give this its own section, "Change the follow target without a jump". A claim resets the viewport to
+      defaults so SetFollow(vehicle, tidalLocking true, changeControl false, alert false) is repeated after each claim.'
+  related:
+  - chase-a-fast-body-with-the-main-camera
+  - play-cinematic-camera-tracks
+  - borrow-the-main-camera-and-hand-it-back
+  - take-control-of-another-vehicle
+  merged_from:
+  - change-the-camera-follow-target-without-a-jump
+- slug: chase-a-fast-body-with-the-main-camera
+  title: Chase a projectile or other fast body with the main camera
+  kind: howto
+  group: main-view
+  batch: camera-1
+  summary: A mod-simulated shell, ball or missile is not a Vehicle, so the stock follow modes do not apply. Follow it with
+    a custom IFollowable, solve a level, stable pose behind the flight path, and let the player nudge the view with the orbit
+    drag.
+  game_types:
+  - KSA.IFollowable
+  - KSA.Camera
+  - KSA.FixedController
+  - KSA.OrbitView
+  - KSA.CameraReferenceFrame
+  - KSA.WreckageMarker
+  engine_pointers:
+  - current/decomp/KSA/IFollowable.cs
+  - current/decomp/KSA/Camera.cs Following, SetFollow
+  - references/KSArmory/docs/KSA-CAMERAS.md section 6 (recommended shape for a chase camera)
+  lifecycle:
+  - frame:viewports
+  - frame:draw-ui
+  - frame:render
+  approaches:
+  - n: 1
+    title: RoundFollowable on a level-horizon controller, pose solved in the viewport pass
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/chase-camera-on-a-round
+    - mods/ksarmory/features/mod-simulated-rounds
+    technique: custom-followable
+    note: The followable reports the round's drawn position; ChaseView and ChaseOrbit supply the pose and the drag. Camera
+      mode is Fixed so the player cannot leave by key.
+  - n: 2
+    title: Line to the target held near the flight path with carried lift and lean off the singular axis
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/borrowed-chase-camera
+    technique: camera-arbitration
+    note: Pure ChaseView maths for a fast ball; only part of it is wired into the game at the pinned ref.
+  related:
+  - follow-a-point-that-is-not-a-vehicle
+  - drive-the-main-camera-in-fixed-mode
+  - play-cinematic-camera-tracks
+  - replace-a-viewport-camera-controller
+- slug: override-the-camera-field-of-view
+  title: Override the camera field of view and zoom past the stock clamp
+  kind: howto
+  group: main-view
+  batch: camera-1
+  summary: Camera.SetFieldOfView takes degrees and does not clamp, GetFieldOfView answers radians, and the stock zoom keys
+    clamp to 15 to 120 degrees. Drive the FOV from code, keep it from being overwritten by projection rebuilds, and avoid
+    values that break the projection.
+  game_types:
+  - KSA.Camera
+  - KSA.Program
+  - KSA.GameSettings
+  - KSA.ViewportRegistry
+  engine_pointers:
+  - current/decomp/KSA/Camera.cs SetFieldOfView, GetFieldOfView, ChangeFieldOfView, UpdateProjection, _fovRadians
+  lifecycle:
+  - frame:draw-ui
+  - frame:input
+  - frame:viewports
+  approaches:
+  - n: 1
+    title: Prefixes on Camera.UpdateProjection (write _fovRadians) and ChangeFieldOfView (swallow stock keys), main camera
+      only
+    mod: unscience
+    features:
+    - mods/unscience/features/glass-fov-override
+    technique: harmony-prefix
+    note: Lens presets driven from a static FovController; saved with the scene.
+  - n: 2
+    title: SetFieldOfView in degrees, GetFieldOfView in radians, zoom beyond the player clamp
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/borrow-main-view-camera
+    - mods/ksarmory/features/director-camera-window
+    technique: direct-camera-write
+    note: The director clamps to 1 to 120 degrees because the projection throws outside 0 to 180; windows put back to 50 degrees
+      on release since the player zoom keys clamp at 15.
+  - n: 3
+    title: Treat FOV as one half of a borrowed view and return it first
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/level-horizon-camera-controller
+    technique: state-record-and-restore
+    note: SetFieldOfView does not clamp; always give the player's FOV back.
+  related:
+  - understand-camera-modes-and-controllers
+  - borrow-the-main-camera-and-hand-it-back
+  - aim-a-secondary-viewport-camera
+- slug: unlock-the-iva-camera
+  title: Let the IVA camera leave the seat and fly around the cabin
+  kind: howto
+  group: special-views
+  batch: camera-1
+  summary: Swap the main viewport's IVAController for a subclass that keeps IVA mode, audio, ray tracing and interiors but
+    delegates movement to a private FlyController in the vessel body frame, with a Return to Seat path and save restore.
+  game_types:
+  - KSA.GameViewport
+  - KSA.IVAController
+  - KSA.FlyController
+  - KSA.IVASeat
+  - KSA.Camera
+  - KSA.Vehicle
+  engine_pointers:
+  - current/decomp/KSA/IVAController.cs OnFrame, OnSwitchOn
+  - current/decomp/KSA/IVASeat.cs IsCameraInThisSeat
+  - current/decomp/KSA/GameViewport.cs IvaController
+  lifecycle:
+  - frame:viewports
+  - frame:input
+  - frame:controller
+  - frame:render
+  - event:save
+  - event:load
+  approaches:
+  - n: 1
+    title: UnlockedIvaController delegating to a FlyController, plus an IsCameraInThisSeat postfix
+    mod: unscience
+    features:
+    - mods/unscience/features/kitchen-sink-iva-camera-unlock
+    technique: controller-subclass
+    note: The look is stored in the body frame (RotationBody) so the cabin can rotate under it; the private IVASeat.IsCameraInThisSeat
+      is postfixed so seat visuals still treat the camera as seated.
+  related:
+  - replace-a-viewport-camera-controller
+  - hide-parts-or-subparts-from-rendering
+  - hide-a-kitten-body-from-one-viewport
+- slug: first-person-camera-for-a-kitten
+  title: Put the camera in an EVA kitten's eyes, with mouse look and look-driven walking
+  kind: howto
+  group: special-views
+  batch: camera-1
+  summary: Read the head bone's world position from an IAnimProcessor added to the kitten's avatar, borrow the main view in
+    Fixed mode following the kitten at that point and hand it back when the kitten stops being flown. Mouse look keeps yaw
+    and pitch in a world-built frame (north, east, up), with captured-cursor and right-drag look, and KSA's walking kitten
+    can be made to face and move where the player looks by patching KittenLocomotion.StepGrounded.
+  game_types:
+  - KSA.KittenEva
+  - KSA.KittenRenderable
+  - KSA.CharacterAvatar
+  - KSA.IAnimProcessor
+  - KSA.GameViewport
+  - KSA.FixedController
+  - KSA.Controller
+  - Brutal.GlfwApi.GlfwCursorMode
+  - KSA.KittenLocomotion
+  - KSA.CharacterControlInputs
+  - KSA.LocomotionCommand
+  - KSA.LocomotionState
+  - KSA.PhysicsBubble
+  engine_pointers:
+  - current/decomp/KSA/KittenRenderable.cs _characterAvatar, ModelToBodyMatrix
+  - current/decomp/KSA/AnimatedRenderable.cs AnimProcessors
+  - current/decomp/KSA/IAnimProcessor.cs
+  - current/decomp/KSA/Controller.cs GetCursorMode, OnCursorPos
+  - current/decomp/KSA/OrbitController.cs (drag constants)
+  - current/decomp/KSA/KittenLocomotion.cs StepGrounded, Advance
+  - current/decomp/KSA/KittenEva.cs PrepareWorker (copies the main camera forward into the inputs)
+  - current/decomp/KSA/PhysicsBubble.cs
+  - current/decomp/KSA/GameViewport.cs NextCameraMode
+  - current/decomp/KSA/FixedController.cs OnCursorPos OnFrame
+  - current/decomp/KSA/KittenRenderable.cs ModelToBodyMatrix
+  lifecycle:
+  - frame:draw-ui
+  - frame:viewports
+  - frame:render
+  - frame:input
+  - physics:vehicle-solver
+  approaches:
+  - n: 1
+    title: EyesPose processor reads Head_M, KittenFrame.ToEcl converts, view posed in the viewport pass; Right-drag HeadLook
+      through the controller's Orbit property; StepGrounded prefix swaps CameraForwardCce, postfix writes FacingDirPhys, heading
+      via volatile float[]
+    mod: ksastructures
+    features:
+    - mods/ksastructures/features/first-person-kitten-view
+    technique: anim-processor
+    note: 'Skeleton centimetres to ecliptic by Core.Scale, the -90 degree X then Z turn, minus centre of mass, Body2Cce and
+      position; the eye sits 9 cm ahead and 6 cm above the bone; V toggles. Sub-step: give this its own section, "Mouse look".
+      Yaw from north toward east and pitch within 85 degrees in an up, north, east frame built from the body centre and its
+      spin axis; starts from the kitten''s current facing. Sub-step: give this its own section, "Make the walking kitten follow
+      the look". Stock would flatten the camera forward, which degenerates looking straight down. Also (merged from kittens/look-through-a-kittens-eyes
+      approach 1, "Head bone from an EyesPose, eye 9 cm ahead and 6 cm up, V toggle, right-drag look"): Look measured in an
+      up/north/east frame from the body''s spin axis, pitch clamped to 85 degrees; record and restore camera mode, follow
+      target and FOV; re-assert CameraMode.Fixed every step.'
+  - n: 2
+    title: Eye from the head bone in the golf pose, up tilted with pitch, main view only; Captured cursor at 0.08 degrees
+      per pixel, right-drag at the orbit rate, pitch clamp 85 degrees; Same hook, plus drawing the turn on the skeleton for
+      a standing kitten
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/first-person-kitten-view
+    - mods/ksagolf/features/level-horizon-camera-controller
+    technique: anim-processor
+    note: '12 cm ahead along the look and 5 cm up; tilting up with pitch makes looking straight down and turning spin the
+      picture instead of rolling it. Sub-step: give this its own section, "Mouse look". Headless-tested HeadLook; the right-drag
+      path shares the 0.003 rad per pixel rate and 2 px squared threshold with ChaseOrbit. Sub-step: give this its own section,
+      "Make the walking kitten follow the look". A kitten standing still sleeps on the terrain and does not turn, so the turn
+      to the look is drawn on the skeleton until it walks. Writes only worker-owned copies. Also (merged from kittens/look-through-a-kittens-eyes
+      approach 2, "Captured cursor look, eye built from the head bone and a tilted up vector"): 0.08 degrees per pixel with
+      the cursor captured, orbit rate on right drag; eye 12 cm ahead and 5 cm up; up vector tilted with pitch so looking straight
+      down and turning spins the picture.'
+  related:
+  - hide-a-kitten-body-from-one-viewport
+  - borrow-the-main-camera-and-hand-it-back
+  - pose-kitten-bones-with-an-anim-processor
+  - write-the-camera-pose-in-phase-with-the-frame
+  - replace-a-viewport-camera-controller
+  - write-worker-thread-safe-solver-patches
+  - steer-a-walking-kitten
+  - coordinate-imgui-focus-with-game-input
+  merged_from:
+  - look-around-with-the-mouse-in-a-character-view
+  - make-a-walking-kitten-follow-the-look
+  - look-through-a-kittens-eyes
+- slug: play-cinematic-camera-tracks
+  title: Play scripted cinematic camera tracks with blends and easing
+  kind: howto
+  group: special-views
+  batch: camera-1
+  summary: Compose each frame's pose from keyframed tracks, manual overrides and a captured baseline, placed in one of several
+    vessel, part or body reference frames, with splines, easing and roll and FOV channels, driven through an in-phase controller.
+    Also covers cut-free blends between the player's pose and a scripted one and pacing eases that survive uneven frame times
+    and pauses.
+  game_types:
+  - KSA.FixedController
+  - KSA.GameViewport
+  - KSA.Camera
+  - KSA.IFollowable
+  - KSA.KittenEva
+  - KSA.Program
+  engine_pointers:
+  - current/decomp/KSA/FixedController.cs OnFrame
+  - current/decomp/KSA/Camera.cs PositionEcl, LocalRotation, SetFieldOfView
+  - current/decomp/KSA/Camera.cs LocalRotation, PositionEcl
+  lifecycle:
+  - frame:viewports
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: Three-layer compositor (track, override, baseline) with spline and easing playback
+    mod: gatos
+    features:
+    - mods/gatos/features/programmable-camera-director
+    - mods/gatos/features/synthetic-camera-follow-anchor
+    technique: controller-subclass
+    note: Game-free Camera code (CameraState, TrackParser, Splines, Playback) separated from the KSA seam; Catmull-Rom or
+      cubic Bezier position, slerp or squad orientation; playing tracks register in the schedule registry. IVA and Map ownership
+      are unsupported and EVA forward follows the shot.
+  - n: 2
+    title: Smoothstep the eye, lerp the look at equal depth, SmoothedStep for the pacing
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/borrowed-chase-camera
+    technique: camera-arbitration
+    note: 'Sub-step: give this its own section, "Blend in and out and ease the pacing". ChaseView.Blend and SmoothedStep (exponential
+      average of the sim step, a paused step returns 0) are headless-tested; at the pinned ref only the hand-back, StableUp
+      and ChaseOrbit constants are wired in game.'
+  - n: 3
+    title: Blend back to the start pose when a sequence ends
+    mod: unscience
+    features:
+    - mods/unscience/features/camera-controller-override-keyframe-sequences
+    technique: harmony-prefix
+    note: 'Sub-step: give this its own section, "Blend in and out and ease the pacing". The return-to-start option interpolates
+      from the final keyframe to the captured start pose.'
+  - n: 4
+    title: Release blend and easing functions on tracks
+    mod: gatos
+    features:
+    - mods/gatos/features/programmable-camera-director
+    technique: controller-subclass
+    note: 'Sub-step: give this its own section, "Blend in and out and ease the pacing". camera_release_blend_s blends back
+      to the baseline; tracks use named easing functions.'
+  related:
+  - chain-camera-moves-into-keyframe-sequences
+  - follow-a-point-that-is-not-a-vehicle
+  - write-the-camera-pose-in-phase-with-the-frame
+  - schedule-timed-commands
+  - borrow-the-main-camera-and-hand-it-back
+  - chase-a-fast-body-with-the-main-camera
+  merged_from:
+  - blend-and-ease-camera-transitions
+- slug: chain-camera-moves-into-keyframe-sequences
+  title: Animate the flight camera with eased moves, keyframe sequences and saved recipes
+  kind: howto
+  group: special-views
+  batch: camera-1
+  summary: Zooms, spirals, orbits, shakes, pans and rotations as small animation classes that edit the live camera each frame
+    on top of the player's own Orbit or Free camera, queued into a sequence that plays, pauses and stops, runs simultaneous
+    moves as one keyframe and blends back to the start pose. The player's authored sequence can be stored as validated recipe
+    JSON beside the scene and rebuilt on load.
+  game_types:
+  - KSA.Controller
+  - KSA.Camera
+  - KSA.Transform3D
+  - KSA.OrbitController
+  - KSA.FlyController
+  - KSA.IFollowable
+  engine_pointers:
+  - current/decomp/KSA/OrbitController.cs OnFrame
+  - current/decomp/KSA/FlyController.cs OnFrame
+  - current/decomp/KSA/Camera.cs SerializeSave, DeserializeSave
+  lifecycle:
+  - frame:viewports
+  - frame:draw-ui
+  - event:save
+  - event:load
+  approaches:
+  - n: 1
+    title: KeyframeSequencePlayer with AnimationGroup and return-to-start; Validated SavedAnimation recipes through an ISaveParticipantSource
+      scene record
+    mod: unscience
+    features:
+    - mods/unscience/features/camera-controller-override-keyframe-sequences
+    technique: harmony-prefix
+    note: 'Keyframe, AnimationGroup and the player are game-free; the Orbit and Free OnFrame prefixes only feed them the live
+      camera. Sub-step: give this its own section, "Save sequences with the scene". Scene save record camera-controller-override;
+      unknown or invalid recipes are rejected on load.'
+  - n: 2
+    title: IKeyframeAnimation implementations driven from the OnFrame prefix
+    mod: unscience
+    features:
+    - mods/unscience/features/camera-controller-override-camera-animations
+    technique: harmony-prefix
+    note: 'Sub-step: give this its own section, "Eased single moves". Ten moves share AnimationHelpers and an easing helper;
+      each acts relative to the followed target.'
+  related:
+  - play-cinematic-camera-tracks
+  - write-the-camera-pose-in-phase-with-the-frame
+  - save-mod-state-with-the-scene
+  merged_from:
+  - animate-the-player-camera-with-eased-moves
+  - save-authored-camera-sequences-with-the-scene
+- slug: borrow-a-secondary-viewport
+  title: Lease a secondary viewport for a mod camera and show it in a window
+  kind: howto
+  group: secondary-viewports
+  batch: camera-1
+  summary: KSA builds its viewports once at boot and seals the registry; mods get the four secondary camera windows. Claim
+    one, reconfigure it after every claim, track whether the player closed it and release it. A leased viewport's colour image
+    can be shown in the stock window (name, size, visibility) or hidden there and drawn in a mod ImGui window with its own
+    controls.
+  game_types:
+  - KSA.ViewportRegistry
+  - KSA.IGameViewport
+  - KSA.IViewportOwner
+  - KSA.GameViewport
+  - KSA.ViewportBase
+  - KSA.ViewportPresets
+  - KSA.ViewportType
+  - KSA.DockingPort
+  - KSA.ViewportOptionFlags
+  - Brutal.ImGuiApi.ImGui
+  engine_pointers:
+  - current/decomp/KSA/ViewportRegistry.cs TryOpenSecondaryViewport, TryClaimSecondaryViewport, TryGetOwned, ReleaseSecondaryViewport,
+    AvailableSecondaryCount, GameViews
+  - current/decomp/KSA/GameViewport.cs ResetToDefaults, DrawImGui
+  - current/decomp/KSA/DockingPort.cs (shares the same pool)
+  - current/decomp/KSA/ViewportBase.cs OptionFlags (protected set), RequestResize
+  - current/decomp/KSA/ViewportOptionFlags.cs HasUi, RenderOrbitLines
+  - current/decomp/KSA/Program.cs OnDrawUiViewports
+  - current/decomp/KSA/GameViewport.cs DrawImGui
+  lifecycle:
+  - frame:draw-ui
+  - frame:celestials
+  - frame:viewports
+  - event:save
+  - event:load
+  - frame:render
+  - render:imgui
+  approaches:
+  - n: 1
+    title: TryOpenSecondaryViewport, make visible, re-resolve the index by reference every frame
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/director-camera-window
+    - mods/ksastructures/features/computer-flies-nearest-craft
+    technique: viewport-lease
+    note: Disable the control when AvailableSecondaryCount is zero, hand back with ReleaseSecondaryViewport (which resets
+      Orbit mode, offsets, flags and name), and put the FOV back to 50 because the player's zoom clamps at 15.
+  - n: 2
+    title: TryClaimSecondaryViewport with an IViewportOwner per camera, TryGetOwned every update; Keep KSA's window; set name,
+      resize once, visibility
+    mod: unscience
+    features:
+    - mods/unscience/features/hot-pursuit-part-mounted-cameras
+    technique: viewport-lease
+    note: 'The registry keys ownership by reference and allows one viewport per owner, so each camera gets its own owner object;
+      a claim runs ResetToDefaults, so everything is re-applied; closing the stock window releases the lease and the entry
+      shows Reopen; restores reclaim slots on load. Sub-step: give this its own section, "Show the camera in a mod window".
+      SetName, RequestResize with resize allowed only around the call, SetVisible; closing the stock window releases the lease.'
+  - n: 3
+    title: Clear HasUi and RenderOrbitLines through the reflected OptionFlags setter, draw the viewport texture
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/director-camera-window
+    technique: reflection
+    note: 'Sub-step: give this its own section, "Show the camera in a mod window". OnDrawUiViewports only calls DrawImGui
+      for viewports with HasUi, and DrawImGui also hosts hover handling and the menu bar, so all of it goes with KSA''s window.
+      Use'
+  related:
+  - aim-a-secondary-viewport-camera
+  - mount-a-camera-on-a-part
+  - draw-a-fullscreen-click-through-overlay
+  - render-imgui-into-a-texture
+  - take-control-of-another-vehicle
+  - submit-your-own-vulkan-commands
+  - colour-grade-the-frame-and-add-a-vignette
+  merged_from:
+  - show-a-secondary-camera-in-your-own-window
+- slug: aim-a-secondary-viewport-camera
+  title: Aim a secondary viewport camera, rebuild its matrices and give it its nearby body
+  kind: howto
+  group: secondary-viewports
+  batch: camera-1
+  summary: A secondary camera follows nothing unless told to, and its view matrices were built in the viewport pass before
+    your hook ran. Write the pose where the matrices are still to be built, or call Camera.OnFrame and refresh the shader
+    data yourself. Program.OnFrameCelestials fills the nearby body, distances and altitude only for the frame camera, so the
+    article also covers filling the same fields for your camera so sky and ground draw correctly.
+  game_types:
+  - KSA.Camera
+  - KSA.IGameViewport
+  - KSA.FixedController
+  - KSA.Program
+  - KSA.Celestial
+  - KSA.StaticCelestialDistanceRendering
+  - KSA.StaticObjectRenderer
+  engine_pointers:
+  - current/decomp/KSA/Camera.cs LookAt, OnFrame, SetFieldOfView
+  - current/decomp/KSA/Program.cs UpdateShaderData, SetCameraUbo
+  - current/decomp/KSA/Program.cs OnFrameCelestials, FindNearbyCelestial, RenderViewport
+  - current/decomp/KSA/Camera.cs NearbyCelestial, DistanceToNearbyCelestialKm, NearbyCelestialTerrainHeight, GetEffectiveNearbyCelestial
+  - references/KSArmory/docs/KSA-CAMERAS.md part 2 section A (why a secondary viewport shows stars and a grey ball)
+  lifecycle:
+  - frame:draw-ui
+  - frame:viewports
+  - frame:render
+  - frame:celestials
+  approaches:
+  - n: 1
+    title: LookAt from the GUI hook, then Camera.OnFrame, UpdateShaderData and SetCameraUbo; SetNearbyContext when aiming
+      a window camera
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/director-camera-window
+    technique: direct-camera-write
+    note: 'Unfollow(changeControl false) and Fixed first, anchor the eye on the platform as this window''s camera draws it,
+      clamp FOV 1 to 120, and rebuild the matrices and per-viewport shader data right away. Sub-step: give this its own section,
+      "Give the camera its nearby body". Terrain level of detail and the sky read these fields, so they are set in the same
+      step as the pose. Also (merged from camera/work-in-the-cameras-ego-frame approach 2, "Position as this window''s camera
+      draws it, not the analytic position"): A camera following a craft draws its physics-bubble neighbours at their physics
+      positions; one following nothing draws every craft at its analytic position (Camera.GetPositionEgo). They differ by
+      metres, which is shake at high zoom.'
+  - n: 2
+    title: Pose written in a FixedController.OnFrame prefix before the stock Camera.OnFrame; HotPursuitCelestialState.Synchronize
+      inside the pose prefix
+    mod: unscience
+    features:
+    - mods/unscience/features/hot-pursuit-part-mounted-cameras
+    technique: harmony-prefix
+    note: 'No extra rebuild needed because the write is in phase; the pose is composed in the main camera''s ego space then
+      converted once, to avoid subtracting huge ecliptic coordinates. Sub-step: give this its own section, "Give the camera
+      its nearby body". FindNearbyCelestial(camera) for the mounted camera, then the public fields; without it the nearby
+      body was also drawn by the distant-sphere pass as a dark disc across the feed.'
+  related:
+  - borrow-a-secondary-viewport
+  - write-the-camera-pose-in-phase-with-the-frame
+  - mount-a-camera-on-a-part
+  - cursor-to-world-ray
+  merged_from:
+  - give-a-secondary-camera-its-nearby-body
+- slug: mount-a-camera-on-a-part
+  title: Mount a camera on a vessel part and look through it
+  kind: howto
+  group: secondary-viewports
+  batch: camera-1
+  summary: Pose a secondary (or the main) camera from a sub-part's transform so it rides a nose, mast or turret, including
+    scaled and articulated parts, and keep the mount alive across staging.
+  game_types:
+  - KSA.Part
+  - KSA.Vehicle
+  - KSA.Camera
+  - KSA.IGameViewport
+  - KSA.FixedController
+  engine_pointers:
+  - current/decomp/KSA/Vehicle.cs GetMatrixAsmb2Ego
+  - current/decomp/KSA/Part.cs MatrixAsmb2Ego, RayCastEgo, InstanceId
+  lifecycle:
+  - frame:viewports
+  - frame:draw-ui
+  - frame:render
+  approaches:
+  - n: 1
+    title: Part-relative pose from Asmb2Ego matrices in a FixedController.OnFrame prefix
+    mod: unscience
+    features:
+    - mods/unscience/features/hot-pursuit-part-mounted-cameras
+    technique: harmony-prefix
+    note: Vehicle matrix in the main camera's ego space composed with the part chain; the mount normal goes through the inverse-transpose
+      so non-uniform scale does not skew the aim.
+  - n: 2
+    title: Optical head sub-part resolves eye, sight line and roll for the main view or a camera window
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/optical-director-heads
+    - mods/ksarmory/features/director-camera-window
+    technique: direct-camera-write
+    note: Borrowed from vehicles-and-parts. A rate-limited head with elevation limits and a keyhole gives the pose a SightCamera
+      asks for inside the viewport pass.
+  - n: 3
+    title: Click a hull point and store it in the hit sub-part's local frame
+    mod: unscience
+    features:
+    - mods/unscience/features/hot-pursuit-mesh-ray-placement
+    technique: imgui-drawlist
+    note: Cursor.GetEgoRay with Part.RayCastEgo across every vessel; re-resolve by vehicle id and Part.InstanceId each frame
+      and go dormant when the target is gone.
+  related:
+  - borrow-a-secondary-viewport
+  - aim-a-secondary-viewport-camera
+  - anchor-to-parts-across-vehicle-changes
+  - ray-cast-against-vessel-meshes-and-terrain
+  - pick-objects-under-the-cursor

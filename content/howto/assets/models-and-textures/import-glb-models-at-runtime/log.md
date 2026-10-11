@@ -1,0 +1,5 @@
+# Import GLB models and their materials at runtime history
+
+## 2026-10-10
+* **Update**: Independent review of the topic against the decompiled build 2026.10.10.5554 and the pinned mod checkouts. Removed `frame:prepare` from the lifecycle of the registry-enumeration article (`StarMapBeforeGui` runs at `frame:draw-ui`). Link text of cross references now names the target article, unresolved topic placeholders became links and truncated snippets are marked with an elision.
+* **Creation**: Added [Parse a GLB with a bounded reader into unregistered CPU meshes with path-plus-hash ids](import-glb-models-at-runtime-1.md), [Convert glTF materials on the CPU into game maps and upload them as private bindless textures](import-glb-models-at-runtime-2.md), [Enumerate the game's loaded meshes, textures and glTFs for pickers and id checks](import-glb-models-at-runtime-3.md), [Import GLB models and their materials at runtime](overview.md). Three approaches: a bounded parser with path-plus-hash ids, CPU material conversion with private bindless textures, and registry enumeration. Verified against the decompiled game build 2026.10.10.5554 and the pinned mod checkouts.

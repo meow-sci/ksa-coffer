@@ -1,0 +1,5 @@
+# Coexisting with other mods that patch the same method history
+
+## 2026-10-10
+* **Creation**: Added [Coexisting with other mods that patch the same method](overview.md) and 5 How-To articles ([coexist-with-other-mods-patching-the-same-method-1](coexist-with-other-mods-patching-the-same-method-1.md), [coexist-with-other-mods-patching-the-same-method-2](coexist-with-other-mods-patching-the-same-method-2.md), [coexist-with-other-mods-patching-the-same-method-3](coexist-with-other-mods-patching-the-same-method-3.md), [coexist-with-other-mods-patching-the-same-method-4](coexist-with-other-mods-patching-the-same-method-4.md), [coexist-with-other-mods-patching-the-same-method-5](coexist-with-other-mods-patching-the-same-method-5.md)), checked against build 2026.10.10.5554 and the pinned reference repositories.
+* **Update**: Review pass: Corrected the same prefix-skipping rule in the overview table and article 1 (later `bool` prefixes skipped, `void` prefixes still run; local test, Lib.Harmony 2.4.2).

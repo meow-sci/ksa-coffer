@@ -1,0 +1,419 @@
+mod: compendium
+repo: Compendium
+ref: 62cfbe7aafabc58cf71f7c6d618d0c5ece7c504c
+summary: >-
+  Compendium (nanonestor) is a StarMap mod that opens an ImGui encyclopedia window for every body of
+  the loaded star systems. It joins a cross-mod JSON catalog (any mod folder may contribute files
+  tagged CompendiumJson) with the live Universe.Roots body tree, computes statistics from game data,
+  draws atmosphere graphs with the window draw list, loads custom fonts into the ImGui atlas, uploads
+  a PNG as an ImGui Vulkan texture, overrides orbit-line visibility and color, and draws pointer lines
+  from the window to the selected body. Its most technical part makes fixed stars and root
+  barycenters, which are not IOrbiter and so cannot be game targets, usable as session-only navigation
+  targets: a request queue drained in a prefix on InputEvents.ApplyInputEvents, transpilers that swap
+  NavigationTarget.Create in the navball update and rewrite Target null tests, a prefix plus finalizer
+  on FlightComputer.ComputeControl that injects a synthesized NavigationTarget on the vehicle solver
+  threads (keyed by the BurnPlan the solver's flight-computer copy shares), and an UpdateGauges
+  postfix with its own closest-approach search.
+features:
+  - id: mods/compendium/features/celestial-info-window
+    title: "Celestial compendium window"
+    category: ui
+    submod: null
+    summary: >-
+      Two-pane ImGui window drawn from StarMapAfterGui: category buttons built from JSON ListGroups
+      joined with the selected system's body tree, cached collapsible body lists, a draggable
+      splitter, a star-system combo with search, a vessel picker and best-effort Begin/End cleanup on exceptions.
+    novelty: medium
+    techniques: [imgui-window, imgui-drawlist, starmap-lifecycle]
+    lifecycle: [startup:all-mods-loaded, frame:draw-ui]
+    hooks:
+      - "starmap StarMapAllModsLoaded"
+      - "starmap StarMapAfterGui"
+    game_types: [KSA.Universe, KSA.CelestialSystem, KSA.Celestial, KSA.Astronomical, KSA.IParentBody, KSA.Program, KSA.Vehicle, KSA.ConsoleStyle, KSA.ConsoleWidgets, KSA.LookupCollection, Brutal.ImGuiApi.ImGui]
+    key_paths: [src/CompendiumMain.cs, src/CdmCategoryLoader.cs, src/CdmPrintSelectedCategory.cs, src/CdmStarSystems.cs]
+    howto_topics:
+      - slug: imgui-resizable-split-pane
+        title: "Build a two-pane ImGui window with a draggable splitter"
+        note: "thin Button + IsItemActive + MouseDelta.X between two BeginChild panes"
+      - slug: imgui-searchable-combo
+        title: "Add a search box inside an ImGui combo"
+        note: "SetKeyboardFocusHere on IsWindowAppearing, ImInputString filter, SetItemDefaultFocus"
+      - slug: wait-for-universe-in-ui-hook
+        title: "Defer UI work until a universe is loaded"
+        note: "Universe.WorldSun is null until Universe.LoadSystem; StarMapAllModsLoaded runs before any universe"
+      - slug: focus-camera-on-body
+        title: "Move the camera to a body from mod UI"
+        note: "Universe.MoveCameraTo follows with changeControl on the main viewport, which clears ControlledVehicle for non-vehicles"
+  - id: mods/compendium/features/star-systems-and-body-tree
+    title: "Star systems and the body tree"
+    category: celestials
+    submod: null
+    summary: >-
+      Enumerates star systems through Universe.Roots and IIndependentRoot.RootOf, walks
+      IParentBody.Children for celestials and stars, keys bodies by dotted parent paths, and keeps its
+      own selected root because Universe.WorldSun follows the camera.
+    novelty: medium
+    techniques: [game-object-graph]
+    lifecycle: [frame:draw-ui]
+    hooks:
+      - "starmap StarMapAfterGui"
+    game_types: [KSA.Universe, KSA.CelestialSystem, KSA.IIndependentRoot, KSA.IParentBody, KSA.IOrbiter, KSA.Astronomical, KSA.Celestial, KSA.StellarBody, KSA.FixedStar, KSA.OrbitingStar, KSA.Barycenter]
+    key_paths: [src/CdmStarSystems.cs, src/CdmHelpers.cs]
+    howto_topics:
+      - slug: enumerate-star-systems-and-bodies
+        title: "Enumerate star systems, stars and bodies of the loaded universe"
+        note: "Roots are FixedStar or Barycenter; OrbitingStar is an IOrbiter; Children lives on IParentBody"
+      - slug: stable-body-keys
+        title: "Build stable keys for bodies whose ids repeat across systems"
+        note: "system or root prefix plus a dotted parent path"
+  - id: mods/compendium/features/cross-mod-json-catalog
+    title: "Cross-mod JSON catalog"
+    category: assets
+    submod: null
+    summary: >-
+      Scans every JSON file in the mod folders beside its own (one mods root) at immediate load, keeps
+      those with a CompendiumJson marker, keys entries by system or root prefix and body path, loads its own files first and
+      records other mods' keys as overrides.
+    novelty: high
+    techniques: [json-config, inter-mod-data]
+    lifecycle: [startup:immediate-load, frame:draw-ui]
+    hooks:
+      - "starmap StarMapImmediateLoad"
+      - "starmap StarMapAfterGui"
+    game_types: [KSA.ModLibrary, KSA.Universe, KSA.CelestialSystem, KSA.Celestial]
+    key_paths: [src/CdmLoadJsonInfo.cs, src/CdmHelpers.cs, src/CdmAttachInfoBodyJsonData.cs, src/Compendium/AlphaCentauri.json]
+    howto_topics:
+      - slug: cross-mod-data-files
+        title: "Let other mods contribute data files without a code dependency"
+        note: "marker key in JSON, scan sibling mod folders, deterministic default-then-override order"
+      - slug: find-own-mod-folder
+        title: "Find your mod folder and the folder that holds all mods"
+        note: "Assembly.Location under StarMap; mods live in Content or the user mods folder"
+  - id: mods/compendium/features/derived-body-properties
+    title: "Body statistics derived from live game data"
+    category: celestials
+    submod: null
+    summary: >-
+      On the first UI frame with a universe, matches JSON entries to bodies and computes radius, mass,
+      surface gravity, escape velocity, tilt, inclination, periods, axes, sphere of influence and
+      atmosphere strings from Celestial, Orbit and template data.
+    novelty: low
+    techniques: [reflection]
+    lifecycle: [frame:draw-ui]
+    hooks:
+      - "starmap StarMapAfterGui"
+      - "reflection KSA.Astronomical.OrbitLineMode"
+    game_types: [KSA.Celestial, KSA.Astronomical, KSA.Orbit, KSA.CelestialTemplate, KSA.RotationTemplate, KSA.AstronomicalTemplate, KSA.AtmosphereReference, KSA.PhysicalAtmosphereReference, KSA.OrbitUiMode]
+    key_paths: [src/CdmAttachInfoBodyJsonData.cs, src/CdmHelpers.cs]
+    howto_topics:
+      - slug: read-celestial-physical-data
+        title: "Read a body's physical, rotational and orbital data"
+        note: "Celestial.Mass/_meanRadius/Orbit, BodyTemplate.Rotation, AtmosphereReference.Physical"
+  - id: mods/compendium/features/atmosphere-profile-graph
+    title: "Atmosphere density and pressure graphs"
+    category: ui
+    submod: null
+    summary: >-
+      Secondary ImGui window that samples PhysicalAtmosphereReference density and pressure at 101
+      altitudes and plots them on the window draw list with grid, labels, unit conversion and an
+      altitude marker.
+    novelty: medium
+    techniques: [imgui-window, imgui-drawlist]
+    lifecycle: [frame:draw-ui]
+    hooks:
+      - "starmap StarMapAfterGui"
+    game_types: [KSA.Celestial, KSA.CelestialTemplate, KSA.AtmosphereReference, KSA.PhysicalAtmosphereReference, Brutal.ImGuiApi.ImGui, Brutal.ImGuiApi.ImDrawListExtensions]
+    key_paths: [src/CompendiumMain.cs]
+    howto_topics:
+      - slug: imgui-drawlist-line-chart
+        title: "Draw a line chart with the ImGui window draw list"
+        note: "InvisibleButton to reserve space, AddRectFilled/AddLine/AddText, CalcTextSize for labels"
+      - slug: sample-atmosphere-model
+        title: "Sample a body's atmosphere density and pressure"
+        note: "PhysicalAtmosphereReference exponential model with scale height"
+  - id: mods/compendium/features/custom-fonts-in-imgui
+    title: "Custom fonts in the ImGui atlas"
+    category: ui
+    submod: null
+    summary: >-
+      Adds every TTF/OTF from the mod's Fonts folder to the shared ImGui atlas at immediate load and
+      pushes the chosen face at arbitrary sizes with ImGui 1.92's sized PushFont, balancing pushes
+      with a counter; a game font rebuild clears the atlas and drops these fonts.
+    novelty: medium
+    techniques: [imgui-font, starmap-lifecycle]
+    lifecycle: [startup:immediate-load, frame:draw-ui, frame:prepare]
+    hooks:
+      - "starmap StarMapImmediateLoad"
+      - "starmap StarMapAfterGui"
+    game_types: [Brutal.ImGuiApi.ImGui, Brutal.ImGuiApi.ImFontAtlasExtensions, Brutal.ImGuiApi.ImGuiIOPtr, KSA.FontManager, KSA.Program, KSA.GameSettings, KSA.ImGuiBackendVulkanImpl]
+    key_paths: [src/CdmLoadFonts.cs, src/CdmHelpers.cs]
+    howto_topics:
+      - slug: load-custom-imgui-font
+        title: "Load a custom font into the ImGui atlas"
+        note: "immediate load is after ImGui.CreateContext and FontManager.Initialize; RendererHasTextures dynamic atlas"
+      - slug: survive-game-font-rebuild
+        title: "Keep mod fonts alive across a game font rebuild"
+        note: "FontManager.RegenerateFonts clears the whole atlas after interface font settings change"
+  - id: mods/compendium/features/logo-image-as-imgui-texture
+    title: "Logo image as an ImGui texture"
+    category: rendering
+    submod: null
+    summary: >-
+      Decodes a PNG into a TextureAsset, uploads it as a SimpleVkTexture through a staging pool that
+      submits and waits on dispose, creates a point sampler, registers it with
+      ImGuiBackend.Vulkan.AddTexture and draws it with ImGui.Image; never released.
+    novelty: medium
+    techniques: [vulkan-texture, imgui-window]
+    lifecycle: [startup:immediate-load, frame:draw-ui]
+    hooks:
+      - "starmap StarMapImmediateLoad"
+      - "starmap StarMapAfterGui"
+    game_types: [RenderCore.TextureAsset, RenderCore.SimpleVkTexture, Core.Renderer, Core.KSADeviceContextEx, Brutal.VulkanApi.Abstractions.DeviceEx, Brutal.VulkanApi.Abstractions.StagingPool, Brutal.VulkanApi.Abstractions.Presets, Brutal.TextureApi.Stb.Loader, KSA.ImGuiBackend, KSA.ImGuiBackendVulkanImpl, KSA.Program, Brutal.ImGuiApi.ImGui]
+    key_paths: [src/CdmLoadPhotos.cs, src/CompendiumMain.cs]
+    howto_topics:
+      - slug: show-image-in-imgui
+        title: "Show a PNG image in an ImGui window"
+        note: "TextureAsset -> SimpleVkTexture via StagingPool -> sampler -> ImGuiBackend.Vulkan.AddTexture -> ImGui.Image"
+      - slug: release-imgui-texture
+        title: "Release an ImGui Vulkan texture"
+        note: "ImGuiBackend.Vulkan.RemoveTexture and SimpleVkTexture.Dispose"
+  - id: mods/compendium/features/body-pointer-overlay
+    title: "Pointer lines to the selected body"
+    category: ui
+    submod: null
+    summary: >-
+      Full-viewport NoInputs ImGui window that draws lines from the nearest window corners to the
+      selected body's screen position, projecting with Camera.IsPointWithinFov/EgoToScreen and
+      clamping off-screen targets to the screen edge via EgoToClip.
+    novelty: medium
+    techniques: [imgui-drawlist, imgui-window, world-to-screen]
+    lifecycle: [frame:draw-ui]
+    hooks:
+      - "starmap StarMapAfterGui"
+    game_types: [KSA.Program, KSA.Camera, Brutal.ImGuiApi.ImGui, Brutal.ImGuiApi.ImGuiViewportPtr]
+    key_paths: [src/CdmBodyPointer.cs]
+    howto_topics:
+      - slug: world-to-screen-with-edge-clamp
+        title: "Project a world position to the screen and clamp off-screen targets to the edge"
+        note: "IsPointWithinFov then EgoToScreen; else EgoToClip, divide by w, flip when behind, normalize by max component"
+      - slug: imgui-fullscreen-overlay-window
+        title: "Draw an input-transparent overlay over the whole viewport"
+        note: "SetNextWindowPos/Size/Viewport of the main viewport with NoInputs/NoBackground flags"
+  - id: mods/compendium/features/orbit-line-visibility-and-color
+    title: "Orbit line visibility and color"
+    category: flight-and-orbits
+    submod: null
+    summary: >-
+      Postfix on Astronomical.ShouldDrawLines forces or suppresses orbit lines from an Always/On/Off
+      override table (bound by assignability from an IGameViewport argument list), plus direct writes
+      to Celestial.ShowOrbit and Orbit.OrbitLineColor for bodies, groups and categories.
+    novelty: medium
+    techniques: [harmony-postfix]
+    lifecycle: [frame:draw-ui, frame:pre-render]
+    hooks:
+      - "harmony-postfix KSA.Astronomical.ShouldDrawLines(Astronomical, IViewport, Orbit)"
+    game_types: [KSA.Astronomical, KSA.Celestial, KSA.Orbit, KSA.OrbitUiMode, KSA.OrbitingStar, KSA.CelestialSystem, KSA.NearestOrbitPointJob, KSA.IViewport, KSA.IGameViewport, Brutal.Numerics.byte4]
+    key_paths: [src/Patcher.cs, src/CdmHelpers.cs]
+    howto_topics:
+      - slug: override-orbit-line-visibility
+        title: "Force or hide a body's orbit line"
+        note: "postfix ShouldDrawLines; also read by the nearest-orbit worker job, so shared state needs to be thread-safe"
+      - slug: set-orbit-line-color
+        title: "Change a body's orbit line color"
+        note: "Orbit.OrbitLineColor byte4, replace RGB keep alpha"
+      - slug: harmony-overload-binding
+        title: "Pick the right overload in a HarmonyPatch attribute"
+        note: "Harmony uses Type.GetMethod with the default binder, which matches assignable argument types"
+  - id: mods/compendium/features/native-target-selection
+    title: "Target orbiting bodies through the game's settarget command"
+    category: flight-and-orbits
+    submod: null
+    summary: >-
+      Sets and clears the controlled vehicle's target, including orbiting stars, through
+      Universe.SetTargetCommand/UnsetTargetCommand, which queue an InputEvents.ChangeTargetData that
+      reaches Universe.SetTarget and Vehicle.SetTarget at the input point.
+    novelty: low
+    techniques: [input-event-buffer, imgui-window]
+    lifecycle: [frame:draw-ui, frame:input]
+    hooks:
+      - "starmap StarMapAfterGui"
+    game_types: [KSA.Universe, KSA.InputEvents, KSA.Vehicle, KSA.OrbitingStar, KSA.IOrbiter, KSA.CelestialSystem, KSA.Program, KSA.ImGuiDisabledScope]
+    key_paths: [src/CdmHelpers.cs, src/CdmStarSystems.cs]
+    howto_topics:
+      - slug: set-vehicle-target
+        title: "Set or clear a vehicle's target from mod code"
+        note: "queue ChangeTargetData (or call the settarget command) instead of Vehicle.SetTarget during UI"
+  - id: mods/compendium/features/root-navigation-targets
+    title: "Navigation-only root targets"
+    category: flight-and-orbits
+    submod: null
+    summary: >-
+      Session-only navigation targets for fixed stars and root barycenters: ConditionalWeakTables
+      keyed by Vehicle and by the shared BurnPlan, a ConcurrentQueue of UI requests drained in a
+      prefix on InputEvents.ApplyInputEvents, and prefixes on Vehicle.SetTarget and
+      Universe.UnsetTargetCommand that keep native targets authoritative.
+    novelty: high
+    techniques: [harmony-prefix, conditional-weak-table, command-queue]
+    lifecycle: [frame:draw-ui, frame:input, event:target-changed, event:starmap-unload]
+    hooks:
+      - "starmap StarMapAfterGui"
+      - "harmony-prefix KSA.InputEvents.ApplyInputEvents"
+      - "harmony-prefix KSA.Vehicle.SetTarget"
+      - "harmony-prefix KSA.Universe.UnsetTargetCommand"
+      - "starmap StarMapUnload"
+    game_types: [KSA.Vehicle, KSA.FlightComputer, KSA.BurnPlan, KSA.InputEvents, KSA.Universe, KSA.FixedStar, KSA.Barycenter, KSA.IIndependentRoot, KSA.IOrbiter, KSA.NavBallData]
+    key_paths: [src/RootNavigationTargets.cs, src/RootTargetPatches.cs, src/CdmHelpers.cs]
+    howto_topics:
+      - slug: apply-ui-requests-at-input-point
+        title: "Apply UI-originated vehicle changes at the frame's input point"
+        note: "own queue drained in a prefix on InputEvents.ApplyInputEvents, before the stock buffers"
+      - slug: side-table-state-for-game-objects
+        title: "Attach mod state to game objects without leaks"
+        note: "ConditionalWeakTable keyed by the object; key by a shared reference to reach solver copies"
+      - slug: target-non-orbiter-bodies
+        title: "Target a body the game cannot target"
+        note: "fixed stars and barycenters are not IOrbiter; keep a side target and patch consumers"
+  - id: mods/compendium/features/navball-target-marker-and-tgt-frame
+    title: "Navball target marker and TGT frame for a target without an orbit"
+    category: patching
+    submod: null
+    summary: >-
+      Transpilers replace the single NavigationTarget.Create call in Vehicle.UpdateNavBallMarkers and
+      UpdateNavballData with a mod method (ldarg.0 appended, labels and blocks preserved, exactly-one
+      check) and rewrite one Target null test in four methods to include the side target; a postfix
+      enables the Dock frame.
+    novelty: high
+    techniques: [harmony-transpiler, harmony-postfix, il-call-replacement]
+    lifecycle: [startup:immediate-load, frame:apply-solvers, frame:draw-ui, frame:render]
+    hooks:
+      - "harmony-transpiler KSA.Vehicle.UpdateNavBallMarkers"
+      - "harmony-transpiler KSA.Vehicle.UpdateNavballData"
+      - "harmony-transpiler KSA.GaugeCanvas.IsContextVisible"
+      - "harmony-transpiler KSA.GaugeButtonNavBallMode.IsDisabled"
+      - "harmony-transpiler KSA.GaugeButtonNavBallMode.OnReleased"
+      - "harmony-postfix KSA.Vehicle.IsDisabled(VehicleReferenceFrame)"
+    game_types: [KSA.Vehicle, KSA.NavigationTarget, KSA.NavBallData, KSA.GaugeCanvas, KSA.GaugeButtonNavBallMode, KSA.GaugeButtonFlightComputer, KSA.VehicleReferenceFrame, KSA.VehicleReferenceFrameEx, KSA.CelestialSystem, KSA.Universe, KSA.StellarBody, KSA.Barycenter]
+    key_paths: [src/RootTargetPatches.cs, src/RootTargetFlightComputerPatches.cs, src/RootNavigationTargets.cs]
+    howto_topics:
+      - slug: gauge-button-state-timing
+        title: "Know when gauge button state is evaluated"
+        note: "binding IsDisabled runs on release in the draw and again in PackData during RenderGame's gauge pass"
+      - slug: harmony-transpiler-call-site-swap
+        title: "Swap one call inside a game method with a Harmony transpiler"
+        note: "push an extra ldarg.0 for a wider replacement signature; MoveLabelsFrom/MoveBlocksFrom"
+      - slug: transpile-null-tests
+        title: "Make a game's null checks see mod state"
+        note: "match getter followed by brtrue/brfalse or ldnull+ceq/cgt.un; TargetMethods over several methods"
+      - slug: synthesize-navigation-target
+        title: "Build a NavigationTarget for an object without an orbit"
+        note: "mirror NavigationTarget.Create: ECL difference to the parent, Cce2Cci rotation, GetDock2Cci"
+  - id: mods/compendium/features/flight-computer-root-attitude-tracking
+    title: "Flight-computer attitude tracking against a root target"
+    category: flight-and-orbits
+    submod: null
+    summary: >-
+      Prefix with __state and a restoring finalizer on FlightComputer.ComputeControl inject a
+      synthesized NavigationTarget into the solver thread's ref readonly navigation struct only for
+      Toward/Away or Dock-frame hold, looked up by the BurnPlan the solver's flight-computer copy
+      shares; IsDisabled/Hovered patches enable the native buttons.
+    novelty: high
+    techniques: [harmony-prefix, harmony-finalizer, harmony-postfix, harmony-state]
+    lifecycle: [physics:vehicle-solver, frame:apply-solvers, frame:input, frame:draw-ui, frame:render]
+    hooks:
+      - "harmony-prefix KSA.FlightComputer.ComputeControl"
+      - "harmony-finalizer KSA.FlightComputer.ComputeControl"
+      - "harmony-postfix KSA.Vehicle.IsDisabled(FlightComputerAttitudeTrackTarget)"
+      - "harmony-prefix KSA.Vehicle.Hovered(FlightComputerAttitudeTrackTarget)"
+    game_types: [KSA.FlightComputer, KSA.FlightComputerNavigation, KSA.NavigationTarget, KSA.PhysicsBubble, KSA.VehicleUpdateState, KSA.VehicleUpdateData, KSA.BurnPlan, KSA.Vehicle, KSA.InputEvents, KSA.GaugeButtonFlightComputer, KSA.FlightComputerAttitudeTrackTarget, KSA.FlightComputerAttitudeTrackTargetEx, KSA.VehicleReferenceFrameEx]
+    key_paths: [src/RootTargetPatches.cs, src/RootNavigationTargets.cs, src/RootTargetFlightComputerPatches.cs]
+    howto_topics:
+      - slug: modify-flight-computer-input-on-solver-thread
+        title: "Change what the flight computer sees on the vehicle solver threads"
+        note: "prefix ComputeControl, edit nav by ref, restore in a finalizer; runs per flight-computer tick"
+      - slug: harmony-prefix-finalizer-state
+        title: "Undo a prefix change after the original runs, even on exceptions"
+        note: "__state from prefix to finalizer"
+      - slug: find-solver-copy-of-vehicle-state
+        title: "Recognize the solver's copy of a vehicle object"
+        note: "FlightComputer.CopyFrom shares the BurnPlan reference"
+  - id: mods/compendium/features/root-closest-approach-search
+    title: "Closest approach to a root target"
+    category: flight-and-orbits
+    submod: null
+    summary: >-
+      Program.UpdateGauges postfix packs TGT distance, speed and closest approach for the side target;
+      closest approach samples 511 uniform plus 511 log-spaced interior offsets per coast patch over 10 years,
+      golden-section refines local minima, and is cached per vehicle with a one-second, 60-sim-second
+      and plan-identity refresh rule.
+    novelty: medium
+    techniques: [harmony-postfix, numeric-minimization, conditional-weak-table, throttled-cache]
+    lifecycle: [frame:gauges]
+    hooks:
+      - "harmony-postfix KSA.Program.UpdateGauges"
+    game_types: [KSA.Program, KSA.DigitRoller, KSA.FlightPlan, KSA.PatchedConic, KSA.Orbit, KSA.Vehicle, KSA.Burn, KSA.Universe, KSA.IOrbiter, KSA.IParentBody]
+    key_paths: [src/RootTargetFlightComputerPatches.cs, src/RootClosestApproach.cs]
+    howto_topics:
+      - slug: override-cockpit-gauge-readouts
+        title: "Write your own values into the stock gauge digits"
+        note: "postfix Program.UpdateGauges and write Program.*Roller"
+      - slug: closest-approach-to-fixed-point
+        title: "Estimate closest approach of a trajectory to a fixed point"
+        note: "sample patches, refine local minima with golden-section search, include periapsis"
+      - slug: throttle-expensive-ui-computation
+        title: "Throttle an expensive per-frame computation"
+        note: "cache keyed by object identity plus real-time and sim-time limits"
+  - id: mods/compendium/features/settings-ini-persistence
+    title: "settings.ini persistence"
+    category: persistence
+    submod: null
+    summary: >-
+      Hand-rolled key=value settings.ini next to the DLL, loaded first at immediate load with defaults
+      and clamping, rewritten on change; a per-frame comparison catches the ModMenu toggle and the
+      window close button.
+    novelty: low
+    techniques: [ini-config, starmap-lifecycle]
+    lifecycle: [startup:immediate-load, frame:draw-ui]
+    hooks:
+      - "starmap StarMapImmediateLoad"
+      - "starmap StarMapAfterGui"
+    game_types: []
+    key_paths: [src/CdmSettings.cs, src/settings.ini]
+    howto_topics:
+      - slug: persist-window-open-state
+        title: "Remember whether a mod window is open"
+        note: "imgui.ini keeps position/size only; compare the open flag each frame and save on change"
+  - id: mods/compendium/features/modmenu-window-toggle
+    title: "ModMenu entry that toggles the window"
+    category: ui
+    submod: null
+    summary: >-
+      One static method tagged [ModMenuEntry] from a bundled ModMenu.Attributes.dll draws a MenuItem
+      that toggles the window; no fallback menu when ModMenu is absent.
+    novelty: low
+    techniques: [imgui-menu, assembly-load-context]
+    lifecycle: [frame:draw-ui]
+    hooks:
+      - "modmenu ModMenuEntry"
+    game_types: [Brutal.ImGuiApi.ImGui]
+    key_paths: [src/CompendiumMain.cs, src/Compendium.csproj, src/ModMenu.Attributes.dll]
+    howto_topics:
+      - slug: modmenu-integration
+        title: "Add a ModMenu entry for a mod"
+        note: "ModMenuEntryAttribute(menuName) on a static method; ship ModMenu.Attributes.dll"
+  - id: mods/compendium/features/decompiled-source-refresh
+    title: "Local decompiled game source refreshed with ilspycmd"
+    category: testing-and-tooling
+    submod: null
+    summary: >-
+      PowerShell script that decompiles selected game assemblies with ilspycmd into a gitignored
+      folder with a version stamp, plus Copilot instructions telling assistants to search it.
+    novelty: low
+    techniques: [decompiling, agent-instructions]
+    lifecycle: []
+    hooks: []
+    game_types: []
+    key_paths: [tools/Refresh-Decompiled.ps1, .github/copilot-instructions.md]
+    howto_topics:
+      - slug: decompile-game-for-reference
+        title: "Keep a searchable decompiled copy of the game next to your mod"
+        note: "ilspycmd -p per assembly, VERSION.txt stamp, gitignored"

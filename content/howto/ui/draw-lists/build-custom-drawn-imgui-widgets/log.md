@@ -1,0 +1,5 @@
+# Build custom-drawn ImGui widgets, icons, trees and alert tiles on the draw list history
+
+## 2026-10-10
+* **Creation**: Added [overview](overview.md) and 5 how-to articles: [Build a draw-list widget kit: rows, gauges, toggles and sections with a runtime-editable theme](build-custom-drawn-imgui-widgets-1.md); [Draw icon buttons from primitives, with no textures or icon font](build-custom-drawn-imgui-widgets-2.md); [Share one glyph function between a canvas and its legend](build-custom-drawn-imgui-widgets-3.md); [Write a generic tree view with static abstract adapters, ChannelsSplit and ImGui storage](build-custom-drawn-imgui-widgets-4.md); [Evaluate threshold rules once per frame and render them as banner, tile outline, warning row and graph line](build-custom-drawn-imgui-widgets-5.md). Written from the pinned mod sources and checked against the decompiled game build 2026.10.10.5554.
+* **Update**: Reviewed against build 2026.10.10.5554 and the lifecycle reference: article 1 gotcha heading corrected ("Hover is frame-late" described same-frame behaviour); overview `repos`, `lifecycle` and `game_types` widened to the union of the articles.

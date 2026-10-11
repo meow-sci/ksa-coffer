@@ -1,0 +1,4 @@
+# Build a KSA mod that references only StarMap.API and Harmony history
+
+## 2026-10-10
+* **Creation**: Added [Build a KSA mod that references only StarMap.API and Harmony](overview.md) (engine background, approach comparison) and 4 how-to articles: [Build a reflection-only mod that references just StarMap.API and Harmony](build-a-mod-without-game-references-1.md), [Split a mod into a game-free half and a compile-gated Game half](build-a-mod-without-game-references-2.md), [Centralize game-state access behind a static provider library](build-a-mod-without-game-references-3.md), [Rebuild the vehicle set each frame from Universe.CurrentSystem.All and sync a registry](build-a-mod-without-game-references-4.md). Verified against the decompiled game build 2026.10.10.5554 and the pinned reference repositories.

@@ -1,0 +1,35 @@
+# Reference repositories (pinned)
+
+All checkouts live under `/Users/asherwin/repos/meow-sci/ksa-coffer/references/<Name>/`. The `git` value
+to copy into frontmatter is the one in `data/references.yml` (verbatim). `Web` is the GitHub base for
+blob links: `<Web>/blob/<ref>/<path>`.
+
+| Name (folder) | Slug | Web | Ref | License | Size | Notes |
+|---|---|---|---|---|---|---|
+| Compendium | compendium | https://github.com/meow-sci/Compendium | 62cfbe7aafabc58cf71f7c6d618d0c5ece7c504c | MIT | 16 cs / 4.9k LOC | Celestial info window, root-target Harmony patches, fonts, JSON data, ModMenu |
+| gatOS | gatos | https://github.com/meow-sci/gatOS | b88c28588e013841cfec58a1b3a09fcbd2cbc47e | MIT | 388 cs / 80k LOC + rust/ts examples | QEMU Linux VM, /sim filesystem telemetry, HTTP/MQTT/MCP, purrTTY custom shell, bus (CCSDS/NMEA/SCPI/serial); docs/ has KSA_INTEGRATION_MATRIX, PARTICLE_ANALYSIS, LIGHT_PART_ANALYSIS |
+| Kitten-Engineer-Redux | kitten-engineer-redux | https://github.com/BarneyCompiler/Kitten-Engineer-Redux | d5786a0e75203a18a96936fb3537220d44b7a18b | MIT | 26 cs / 3.6k LOC | KER-style editor panel and flight HUD, mass/stage analyzers, suicide burn calc, ModMenu + standalone menu |
+| KittenExtensions | kittenextensions | https://github.com/AMPW-german/KittenExtensions | b52467541a4fda3c3771eb2c157ed7574f9e2d7c | MIT | 10 cs / 2.5k LOC | XML patching (XPathPatch) of game data, custom XML asset types, debug mode |
+| KSA_AircraftHUD | ksa-aircrafthud | https://github.com/uriahgnu/KSA_AircraftHUD | 4e4c71719a8355afb1fc608f54d531676bec4ef3 | MIT | 2 cs / 1.4k LOC + 7 shaders | Aircraft HUD via ShaderExtensions post-process shaders, custom font, ini config |
+| KSA-AdvancedFlightComputer | ksa-advancedflightcomputer | https://github.com/Maximilian-Nesslauer/KSA-AdvancedFlightComputer | 77c0ccf5608e49c459eec72c3a56d0b30d62da63 | MIT | 322 cs / 80k LOC + native (clarabel/scs) | Maneuver quick-tools, flyby targeting, multi-pass burns, RCS burns, auto staging, powered guidance (GFOLD/SCvx), XML patches, headless harness tests; 128 Harmony refs |
+| KSA-DeltaVMap | ksa-deltavmap | https://github.com/Maximilian-Nesslauer/KSA-DeltaVMap | 0441981a4c59b90e462fd81fc20d3924b356841a | MIT | 74 cs / 21k LOC | Delta-v subway map (ImGui canvas, 3 layouts), transfer windows, map-mode 3D overlay, interstellar routes, harness tests |
+| KSA-MeasureTools | ksa-measuretools | https://github.com/Maximilian-Nesslauer/KSA-MeasureTools | aed7f874f1c925c10c733b1dee72bd04b9b1985c | MIT | 19 cs / 4.7k LOC | Ruler/protractor in map and editor, part-level snapping to mesh vertices/edges, overlays, palettes |
+| KSA-Public-Telemetry | ksa-public-telemetry | https://github.com/elevatorctln/KSA-Public-Telemetry | 90608fb465f87d6008208798cc4d20ed8182c9a0 | MIT | 33 cs / 6.4k LOC | SpaceX-style broadcast overlay, engine diagram from nozzle positions, event detection, HUD hiding, JSON config, fonts |
+| KSACars | ksacars | https://github.com/LaurensDeV/KSACars | 1f0a84f623ef7a8edb0792d5c46c0fecfc2abd7f | MIT | 66 cs / 9.9k LOC + GLB/wav | Wheel/suspension/engine/gearbox physics, driveable cars as parts (XML assets, GLB, sounds), kitten driver animation, EVA doors; docs/ KSA-MODDING-NOTES, KSA-FRAME-ORDER, KSA-CAMERAS, KSA-TERRAIN, KSA-API-SURFACE |
+| KSAero | ksaero | https://github.com/cairn5/KSAero | 3e7e26c9c694a563048261bd6e426e817377d404 | MIT | 5 cs / 0.7k LOC | Harmony transpiler swaps ComputeDrag call site; body-of-revolution aero; ImGui readout |
+| KSAGolf | ksagolf | https://github.com/LaurensDeV/KSAGolf | f3e6ab72b5b963f615cb4ed41f7765a7bce42688 | MIT | 107 cs / 18k LOC + 14 GLB | Golf foundation: props/sounds/course assets, kitten arms (KITTEN-ARMS.md), dev tools, visual testing; docs/ like KSACars |
+| KSArmory | ksarmory | https://github.com/LaurensDeV/KSArmory | cbd63d6d84da7a48a13641a641d3557bad216435 | MIT | 626 cs / 156k LOC + GLB/shaders | Weapons: sensors, fire control, guided/unguided rounds, mounts, fuses, decals, nuclear VFX, ImGui panel, in-world drawing; huge docs/ (KSA-FRAME-ORDER, KSA-CAMERAS, KSA-TERRAIN, DAMAGE-DECALS, EXTENSIBILITY) |
+| KSAStructures | ksastructures | https://github.com/LaurensDeV/KSAStructures | c24759358381fb10290c61f9a6980b7d832ba3d4 | MIT | 43 cs / 7.5k LOC + GLB + shader | Buildings dug into terrain, lift, underground garage lighting, chair/computer interaction, first-person kitten view |
+| MPFX | mpfx | https://github.com/AMPW-german/MPFX | fbdeeebca9bd2e0f0001348b6903af3a652cecd0 | MIT | 11 cs / 1.8k LOC + 30 frag | Post-processing effect chain on ShaderExtensions, ImGui settings UI (604 ImGui calls) |
+| OhMyStars | ohmystars | https://github.com/nanonestor/OhMyStars | 4bb602e3bfe36bcd3670b71b88bf644fe95fa407 | GPL-2.0 | 15 cs / 6.3k LOC + sky cultures | Constellation lines/labels/boundaries drawn on the sky, star catalog, 28 Harmony refs, settings.ini, ModMenu |
+| purrtty | purrtty | https://github.com/meow-sci/purrtty | 71da9efe9ed7b8ec533cad7a0bb15bea9f59a9a5 | MIT | 184 cs / 38k LOC | In-game terminal emulator (libghostty-vt native binding), ImGui rendering of a terminal grid, fonts/themes, hotkeys, custom shell contract (inter-mod ABI via ExportedAssemblies), 248 Vulkan refs; docs/ BRUTAL_IMGUI_NOTES, KSA_CAMERA_CODE_ANALYSIS, gotchas |
+| RealAtmospheres | realatmospheres | https://github.com/Brimfyr/RealAtmospheres | 19dc37a55b2e359bd8eec2f5b41722ab11ae0c46 | MIT | 10 cs / 6.1k LOC + py | Patched copies of game atmosphere shaders and system data loaded at launch, flight atmosphere tables, cloud shadows, settings menu |
+| ShaderExtensions | shaderextensions | https://github.com/AMPW-german/ShaderExtensions | 6a2eb66ea85bcaa2d4657e502a4f75e92693ea77 | MIT | 25 cs / 3.2k LOC | ShaderEx asset (extra bindings, push constants), ImGuiShader per-window shader, PostProcessingShader/GlobalPostShader passes, 317 Vulkan refs |
+| StarMap | starmap | https://github.com/StarMapLoader/StarMap | 4dc60f8dfeb1d9b035d44af2601d09115c16d2aa | MIT | 21 cs / 1.6k LOC | THE mod loader: launches KSA, AssemblyLoadContext per mod, dependency graph, lifecycle attributes, Harmony patches on Program/ModLibrary/Mod, restart flow |
+| unscience | unscience | https://github.com/meow-sci/unscience | 1829b3b298dd0fa5a67342cafff29074c8c29286 | MIT | 631 cs / 77k LOC | Monorepo "supermod" with ~33 submods + shared libs (ksa-abstractions.lib, pebbles.lib); scope/ has per-area integration docs; REPOSITORY_INDEX.md lists everything |
+
+Game sources: `/Users/asherwin/repos/meow-sci/ksa-game-assemblies` (git `git@github.com:meow-sci/ksa-game-assemblies.git`,
+ref `935a32b4dbc34cbcd16e87d16cf9732eb90030c0`, build `2026.10.10.5554`). Decompiled C# at
+`current/decomp/<Namespace>/<Type>.cs` (KSA, KSA.Rendering.*, RenderCore, Core, Brutal.*, BepuPhysics.*),
+game XML/shaders at `current/Content/`, dlls at `current/dll/`, changelog at `current/version.json`.
+Web: https://github.com/meow-sci/ksa-game-assemblies

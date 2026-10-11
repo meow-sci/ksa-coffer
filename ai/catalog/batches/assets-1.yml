@@ -1,0 +1,1083 @@
+batch: assets-1
+game_loop_reference: getting-started/game-loop-and-lifecycle
+category: assets
+category_description: 'The data side of a KSA mod: the asset XML vocabulary and how ids and paths resolve, custom XML element
+  types and shared data files, glTF models and PBR textures (authoring, export, runtime import), patching and redirecting
+  the game''s own XML (KittenExtensions XPath patches, loader redirects, Core system XML), and offline and in-game validation
+  of assets and patches.'
+groups:
+  xml-patching: 'Changing the game''s own XML without copying it: KittenExtensions patches, XPath recipes and loader redirects
+    to patched copies.'
+  asset-xml: 'The asset XML vocabulary and its plumbing: element reference, load order, ids and paths, custom element types
+    and data files shared between mods.'
+  models-and-textures: 'Models and textures: glTF and PBR declarations, part models, Blender export, runtime GLB import and
+    compositing over stock textures.'
+  validation: 'Catching silent asset failures before and while the game runs: mesh checks, XML reference validation and XML
+    patch debugging.'
+topics:
+- slug: patch-game-xml-data
+  title: Patch Core or another mod's XML data without copying files
+  kind: howto
+  group: xml-patching
+  batch: assets-1
+  summary: List patch files under a patches key in mod.toml and KittenExtensions applies them to one in-memory document of
+    every manifest mod's XML before the game deserializes anything, so a mod can change stock parts, gauges, systems or another
+    mod's assets with no copies of those files. Covers the Root/Mod document shape, RelPath, run order and how a mod depends
+    on KittenExtensions optionally.
+  game_types:
+  - KSA.ModLibrary
+  - KSA.Mod
+  - KSA.ModEntry
+  - KSA.ModManifest
+  - KSA.XmlLoader
+  - KSA.AssetBundle
+  engine_pointers:
+  - current/decomp/KSA/ModLibrary.cs PrepareAll
+  - current/decomp/KSA/Mod.cs (the TomlField keys the game reads; patches is not one of them)
+  - current/Content/Core/mod.toml
+  lifecycle:
+  - startup:asset-load
+  approaches:
+  - n: 1
+    title: patches array in mod.toml applied to the combined GameData document
+    mod: kittenextensions
+    features:
+    - mods/kittenextensions/features/gamedata-document
+    - mods/kittenextensions/features/xpath-patch-operations
+    technique: xml-patch
+    note: Harmony prefix on ModLibrary.PrepareAll imports planetMeshes, systems, assets and patches of every manifest mod
+      (disabled ones included), runs patches in manifest then document order, the game's loaders later read the patched document;
+      patches are pure data transforms and need a restart to change.
+  - n: 2
+    title: Optional KittenExtensions dependency so the patches apply only when it is installed
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/optional-kittenextensions-patches
+    technique: xml-patch
+    note: patches in mod.toml plus an optional StarMap dependency, Patches/*.xml shipped beside the DLL, code-side features
+      that degrade cleanly when the patch did not run, and the csproj content rules for the patch files.
+  related:
+  - xpath-xml-patch-recipes
+  - debug-xml-patches
+  - mod-xml-load-order
+  - redirect-game-xml-loading
+  - declare-a-mod-dependency
+  - work-with-stock-cockpit-gauges
+- slug: xpath-xml-patch-recipes
+  title: Write XPath patch operations for game XML
+  kind: howto
+  group: xml-patching
+  batch: assets-1
+  summary: 'The patch language is a ModuleManager-style set of operations (Copy with Pos Replace, Append, Prepend, Before
+    or After; Merge with _MergeId and _MergePos; Delete; If, IfAny, IfNone; With; SetVar) over XPath 1.0 paths evaluated from
+    Root. Worked recipes: append a button to a stock gauge canvas, add missing elements to every comet, and rewrite values
+    for every body with a conditional.'
+  game_types:
+  - KSA.AssetBundle
+  - KSA.GaugeCanvas
+  - KSA.SystemTemplate
+  - KSA.PlanetMeshCollection
+  engine_pointers:
+  - current/Content/Core/Gauges.xml (GaugeCanvas EngineControl, Buttons component)
+  - current/Content/Core/Astronomicals.xml (body templates)
+  - current/decomp/KSA/GaugeCanvas.cs
+  lifecycle:
+  - startup:asset-load
+  approaches:
+  - n: 1
+    title: Copy Pos="Append" with inline XML into a stock gauge canvas
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/autostage-gauge-button
+    - mods/kittenextensions/features/xpath-patch-operations
+    technique: xml-patch
+    note: AutoStageButton.xml targets //GaugeCanvas[@Id='EngineControl']/Component[@Name='Buttons']; chosen over BurnControl
+      because that canvas only draws while a burn is planned; flight-computer enum registration is the UI side (add-or-change-a-stock-gauge-button).
+  - n: 2
+    title: Add missing mass and sphere-of-influence elements to a kind of body
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/hyperbolic-transfer-targets
+    - mods/kittenextensions/features/xpath-patch-operations
+    technique: xml-patch
+    note: HyperbolicBodies.xml appends Mass and SphereOfInfluence to each InterstellarComet, selected by //InterstellarComet[@Id='...'],
+      so the planner can treat the comets as targets; shows selecting a body by element name and Id and appending inline XML.
+  - n: 3
+    title: With, If and SetVar for per-node rewrites, and Merge with _MergeId
+    mod: kittenextensions
+    features:
+    - mods/kittenextensions/features/xpath-patch-operations
+    technique: xml-patch
+    note: The README colour example (brighten or darken orbit colours by a sum test) and the Merge rules table with the _MergeId,
+      _MergePos worked example; operation semantics come from the README because the XPathPatch submodule is not checked out.
+  related:
+  - patch-game-xml-data
+  - debug-xml-patches
+  - redirect-game-xml-loading
+  - work-with-stock-cockpit-gauges
+- slug: redirect-game-xml-loading
+  title: Redirect the game to patched copies of its XML and coordinate edits between mods
+  kind: howto
+  group: xml-patching
+  batch: assets-1
+  summary: 'Two ways to substitute the XML the game reads without editing the install: rewrite the file name entries inside
+    the Core Mod object to absolute paths of patched copies (rooted paths escape the mod folder), or transpile the Mod loader
+    methods so each XmlLoader.Load<T> call reads from an in-memory document instead. Includes the lesson that patching the
+    shared generic XmlLoader.Load<T> hijacks every reference-type instantiation. Also covers verified text-anchor edits of
+    shadow copies, generator splicing between markers, and sharing one shadow tree between two mods. Also covers changing
+    Sol''s stock system and body XML (the Core body library and inline system templates) without editing Core.'
+  game_types:
+  - KSA.Mod
+  - KSA.ModLibrary
+  - KSA.XmlLoader
+  - KSA.SystemInfo
+  - KSA.AssetBundle
+  - KSA.SystemTemplate
+  - KSA.AtmosphericBodyTemplate
+  - KSA.SerializedCollection
+  - KSA.AstronomicalTemplate
+  - KSA.PlanetaryBodyTemplate
+  engine_pointers:
+  - current/decomp/KSA/Mod.cs Assets (private string[]), SystemTemplates, LoadAssetBundles, LoadSystems, PrepareSystems, LoadEditorTagDefinitions
+  - current/decomp/KSA/XmlLoader.cs Load<T>
+  - current/decomp/KSA/Mod.cs GetPath
+  - current/Content/Core/Astronomicals.xml and current/Content/Core/SolSystem*.xml (the files copied and edited)
+  - current/Content/Core/Astronomicals.xml and SolSystem*.xml (the shared edit targets)
+  - current/decomp/KSA/XmlLoader.cs Load<T> (cached XmlSerializer without overrides)
+  - current/decomp/KSA/Mod.cs LoadAssetBundles, LoadPlanetMeshes, LoadSystems, PrepareSystems, LoadEditorTagDefinitions, LoadPlanetRandomHeightmaps
+  - current/decomp/KSA/SerializedCollection.cs Register (first duplicate id wins)
+  - current/decomp/KSA/Mod.cs Assets, SystemTemplates, LoadAssetBundles, LoadSystems, PrepareSystems
+  - current/Content/Core/ (Astronomicals.xml, SolSystem.xml, SolSystemDense.xml, SolSystemInterstellar.xml)
+  lifecycle:
+  - startup:starmap-before-main
+  - startup:immediate-load
+  - startup:asset-load
+  approaches:
+  - n: 1
+    title: Prefix the non-generic Mod loaders and swap list entries for shadow-copy paths
+    mod: realatmospheres
+    features:
+    - mods/realatmospheres/features/core-xml-entry-redirect
+    - mods/realatmospheres/features/atmosphere-optics-in-system-xml
+    technique: harmony-prefix
+    note: 'Prefixes on Mod.PrepareSystems, LoadSystems, LoadAssetBundles and LoadEditorTagDefinitions replace entries in Core''s
+      own arrays, idempotent comparison against the shadow path; both system methods because XmlName is stored then compared;
+      deliberately not XmlLoader.Load<T>. Also (merged from patching/redirect-game-xml-loading approach 2, "Prefix the loader
+      methods to point the Core mod at shadow files"): Prefixes on Mod.PrepareSystems, LoadSystems, LoadAssetBundles, LoadEditorTagDefinitions
+      rewrite the Core mod''s private Assets and public SystemTemplates arrays to absolute paths (Path.Combine passes rooted
+      paths through). No IL, no generic matching, but only helps when the mod owns the whole file. Also (merged from celestials/change-stock-system-and-body-xml-without-editing-core
+      approach 1, "Write patched copies and swap the file names in Core mod lists for absolute paths"): Prefixes on Mod.LoadAssetBundles
+      / LoadSystems / PrepareSystems replace the Astronomicals.xml and system template entries; Path.Combine returns a rooted
+      second argument unchanged so no further patch is needed; idempotent, and PrepareSystems stores XmlName so both system
+      methods are patched. Edits are anchor-verified text edits of the XML.'
+  - n: 2
+    title: Transpile four Mod loaders to read from the patched document
+    mod: kittenextensions
+    features:
+    - mods/kittenextensions/features/xmlloader-call-site-redirect
+    technique: harmony-transpiler
+    note: 'HarmonyTargetMethods transpiler replaces each constructed XmlLoader.Load<T> operand with XmlPatcher.Load<T> via
+      MakeGenericMethod; LoadEditorTagDefinitions and LoadPlanetRandomHeightmaps stay stock; duplicate asset ids resolve first-wins.
+      Also (merged from patching/redirect-game-xml-loading approach 1, "Transpile every XmlLoader.Load<T> call to XmlPatcher.Load<T>"):
+      HarmonyTargetMethods picks four callers by name; match constructed generic methods via GetGenericMethodDefinition, read
+      T from GetGenericArguments, swap operand for MakeGenericMethod(T). The replacement reads the file''s node from the patched
+      document and still calls OnDataLoad. Why the helper itself is not patched, and why two callers are left stock.'
+  - n: 3
+    title: Anchor-verified, marker-guarded edits of shadow copies, and generated XML spliced between markers
+    mod: realatmospheres
+    features:
+    - mods/realatmospheres/features/shadow-tree-anchor-patching
+    - mods/realatmospheres/features/atmosphere-optics-in-system-xml
+    - mods/ksastructures/features/generated-deep-ramp
+    technique: xml-patch
+    note: '(stock, corrected, marker) triples and (file, stock, patch, count) sites, exact-count checks, invariant-culture
+      number formatting, asset-gated insertions, renaming an element and appending a block to promote a body type. Shaders
+      owns the GLSL variant (patch-game-glsl-with-anchored-text-edits). Also: The layout script rewrites only the region between
+      marker comments in the hand-written asset XML, so generated colliders and the rest of the file coexist and a rerun is
+      a no-op when nothing changed. Sub-step for the writer: verified text anchors and idempotent markers (absorbed from patch-xml-text-with-anchors-and-markers)
+      get their own section.'
+  - n: 4
+    title: Shared shadow folder, Global named mutex and a process-start launch token
+    mod: realatmospheres
+    features:
+    - mods/realatmospheres/features/cross-mod-shared-shadow
+    technique: named-mutex
+    note: 'SharedShadow.CoreDir under the mods folder, abandoned-mutex handling, .launch_token from the process start time,
+      edit callbacks per mod, fail-soft dependent edits, and the conditional Compile Include that links one source into both
+      csproj files (share-source-between-mod-projects folded in). Sub-step for the writer: this approach covers the whole
+      coordination topic (absorbed from coordinate-file-edits-between-mods). Also (merged from celestials/change-stock-system-and-body-xml-without-editing-core
+      approach 2, "One shared patched copy built by two cooperating mods"): A named mutex, a once-per-launch reset token (process
+      start time), a callback of marker-guarded idempotent edits and source shared between projects, so the second mod patches
+      on top of the first mod rather than clobbering it.'
+  related:
+  - patch-game-xml-data
+  - replace-or-patch-game-glsl-without-editing-game-files
+  - mod-xml-load-order
+  - share-types-between-mods
+  - declare-a-mod-dependency
+  - write-a-harmony-transpiler
+  - swap-one-call-inside-a-game-method-with-a-transpiler
+  - call-private-game-members-through-reflection-and-delegates
+  - how-starmap-launches-ksa
+  - define-atmospheres-and-cloud-layers-in-system-xml
+  merged_from:
+  - patch-xml-text-with-anchors-and-markers
+  - coordinate-file-edits-between-mods
+  - patching/redirect-game-xml-loading
+  - change-stock-system-and-body-xml-without-editing-core
+- slug: asset-xml-element-reference
+  title: Know which asset XML elements the game accepts and what they load
+  kind: reference
+  group: asset-xml
+  batch: assets-1
+  summary: A mod's Assets files are deserialized into KSA.AssetBundle, whose Assets list maps about sixty element names (GltfFile,
+    MeshAtlas, PbrMaterial, Texture, Part, SubPart, PartGameData, StaticObject, ClutterObject, Sound, Character, GaugeCanvas,
+    EditorTagDef and more) to template types. This reference lists the table, shows which elements the reference mods actually
+    use, explains how part module elements are registered by reflection, and lists the attributes that matter (Id, Path, Category,
+    HostOnly).
+  game_types:
+  - KSA.AssetBundle
+  - KSA.SerializedId
+  - KSA.XmlHelper
+  - KSA.FileReference
+  - KSA.MeshAtlasFileReference
+  - KSA.Gltf2Reference
+  - KSA.PbrMaterialReference
+  - KSA.PartTemplate
+  engine_pointers:
+  - current/decomp/KSA/AssetBundle.cs (the XmlElement table on Assets, OnDataLoad registration rules)
+  - current/decomp/KSA/XmlHelper.cs (static constructor registers every TemplateDataBase subclass under PartTemplate.Components)
+  - current/decomp/KSA/SerializedId.cs (Id, IsReferenceable, SetHash)
+  - current/Content/Core/CoreFuelTankAAssets.xml, current/Content/Core/CorePropulsionAAssets.xml (stock examples of each element)
+  lifecycle:
+  - startup:asset-load
+  approaches:
+  - n: 1
+    title: The AssetBundle element table, read against three real asset files
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/prop-and-course-asset-xml
+    - mods/ksacars/features/car-part-assets-glb-pbr
+    - mods/ksarmory/features/weapon-part-definitions-xml
+    technique: xml-asset
+    note: Walk AssetBundle.Assets element by element; mark which are file-backed (FileReference subclasses) versus templates,
+      which accept Id references with no Path, and which the mods use. Sound, Character and Gauge elements are listed with
+      a pointer to the audio, kittens and ui topics. Includes the rule that new part module element names cannot be added
+      without extending the serializer (see register-custom-xml-asset-type).
+  related:
+  - mod-xml-load-order
+  - resolve-asset-ids-and-mod-relative-paths
+  - declare-gltf-and-pbr-material-assets
+  - add-a-part-model-with-glb-and-pbr-textures
+  - register-custom-xml-asset-type
+  - define-a-part-with-game-data
+- slug: mod-xml-load-order
+  title: Understand when and in which order KSA loads mod XML
+  kind: reference
+  group: asset-xml
+  batch: assets-1
+  summary: 'The mod.toml keys (assets, systems, planetMeshes, planetRandomHeightmapCollections, fonts, starBinaries) feed
+    separate loaders that run in a fixed order inside the Program constructor: PrepareAll, PreloadAssetBundles, LoadEditorTags,
+    LoadAll and then AttachGameData. Knowing the order tells you where a patch, a redirect, a StarMap hook or a runtime registration
+    can see the data it needs.'
+  game_types:
+  - KSA.ModLibrary
+  - KSA.Mod
+  - KSA.ModManifest
+  - KSA.ModEntry
+  - KSA.XmlLoader
+  - KSA.Program
+  engine_pointers:
+  - current/decomp/KSA/ModLibrary.cs PrepareManifest, PrepareAll, PreloadAssetBundles, LoadEditorTags, LoadAll, AttachGameData
+  - current/decomp/KSA/Mod.cs LoadAssetBundles, LoadEditorTagDefinitions, LoadSystems, PrepareSystems, LoadPlanetMeshes (each
+    does Path.Combine(DirectoryPath, entry) then XmlLoader.Load<T>)
+  - current/decomp/KSA/Program.cs constructor startup sequence
+  - current/Content/Core/mod.toml
+  lifecycle:
+  - startup:asset-load
+  - startup:immediate-load
+  - startup:all-mods-loaded
+  approaches:
+  - n: 1
+    title: Per-phase table from the KittenExtensions document and the Core redirect
+    mod: kittenextensions
+    features:
+    - mods/kittenextensions/features/gamedata-document
+    - mods/realatmospheres/features/core-xml-entry-redirect
+    - mods/ksacars/features/mod-folder-content-and-code-mod
+    technique: xml-asset
+    note: Which mod.toml key each loader reads (and which keys the game ignores, such as KittenExtensions' patches), Preload
+      versus full load of AssetBundle.OnDataLoad, where StarMapImmediateLoad and StarMapAllModsLoaded sit relative to PrepareSystems
+      and LoadAll, why the parallel ILoader pass loads files after the XML is read, and that a malformed XML is reported only
+      as missing content.
+  related:
+  - asset-xml-element-reference
+  - patch-game-xml-data
+  - redirect-game-xml-loading
+  - choose-a-starmap-startup-hook
+  - ship-content-and-code-in-one-mod
+  - game-loop-and-lifecycle
+- slug: resolve-asset-ids-and-mod-relative-paths
+  title: Resolve asset ids and file paths correctly across mods
+  kind: howto
+  group: asset-xml
+  batch: assets-1
+  summary: Asset ids are global registry keys, a second registration of the same id is silently ignored (mesh ids come from
+    glTF mesh names), every Path attribute is joined to the mod folder by Mod.GetPath rather than to the XML file, and a rooted
+    path escapes the mod folder. Covers case-exact paths, id prefixes to avoid collisions, referencing Core's meshes and materials
+    by id, and pointing XML at another mod's textures.
+  game_types:
+  - KSA.Mod
+  - KSA.FileReference
+  - KSA.SerializedId
+  - KSA.ModLibrary
+  - KSA.MeshAtlasFileReference
+  - KSA.MeshReference
+  engine_pointers:
+  - current/decomp/KSA/Mod.cs GetPath, DirectoryPath
+  - current/decomp/KSA/FileReference.cs ModPath, OnDataLoad (Id defaults to the path when none is given; empty Path makes
+    a reference)
+  - current/decomp/KSA/MeshAtlasFileReference.cs DoLoad (Id = glTF mesh name, ModLibrary.Register refusal reuses the existing
+    mesh)
+  - current/decomp/KSA/ModLibrary.cs Register overloads, Get<T>, TryGet<T>
+  lifecycle:
+  - startup:asset-load
+  approaches:
+  - n: 1
+    title: Mod-folder-relative paths and prefixed global ids
+    mod: ksacars
+    features:
+    - mods/ksacars/features/car-part-assets-glb-pbr
+    - mods/ksagolf/features/prop-and-course-asset-xml
+    technique: xml-asset
+    note: XML at the mod root, Meshes/Textures/Sounds beside it, ids prefixed with the mod name, first registration wins,
+      case-exact paths for Linux and Windows. KSAGolf shows ids that code looks up by string instead of parts that reference
+      them.
+  - n: 2
+    title: Absolute and cross-mod paths for assets shipped by another mod
+    mod: realatmospheres
+    features:
+    - mods/realatmospheres/features/cloud-layers-in-system-xml
+    - mods/realatmospheres/features/core-xml-entry-redirect
+    technique: xml-asset
+    note: Path.Combine returns a rooted second argument unchanged, so an absolute path reaches files outside the mod folder
+      (another mod, a shadow tree); assets are gated on File.Exists before the XML that uses them is inserted. Also why this
+      makes the redirect trick work.
+  related:
+  - asset-xml-element-reference
+  - redirect-game-xml-loading
+  - declare-gltf-and-pbr-material-assets
+  - ship-content-and-code-in-one-mod
+- slug: register-custom-xml-asset-type
+  title: Register a custom XML asset type or inject new child elements into game XML
+  kind: howto
+  group: asset-xml
+  batch: assets-1
+  summary: Tag a SerializedId subclass with a KxAsset attribute and KittenExtensions teaches the game's XmlSerializers a new
+    element, so any mod's Assets file can declare your type with no change to the game. Used to ship shader assets, and to
+    ship data profiles that code reads from the registry. Also covers injecting new child element types into any public list
+    member of game XML.
+  game_types:
+  - KSA.XmlHelper
+  - KSA.AssetBundle
+  - KSA.SerializedId
+  - KSA.ModLibrary
+  - KSA.Program
+  - KSA.GameSaves
+  - KSA.VehicleSaves
+  - KSA.UniverseData
+  - KSA.VehicleSaveData
+  engine_pointers:
+  - current/decomp/KSA/XmlHelper.cs AttributeOverrides, Serializers
+  - current/decomp/KSA/AssetBundle.cs Assets list
+  - current/decomp/KSA/SerializedId.cs OnDataLoad
+  - current/decomp/KSA/Program.cs Main (the prefix point)
+  - current/decomp/KSA/XmlHelper.cs Serializers, AttributeOverrides
+  - current/decomp/KSA/GameSaves.cs UniverseSerializer
+  - current/decomp/KSA/VehicleSaves.cs VehicleSerializer
+  - current/decomp/KSA/XmlLoader.cs Deserialize<T> (builds a plain serializer when none is cached)
+  lifecycle:
+  - startup:starmap-before-main
+  - startup:asset-load
+  approaches:
+  - n: 1
+    title: KxAsset and KxAssetInject attributes copied into the dependent assembly
+    mod: kittenextensions
+    features:
+    - mods/kittenextensions/features/custom-xml-asset-types
+    technique: xml-asset
+    note: 'Two attribute classes in namespace KittenExtensions inside your own assembly, discovered by full name across AssemblyLoadContext.All,
+      so no assembly reference is needed; member validation warnings; serializers rebuilt before any XML is read. Also: KxAssetInject(parent,
+      member, element) validates the member type, rejects XmlIgnore and XmlAttribute members and duplicate injections, then
+      performs the same override-and-rebuild; use it instead of the copied injector when KittenExtensions is already a dependency.
+      Sub-step for the writer: KxAssetInject against any parent type and member (absorbed from inject-child-elements-into-game-xml)
+      gets its own section.'
+  - n: 2
+    title: Shader asset elements through KxAsset, and a copied injector that needs no KittenExtensions
+    mod: shaderextensions
+    features:
+    - mods/shaderextensions/features/xml-asset-types-and-element-injection
+    technique: xml-asset
+    note: 'ShaderEx, PostProcessingShader, GlobalPostShader and ImGuiShader as KxAsset types; contrasts with the shaders category
+      topic that covers what the assets do. Also: Harmony prefix on Program.Main installed from StarMapBeforeMain; appends
+      rather than replaces when KittenExtensions already overrode AssetBundle.Assets; UnsafeAccessor StaticField with UnsafeAccessorType
+      to overwrite the get-only save serializers. Notes why Program.Main is the right moment (after all mod assemblies load,
+      before the Program constructor). Sub-step for the writer: the override-append-and-rebuild-serializers injector, including
+      swapping the get-only save serializers with UnsafeAccessor, gets its own section.'
+  - n: 3
+    title: A data-only profile type loaded from ordinary asset XML
+    mod: mpfx
+    features:
+    - mods/mpfx/features/xml-effect-profiles
+    technique: xml-asset
+    note: 'MPFXProfile : SerializedId with public fields as the schema, registered in a static HashSet in OnDataLoad, DefaultValue
+      and ShouldSerialize trimming so an exported profile is compact XML to paste back.'
+  related:
+  - asset-xml-element-reference
+  - declare-post-processing-shader-assets-in-xml
+  - write-a-post-processing-fragment-shader
+  - choose-a-starmap-startup-hook
+  - declare-a-mod-dependency
+  - call-private-game-members-through-reflection-and-delegates
+  - patch-game-xml-data
+  merged_from:
+  - inject-child-elements-into-game-xml
+- slug: ship-and-share-data-files-between-mods
+  title: Ship data files with a mod and let other mods contribute more
+  kind: howto
+  group: asset-xml
+  batch: assets-1
+  summary: A code mod with a lot of data beside the DLL (sky cultures, a star catalog, ini files, licence texts) needs a mod.toml
+    that StarMap understands, a deploy list of exactly the files to copy, an overridable game path, and a way for the running
+    assembly to resolve its own folder even when the mod is loaded from an instance-specific path or a stale copy exists.
+    Also covers writing a new content mod folder and manifest entry from inside the game.
+  game_types:
+  - KSA.Mod
+  - KSA.ModLibrary
+  - KSA.ModManifest
+  - KSA.ModEntry
+  - KSA.Universe
+  - KSA.CelestialSystem
+  engine_pointers:
+  - current/decomp/KSA/Mod.cs DirectoryPath
+  - current/decomp/KSA/ModLibrary.cs Find, LocalModsFolderPath
+  - current/decomp/KSA/ModLibrary.cs Manifest, LocalModsFolderPath, Find
+  - current/decomp/KSA/ModLibrary.cs LocalModsFolderPath, LocalManifestPath, PrepareManifest, AddMods
+  - current/decomp/KSA/ModManifest.cs, current/decomp/KSA/ModEntry.cs
+  lifecycle:
+  - startup:all-mods-loaded
+  - startup:immediate-load
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: Explicit ModContent copy list and Assembly.Location resolution
+    mod: ohmystars
+    features:
+    - mods/ohmystars/features/mod-root-and-packaging
+    technique: msbuild
+    note: mod.toml without a [StarMap] table so the entry assembly equals the manifest id, KSAGameDir default only when unset
+      plus an untracked .user.props, licences and NOTICE layout for third-party data.
+  - n: 2
+    title: Marker key in JSON files found by scanning every mod folder
+    mod: compendium
+    features:
+    - mods/compendium/features/cross-mod-json-catalog
+    technique: json-config
+    note: CompendiumJson marker at the root, prefix keys per star system, own folder first then others sorted by path, keys
+      from other mods recorded as overrides, per-entry try blocks, lookup order from specific to generic, skipping Core, Shaders
+      and Versions folders.
+  - n: 3
+    title: A KSArmory folder inside any installed mod, read by a strict reader
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/weapon-packs-from-mod-folders
+    technique: convention-folder-scan
+    note: Walk the manifest at StarMapAllModsLoaded, read every XML in the convention folder, refuse unknown attributes by
+      name, culture-invariant numbers, namespaced part keys and a PackAudit that reports unresolved parts after load.
+  - n: 4
+    title: ModFolderWriter with ModIdValidator and an enabled manifest stamp
+    mod: unscience
+    features:
+    - mods/unscience/features/parts-now-paste-xml-mod-writer
+    technique: toml-config
+    note: 'Atomic writes (atomic-file-writes folded in), ModFolderScanner classification, writing the manifest entry on the
+      pre-GUI hook, and the hand-off to the runtime loader described in load-part-mods-at-runtime. Sub-step for the writer:
+      this approach covers the whole mod-folder-writing topic (absorbed from write-a-mod-folder-from-game).'
+  related:
+  - ship-content-and-code-in-one-mod
+  - deploy-a-mod-on-every-build
+  - package-and-publish-a-mod-release
+  - declare-a-mod-dependency
+  - cache-and-key-body-data-per-loaded-system
+  - load-and-unload-part-mods-at-runtime
+  - how-starmap-launches-ksa
+  - mod-xml-load-order
+  - validate-asset-xml-references
+  merged_from:
+  - ship-data-files-with-a-mod
+  - cross-mod-data-files
+  - write-a-mod-folder-from-game
+- slug: declare-gltf-and-pbr-material-assets
+  title: Declare glTF meshes and PBR materials in asset XML and author their texture sets
+  kind: howto
+  group: models-and-textures
+  batch: assets-1
+  summary: 'Mods that only need a mesh and a look (props, course pieces, held items, ghost tints) declare bare GltfFile and
+    PbrMaterial assets with no Part or StaticObject, and let code pair them by id at runtime. Covers Source, the Diffuse,
+    Normal and AoRoughMetal texture children, unit conventions, see-through tint materials and sharing one atlas and material
+    across many meshes. Also covers authoring the texture set: the Diffuse, Normal and AoRoughMetal channel rules, baking
+    from Blender, generated palette swatches, flat-colour textures and atlas dilation so mipmaps do not bleed.'
+  game_types:
+  - KSA.AssetBundle
+  - KSA.Gltf2Reference
+  - KSA.PbrMaterialReference
+  - KSA.TextureReference
+  - KSA.TexturePowerReference
+  - KSA.FileReference
+  - KSA.ModLibrary
+  - KSA.TextureCategory
+  engine_pointers:
+  - current/decomp/KSA/Gltf2Reference.cs Source, Usage, Material and Image sub-references
+  - current/decomp/KSA/PbrMaterialReference.cs DiffuseReference, NormalReference, PBRMap, EmissiveMap, ThinFilmMap, AlphaMap
+  - current/decomp/KSA/TextureReference.cs Category, IsVirtual
+  - current/decomp/KSA/ModLibrary.cs AllGltfs, AllMaterials
+  - current/decomp/KSA/PbrMaterialReference.cs
+  - current/decomp/KSA/TextureReference.cs Category, Manifest, DoLoad
+  - current/Content/Core/Textures (stock channel conventions)
+  - current/decomp/KSA/TextureReference.cs (mip generation and KTX path)
+  lifecycle:
+  - startup:asset-load
+  - startup:all-mods-loaded
+  approaches:
+  - n: 1
+    title: Bare GltfFile and PbrMaterial assets, one shared atlas and material for many meshes
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/prop-and-course-asset-xml
+    technique: xml-asset
+    note: 'Props authored in centimetres, course pieces in metres, ModLibrary.Get by id after asset load. Show the XML for
+      a mesh, an opaque material and a translucent ghost material, and the two required-channel gotcha (Diffuse, Normal and
+      AoRoughMetal are dereferenced without a null check, see author-pbr-texture-sets). Also: Twelve course pieces share one
+      texture atlas and one PbrMaterial, and ghost tints reuse every piece glTF with single-colour materials; id naming scheme,
+      PieceCatalogue mapping each piece to its glTF id, chiral pieces as a separate mirrored glTF, and the mip bleed risk
+      that makes atlas dilation matter. Sub-step for the writer: the PBR channel rules (Diffuse, Normal and AoRoughMetal mandatory,
+      R occlusion G roughness B metalness, TextureCategory sets the size cap) get their own section here, absorbed from author-pbr-texture-sets.'
+  - n: 2
+    title: Bake diffuse, normal, ORM and emissive maps from Blender and dilate the atlas
+    mod: ksacars
+    features:
+    - mods/ksacars/features/car-part-assets-glb-pbr
+    - mods/ksacars/features/art-and-audio-pipeline-tooling
+    - mods/unscience/features/parts-now-bundle-validation
+    - mods/ksagolf/features/glb-authoring-and-mesh-checks
+    technique: glb-model
+    note: 'Bake recipes from the ksa-blender skill (diffuse without lighting, metalness routed through emission), ORM channel
+      order, Category Vessel, PNG in every slot, and the validator rule that rejects a material with a missing mandatory channel
+      before it crashes the renderer. Also: dilate-atlas.py --key 0,255,0 over the baked PNGs; run it between bake and export,
+      after the UV layout is frozen; measured numbers on how much of a neighbouring island a margin overwrote. Sub-step for
+      the writer: dilating the atlas between bake and export (absorbed from dilate-baked-texture-atlas) gets its own section
+      so lower mips do not bleed neighbouring islands.'
+  - n: 3
+    title: Generated flat-swatch palette atlas with a JSON swatch map
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/blender-model-pipeline-and-checks
+    technique: palette-atlas
+    note: palette.py writes Diffuse, PBR and Normal PNGs as a 4x4 grid of 128 px swatches plus palette.json with each swatch's
+      UV centre; box-projecting faces into a swatch gives untextured hard-surface parts a full PBR set.
+  - n: 4
+    title: Flat-colour textures emitted by a geometry script
+    mod: ksastructures
+    features:
+    - mods/ksastructures/features/generated-deep-ramp
+    technique: code-generation
+    note: numpy and Pillow write the swatch textures alongside the generated atlas, so the mesh, its UVs and its textures
+      come from one script and cannot drift.
+  related:
+  - asset-xml-element-reference
+  - attach-a-prop-to-a-kitten-bone
+  - draw-mod-meshes-with-the-engine-renderers
+  - export-glb-from-blender-for-ksa
+  - resolve-asset-ids-and-mod-relative-paths
+  - import-glb-models-at-runtime
+  - composite-png-over-stock-texture
+  - paint-vessel-parts-with-custom-colours
+  - find-z-fighting-and-degenerate-uvs-in-glb
+  merged_from:
+  - author-pbr-texture-sets
+  - dilate-baked-texture-atlas
+- slug: add-a-part-model-with-glb-and-pbr-textures
+  title: Add a part's art with its own GLB model and PBR textures
+  kind: howto
+  group: models-and-textures
+  batch: assets-1
+  summary: 'Turn a Blender export into a placeable part: a MeshAtlas for the GLB, a PbrMaterial for its textures, SubPart
+    templates pairing a mesh with a material (PartModel, MeshView preview twin, PartModelGlass windows, mesh-less hidden subparts)
+    and a Part that instances the subparts with Transform positions. Game data (mass, colliders, connectors) is the sibling
+    topic.'
+  game_types:
+  - KSA.PartTemplate
+  - KSA.SubPartTemplate
+  - KSA.PartInstance
+  - KSA.PartModelModule
+  - KSA.PartModelGlassModule
+  - KSA.MeshViewModule
+  - KSA.MeshAtlasFileReference
+  - KSA.PbrMaterialReference
+  - KSA.TransformReference
+  engine_pointers:
+  - current/decomp/KSA/MeshAtlasFileReference.cs DoLoad
+  - current/decomp/KSA/PartModelModule.cs, current/decomp/KSA/PartModelGlassModule.cs, current/decomp/KSA/MeshViewModule.cs
+  - current/decomp/KSA/PartTemplate.cs, current/decomp/KSA/SubPartTemplate.cs
+  - current/Content/Core/CoreFuelTankAAssets.xml (stock MeshView plus PartModel pattern)
+  lifecycle:
+  - startup:asset-load
+  approaches:
+  - n: 1
+    title: One atlas per vehicle, one SubPart per moving body, glass and hidden subparts
+    mod: ksacars
+    features:
+    - mods/ksacars/features/car-part-assets-glb-pbr
+    technique: glb-model
+    note: MeshAtlas registers every glTF mesh by name (first wins, node transforms ignored), AoRoughMetal ORM textures, TextureCategory
+      Vessel, emissive channel for lights, PartModelGlass fixed 0.75 opacity with Fresnel, EditorTag Hidden doors, rotation
+      in radians. Pivot recentring is covered by export-glb-from-blender-for-ksa.
+  - n: 2
+    title: Shared palette atlas, _VM preview twins and namespaced subpart ids
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/weapon-part-definitions-xml
+    - mods/ksarmory/features/blender-model-pipeline-and-checks
+    technique: xml-asset
+    note: Eleven GLB atlases, the three generated parts sharing one flat palette material, MeshView _VM twin declared beside
+      PartModel as Core does, keeping KSArmory_<name>_SubPart apart from atlas mesh names so ids never collide, and the Assets
+      versus GameData file split (game data detail lives in define-a-part-with-game-data).
+  related:
+  - define-a-part-with-game-data
+  - define-and-animate-subparts
+  - evolve-a-shipped-part-without-breaking-saves
+  - export-glb-from-blender-for-ksa
+  - validate-asset-xml-references
+  - declare-gltf-and-pbr-material-assets
+- slug: export-glb-from-blender-for-ksa
+  title: Export or generate a GLB that KSA loads correctly
+  kind: howto
+  group: models-and-textures
+  batch: assets-1
+  summary: 'KSA reads glTF meshes by name and ignores node transforms, so the export must follow a contract: Blender''s Y-up
+    conversion off, part space +X up and +Y forward, transforms applied, node name equal to mesh name, materials always assigned,
+    a _VM twin per subpart and each moving body recentred on its pivot. Includes the authoring loop with a human sign-off
+    before UV unwrapping and a headless preview of the export. Also covers generating the GLB from a script instead: headless
+    Blender primitive builders and a no-Blender numpy glTF writer.'
+  game_types:
+  - KSA.MeshAtlasFileReference
+  - KSA.MeshReference
+  - KSA.Gltf2Reference
+  - Brutal.GltfApi.GltfLoader
+  - KSA.MeshViewModule
+  - KSA.PartModelModule
+  - KSA.StaticObjectTemplate
+  - KSA.StaticSubObjectTemplate
+  engine_pointers:
+  - current/decomp/KSA/MeshAtlasFileReference.cs DoLoad (mesh Id = GltfJson.Meshes[i].Name; transforms never read)
+  - current/decomp/Brutal.GltfApi/GltfLoader.cs
+  - current/Content/Core/Meshes (1054 stock atlas nodes the contract was measured against)
+  - current/decomp/KSA/MeshAtlasFileReference.cs DoLoad
+  - current/decomp/KSA/StaticObjectTemplate.cs
+  lifecycle:
+  - startup:asset-load
+  approaches:
+  - n: 1
+    title: Part-space export for vehicle parts with pivot-centred subparts and headless preview
+    mod: ksacars
+    features:
+    - mods/ksacars/features/art-and-audio-pipeline-tooling
+    - mods/ksacars/features/car-part-assets-glb-pbr
+    technique: glb-model
+    note: 'The ksa-blender skill: Blender over MCP, +X up, +Y forward, +Z car left, bake transforms into vertices, mesh name
+      equals node name, _VM twins, preview-glb.py renders the export from several angles in headless Blender (preview.sh converts
+      paths under WSL).'
+  - n: 2
+    title: Export contract verified against Core's atlases, with human geometry sign-off
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/glb-authoring-and-mesh-checks
+    technique: glb-model
+    note: Authoring loop that stops before unwrapping for a human yes, the contract table with the evidence from Core, props
+      in centimetres versus parts in metres, orphan-mesh purge so Blender does not append .001, never export a primitive without
+      a material.
+  - n: 3
+    title: 'Headless Blender: reframe hand-modelled assets and generate hard-surface parts from primitives'
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/blender-model-pipeline-and-checks
+    technique: headless-blender
+    note: 'import-litening.py reframes an imported model into part space and pivots before export; the same skill document
+      is the single contract for generated and hand-authored atlases. Also: build.sh runs palette.py then Blender (a Windows
+      binary driven from WSL), copies muzzles.json back, installs the GLB and runs checkmesh; validate-parts.py compares XML
+      launch and optic geometry against muzzles.json so the C# profiles cannot drift from the model. Sub-step for the writer:
+      generating geometry from boxes, cylinders and fins with swatch UVs, seeded skin and a muzzles.json report (absorbed
+      from generate-parts-with-headless-blender) gets its own section.'
+  - n: 4
+    title: Write the GLB, textures, collider XML and C# table from one Python layout script (no Blender)
+    mod: ksastructures
+    features:
+    - mods/ksastructures/features/generated-deep-ramp
+    technique: code-generation
+    note: 'Hand-rolled GLB writer, swatch UVs, the generated sloped ramp collider approximated by box colliders only (steps
+      under the slab), XML spliced between begin and end markers, see patch-xml-text-with-anchors-and-markers for the splice
+      technique. Sub-step for the writer: this approach covers the whole no-Blender generation topic (absorbed from generate-glb-without-blender).'
+  related:
+  - find-z-fighting-and-degenerate-uvs-in-glb
+  - declare-gltf-and-pbr-material-assets
+  - add-a-part-model-with-glb-and-pbr-textures
+  - define-and-animate-subparts
+  - redirect-game-xml-loading
+  - place-static-objects-on-a-planet-surface
+  - add-terrain-decals-and-dig-a-site
+  merged_from:
+  - generate-parts-with-headless-blender
+  - generate-glb-without-blender
+- slug: import-glb-models-at-runtime
+  title: Import GLB models and their materials at runtime
+  kind: howto
+  group: models-and-textures
+  batch: assets-1
+  summary: 'Let a player pick any self-contained GLB and turn it into a CPU-only MeshReference without adding it to ModLibrary:
+    a bounded GLB 2.0 parser, scene node and UV transforms baked into vertices, host primitives and material ids set by reflection,
+    and a frozen id made from the absolute path plus a SHA-256 of the contents so saves keep pointing at the same model. Also
+    covers converting glTF PBR materials into the game maps and enumerating the loaded asset registries for pickers.'
+  game_types:
+  - KSA.MeshReference
+  - RenderCore.MeshAsset
+  - KSA.ModLibrary
+  - KSA.SerializedCollection
+  - KSA.Gltf2Reference
+  - KSA.FileReference
+  - Brutal.GltfApi.GltfLoader
+  - Brutal.GltfApi.GltfUtility
+  - Brutal.Collections.NativeStrideList
+  - KSA.TextureReference
+  - RenderCore.SimpleVkTexture
+  - RenderCore.Systems.BindlessTextureLibrary
+  - Brutal.TextureApi.TextureLoader
+  - KSA.Program
+  - Core.Renderer
+  - KSA.TexturePowerReference
+  - KSA.DeviceMeshInterleaved
+  engine_pointers:
+  - current/decomp/KSA/MeshReference.cs HostPrimitives, PrimitiveMaterialIds, Load
+  - current/decomp/Brutal.GltfApi/GltfLoader.cs
+  - current/decomp/KSA/ModLibrary.cs AllMeshes, AllFiles, AllGltfs
+  - current/decomp/KSA/TextureReference.cs BindlessHandle (private setter)
+  - current/decomp/KSA/PbrMaterialReference.cs
+  - current/decomp/RenderCore/SimpleVkTexture.cs
+  - current/decomp/KSA/ModLibrary.cs All* collections, Has<T>, TryGet<T>, Get<T>
+  - current/decomp/KSA/SerializedCollection.cs
+  lifecycle:
+  - frame:draw-ui
+  - frame:dispatch-solvers
+  - frame:prepare
+  approaches:
+  - n: 1
+    title: Own bounded parser, unregistered CPU meshes and path-plus-hash ids
+    mod: unscience
+    features:
+    - mods/unscience/features/pebbles-glb-import
+    technique: glb-model
+    note: GlbDocument and GlbGeometry limits, texture-coordinate transform baking, why meshes stay out of ModLibrary, GlbIdentity
+      freezing library choices to path and content hash (content-hash-asset-identity folded in), and the compatibility report
+      for unsupported glTF features.
+  - n: 2
+    title: CPU bake into native maps and private SimpleVkTextures with reflected bindless handles
+    mod: unscience
+    features:
+    - mods/unscience/features/pebbles-glb-material-conversion
+    technique: vulkan-texture
+    note: 'GlbMaterialReader and GlbPixels bake base colour, metallic-roughness (to R=AO, G=roughness, B=metal), normal and
+      alpha cutout; GPU upload deferred to the pre-GUI hook or the solver-dispatch window; the ordering rules that avoid touching
+      Vulkan from the wrong moment (private-bindless-textures folded in). Sub-step for the writer: this approach covers the
+      whole material-conversion topic (absorbed from convert-gltf-pbr-to-game-materials).'
+  - n: 3
+    title: Reflect ModLibrary registries for pickers and read-only id checks
+    mod: unscience
+    features:
+    - mods/unscience/features/rocky-mcrock-face-asset-catalog
+    - mods/unscience/features/parts-now-bundle-validation
+    technique: reflection
+    note: 'Keeps meshes with retained CPU geometry, textures with a live bindless handle and normal maps, refreshes every
+      2 s until populated, feeds filterable ImGui combos shared between two mods. Also: Registry views over ModLibrary collections
+      and the editor tag lookup used by the validator''s id-collision rule; one place to change when the game renames a field.
+      The unload-side use is in unload-runtime-parts-safely. Sub-step for the writer: enumerating the registries (absorbed
+      from read-the-game-asset-registries) gets its own section.'
+  related:
+  - exclude-or-replace-ground-clutter
+  - build-searchable-lists-and-browsers
+  - grow-game-gpu-buffers-for-runtime-content
+  - draw-mod-meshes-with-the-engine-renderers
+  - declare-gltf-and-pbr-material-assets
+  - upload-an-image-as-a-vulkan-texture
+  - free-vulkan-resources-safely
+  - load-and-unload-part-mods-at-runtime
+  - add-or-restyle-planetary-rings
+  - find-z-fighting-and-degenerate-uvs-in-glb
+  merged_from:
+  - convert-gltf-pbr-to-game-materials
+  - read-the-game-asset-registries
+- slug: composite-png-over-stock-texture
+  title: Composite an image over a stock texture
+  kind: howto
+  group: models-and-textures
+  batch: assets-1
+  summary: Put a user image (a livery, a decal, a logo) on top of a game texture. At runtime the stock texture is resident
+    as compressed BC7, so the pixels must be re-opened from the source KTX2 with an RGBA32 transcode, blended on the CPU with
+    the stock alpha preserved, and uploaded as a new texture. Offline, a script can write a modified copy of the stock texture
+    to ship instead.
+  game_types:
+  - KSA.TextureReference
+  - KSA.GpuTextureSystem
+  - KSA.GpuTextureAssetRef
+  - KSA.AssetManager
+  - Brutal.TextureApi.TextureLoader
+  - Brutal.TextureApi.Abstractions.GenericTexture
+  - RenderCore.TextureAsset
+  engine_pointers:
+  - current/decomp/KSA/TextureReference.cs ModPath, Width, Height
+  - current/decomp/KSA/GpuTextureSystem.cs TryAddTexture
+  - current/decomp/KSA/AssetManager.cs AssetMap (protected, used to release owned entries)
+  - current/decomp/Brutal.TextureApi/TextureLoader.cs LoadFromFile, LoadFromMemory, LoadOptions
+  lifecycle:
+  - frame:draw-ui
+  - event:load
+  - startup:asset-load
+  approaches:
+  - n: 1
+    title: CPU decal blended over a transcoded BC7 canopy albedo, registered with GpuTextureSystem
+    mod: unscience
+    features:
+    - mods/unscience/features/free-fallin-canopy-texture-compositing
+    technique: vulkan-texture
+    note: Re-open TextureReference.ModPath with LoadFromFile into R8G8B8A8UNorm, scale the PNG with nearest sampling, blend
+      into the centre honouring RowPitch, fall back to a flat tintable base when the transcode fails, then TryAddTexture and
+      track ownership so only your own entries are removed (device idle first). Mentions the shared PngLibrary as the source
+      of images.
+  - n: 2
+    title: Offline script writes a modified copy of a stock texture
+    mod: realatmospheres
+    features:
+    - mods/realatmospheres/features/texture-and-phase-asset-scripts
+    technique: texture-pipeline
+    note: make_venus_detail.py reads Core's CloudDetail2048.png from the player's install and writes a lifted copy; the redistribution
+      caveat (derive from the install at launch when the original cannot be shipped) and release-files.txt as the single list
+      of shipped assets.
+  related:
+  - upload-an-image-as-a-vulkan-texture
+  - replace-a-game-texture-at-runtime
+  - build-searchable-lists-and-browsers
+  - customize-parachute-materials-and-limits
+  - declare-gltf-and-pbr-material-assets
+  - define-atmospheres-and-cloud-layers-in-system-xml
+- slug: find-z-fighting-and-degenerate-uvs-in-glb
+  title: 'Check GLB meshes offline: z-fighting, degenerate UVs, names and bounds'
+  kind: howto
+  group: validation
+  batch: assets-1
+  summary: 'Two defects look identical in game (flickering white speckle) and never show in a Blender preview: coplanar faces
+    from different directions, and triangles with zero UV area whose zero tangent turns into NaN shading. Pure Python readers
+    of the GLB binary find both, plus unpaired node and mesh names and primitives without a material, with no Blender and
+    no game, and run in CI and deploy scripts. Also covers reading mesh names and bounds from the GLB JSON chunk in Python
+    and C#.'
+  game_types:
+  - KSA.MeshAtlasFileReference
+  - KSA.MeshReference
+  - Brutal.GltfApi.GltfUtility
+  - Brutal.GltfApi.GltfLoader
+  engine_pointers:
+  - current/decomp/KSA/MeshAtlasFileReference.cs DoLoad
+  - current/decomp/Brutal.GltfApi/GltfUtility.cs
+  lifecycle:
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: checkmesh.py plane bucketing and UV-area test, meshinfo.py bounds, run in CI
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/glb-authoring-and-mesh-checks
+    - mods/ksacars/features/art-and-audio-pipeline-tooling
+    - mods/ksarmory/features/blender-model-pipeline-and-checks
+    technique: offline-asset-validation
+    note: 'Triangles reduced to quantised sign-canonical planes, overlap area measured in 2D, near-parallel faces within 0.3
+      to 4 mm, --near-max 0 in the release job, missing TEXCOORD_0, unmaterialed primitives. Also: List every mesh of Core''s
+      or your own atlas with a bounding box, filtered by name, so parts are laid out against facts; used by build.sh after
+      the headless export. Sub-step for the writer: reading mesh names and POSITION min and max from the GLB JSON chunk (absorbed
+      from read-glb-mesh-names-and-bounds) gets its own section.'
+  - n: 2
+    title: Fingerprint --compare and swept-pose collision checks for moving assemblies
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/blender-model-pipeline-and-checks
+    technique: offline-asset-validation
+    note: Order-independent surface fingerprint because the exporter permutes the index buffer on every rebuild (answers "did
+      my edit change anything"), box skin plus seeded jitter at generation time so abutting faces interpenetrate, and checkswept.py
+      testing convex primitives with SAT through every pose of an articulated mount.
+  - n: 3
+    title: Parse the GLB JSON chunk in C# to validate mesh references
+    mod: unscience
+    features:
+    - mods/unscience/features/parts-now-bundle-validation
+    - mods/unscience/features/rocky-mcrock-face-asset-catalog
+    technique: glb-model
+    note: Mesh names from the JSON chunk feed the rule that a PartModel Mesh Id must exist in a declared atlas; the catalog
+      variant parses glTF headers to pick character meshes.
+  related:
+  - export-glb-from-blender-for-ksa
+  - validate-asset-xml-references
+  - import-glb-models-at-runtime
+  merged_from:
+  - read-glb-mesh-names-and-bounds
+  - check-glb-meshes-for-z-fighting-offline
+- slug: validate-asset-xml-references
+  title: Validate asset XML ids and paths before launching the game (offline)
+  kind: howto
+  group: validation
+  batch: assets-1
+  summary: 'A bad mesh id, a mistyped texture path or a malformed XML file is a silent failure in KSA: the part renders untextured,
+    invisible or not at all, with nothing in the log. An offline script cross-checks every id against the mod''s own files
+    and Core''s library, checks paths with exact case and that the XML is listed in mod.toml, and runs from the deploy script
+    and CI. Also covers deserializing an AssetBundle with the game serializer, without registering it, for rule-based checks.'
+  game_types:
+  - KSA.AssetBundle
+  - KSA.MeshAtlasFileReference
+  - KSA.ModLibrary
+  - KSA.XmlHelper
+  - KSA.XmlLoader
+  - KSA.SerializedId
+  - KSA.PartTemplate
+  - KSA.PhysicalAtmosphereReference
+  - KSA.AtmosphereRenderer
+  engine_pointers:
+  - current/decomp/KSA/Mod.cs LoadAssetBundles (only mod.toml-listed XML is read)
+  - current/decomp/KSA/MeshAtlasFileReference.cs DoLoad
+  - current/decomp/KSA/XmlHelper.cs Serializers, AttributeOverrides
+  - current/decomp/KSA/XmlLoader.cs Load<T>, Deserialize<T> (OnDataLoad only runs in Load)
+  - current/decomp/KSA/AssetBundle.cs OnDataLoad (registers templates)
+  - current/decomp/KSA/ModLibrary.cs
+  - current/Content/Core (shared atlases and ids)
+  - current/decomp/KSA/PhysicalAtmosphereReference.cs
+  - current/Content/Core/Shaders (atmosphere shaders)
+  - current/decomp/KSA/AtmosphereRenderer.cs
+  lifecycle:
+  - frame:draw-ui
+  - startup:asset-load
+  approaches:
+  - n: 1
+    title: check-xml.sh and validate-parts.py with an --offline mode
+    mod: ksacars
+    features:
+    - mods/ksacars/features/art-and-audio-pipeline-tooling
+    - mods/ksagolf/features/glb-authoring-and-mesh-checks
+    technique: offline-asset-validation
+    note: 'Well-formedness, SubPart InstanceOf and Material ids resolving locally or in Core, Mesh ids existing in the declared
+      atlas, case-exact paths, duplicate top-level ids, run in deploy.sh and a pre-push check-all. Also (merged from testing-and-tooling/check-and-generate-mod-assets-offline
+      approach 2, "Id and path validation against Core in an art pipeline"): Borrowed from assets. Also GLB bounds from accessor
+      min/max and atlas dilation. Merged from check-glb-meshes-for-z-fighting-offline (Mesh checkers bundled with a GLB authoring
+      contract): Borrowed from assets. Zero UV-area faces, coplanar z-fighting, unmaterialed primitives and bad asset references.'
+  - n: 2
+    title: Extended checks for generated geometry, ids named in C# and shared planes
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/blender-model-pipeline-and-checks
+    - mods/ksastructures/features/asset-and-mesh-validation-tools
+    technique: offline-asset-validation
+    note: 'XML not listed in mod.toml, ids declared twice including atlas mesh names, launch geometry disagreeing with muzzles.json,
+      planes shared between two subparts as the XML places them, unsized stacking connectors, ids that appear as string constants
+      in the C#, and compiling GLSL with glslang (shaders owns the shader side). Also (merged from testing-and-tooling/check-and-generate-mod-assets-offline
+      approach 1, "validate-parts.py with check-xml.sh" [ksastructures]): Duplicate ids and collisions, mesh names inside
+      GLB atlases, exact-case paths, shared textures, mod.toml assets and ids referenced in C#. Merged from check-glb-meshes-for-z-fighting-offline
+      (checkmesh.py and meshinfo.py): Coplanar bucket test and degenerate UV detection.'
+  - n: 3
+    title: XmlHelper.Serializers lookup, parse only, then pure rules over the object tree
+    mod: unscience
+    features:
+    - mods/unscience/features/parts-now-bundle-validation
+    technique: xml-serializer
+    note: 'BundleParser fetches the AssetBundle serializer from XmlHelper.Serializers, also parses an XDocument with line
+      info, never calls OnDataLoad, and hands the object tree to isolated validation rules; includes the warning that a fresh
+      XmlSerializer(typeof(AssetBundle)) lacks the overrides and silently drops every part component. Sub-step for the writer:
+      deserializing with XmlHelper.Serializers without OnDataLoad (absorbed from deserialize-asset-bundle-with-game-serializer)
+      gets its own section.'
+  related:
+  - load-and-unload-part-mods-at-runtime
+  - find-z-fighting-and-degenerate-uvs-in-glb
+  - add-a-part-model-with-glb-and-pbr-textures
+  - resolve-asset-ids-and-mod-relative-paths
+  - register-custom-xml-asset-type
+  - asset-xml-element-reference
+  - run-repo-checks-from-a-pre-push-hook-and-ci
+  - define-a-part-with-game-data
+  - generate-measured-atmosphere-tables-offline
+  - branch-per-body-inside-shared-game-shaders
+  - check-mod-shaders-offline-with-glslang
+  - define-atmospheres-and-cloud-layers-in-system-xml
+  - take-screenshots-from-code
+  - extend-stock-sky-and-cloud-shaders
+  merged_from:
+  - deserialize-asset-bundle-with-game-serializer
+  - check-and-generate-mod-assets-offline
+  - validate-asset-xml-offline
+  note: 'Approaches merged into other topics: "make_flight_atmospheres.py emitting AtmosphereTables.Generated.cs" -> generate-measured-atmosphere-tables-offline.'
+- slug: debug-xml-patches
+  title: Debug XML patches with the step debugger and the session log
+  kind: howto
+  group: validation
+  batch: assets-1
+  summary: A wrong XPath or an operation that matches nothing fails quietly. A debug key on the KittenExtensions manifest
+    entry opens a pre-game ImGui stepper (Run All, Step, Step Over, Step Out, XPath tester, live document tree) and every
+    run writes a per-mutation log with old and new values.
+  game_types:
+  - KSA.ModLibrary
+  - KSA.ModEntry
+  - KSA.Constants
+  - KSA.Popup
+  - KSA.Program
+  - KSA.ModManifest
+  engine_pointers:
+  - current/decomp/KSA/ModLibrary.cs PrepareAll
+  - current/decomp/KSA/ModEntry.cs
+  - current/decomp/KSA/ModManifest.cs Save
+  - current/decomp/KSA/Constants.cs LogsFolderPath
+  lifecycle:
+  - startup:asset-load
+  - startup:starmap-before-main
+  approaches:
+  - n: 1
+    title: debug = true on the manifest entry opens the stepper
+    mod: kittenextensions
+    features:
+    - mods/kittenextensions/features/patch-debug-stepper
+    technique: xml-patch
+    note: 'Saves the unpatched document to root.xml, blocks startup in a popup before the game loop exists, shows target and
+      source XPath results for each action; how to read a failing patch. Also (merged from testing-and-tooling/debug-xml-patches
+      approach 1, "Step debugger enabled by a debug key in manifest.toml"): Blocks startup in an ImGui popup with Run All,
+      Step, Step Over and Step Out, an action tree with target and source XPath results, an XPath tester and a live document
+      tree; root.xml holds the unpatched document.'
+  - n: 2
+    title: Audit the changes from KittenExtensions.log
+    mod: kittenextensions
+    features:
+    - mods/kittenextensions/features/patch-session-log
+    technique: xml-patch
+    note: 'One line per Set, Insert, InsertText or Remove with old and new value plus per-file summaries; deleted at StarMapBeforeMain
+      and rewritten each launch. Also (merged from testing-and-tooling/debug-xml-patches approach 2, "Per-session patch log
+      subscribed to executor events"): KittenExtensions.log deleted at StarMapBeforeMain, one line per Set, Insert, InsertText
+      or Remove with old and new values, searchable by target file and object; per-file summaries echoed to the game log.'
+  related:
+  - patch-game-xml-data
+  - xpath-xml-patch-recipes
+  - mod-xml-load-order
+  - drive-a-running-game-through-a-file-bridge
+  - redirect-game-xml-loading
+  - write-a-per-mod-log-file
+  - validate-asset-xml-references
+  merged_from:
+  - testing-and-tooling/debug-xml-patches

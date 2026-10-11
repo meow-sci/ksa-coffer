@@ -1,0 +1,5 @@
+# Store per-save mod data next to a KSA save and notice when the player saves history
+
+## 2026-10-10
+* **Creation**: Added [Store per-save mod data next to a KSA save and notice when the player saves](overview.md) (engine background, approach comparison) and 3 how-to articles: [Keep a JSON sidecar inside the save folder and write it when universe.xml changes](save-mod-state-with-the-game-save-1.md), [Write a per-save settings store from a postfix on UncompressedSave.Make](save-mod-state-with-the-game-save-2.md), [Keep TOML in the mod folder keyed by (save id, vehicle id) and rekey it on save-as](save-mod-state-with-the-game-save-3.md). Verified against the decompiled game build 2026.10.10.5554 and the pinned reference repositories.
+* **Update**: Review pass against build 2026.10.10.5554. Added `starmap StarMapAllModsLoaded` to the hooks of approach 3 and turned backticked topic names into links; engine claims (`SaveDirectory.TryReplace` retry policy, `GameSaves.Selected`, `UncompressedSave.Make` and `Write`) re-checked against the decompiled game.

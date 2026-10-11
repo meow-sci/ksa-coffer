@@ -1,0 +1,5 @@
+# Persist mod settings as JSON with System.Text.Json history
+
+## 2026-10-10
+* **Creation**: Added [Persist mod settings as JSON with System.Text.Json](overview.md) (engine background, approach comparison) and 2 how-to articles: [Autosave settings.json by comparing a serialised snapshot every two seconds](persist-mod-settings-as-json-1.md), [Persist a settings object with override-only colors and tuning, saved by a debounced dirty flag](persist-mod-settings-as-json-2.md). Verified against the decompiled game build 2026.10.10.5554 and the pinned reference repositories.
+* **Update**: Review pass. Approach 1 (Kitten Engineer Redux) was hooked through `StarMapAfterGui` in the frontmatter, but the mod draws through Harmony postfixes on `Vehicle.OnDrawUi` and `VehicleEditor.OnDrawUi`; hooks, lifecycle (`frame:draw-ui`, `editor:draw-ui`), the timing paragraph and sources now say so. Approach 2 gained the `Program.DrawFps` postfix hook that Telemetry uses while the HUD is hidden. Backticked topic names turned into links.

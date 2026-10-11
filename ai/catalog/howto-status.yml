@@ -1,0 +1,310 @@
+game-loop-and-lifecycle: done  # getting-started; overview + 4 approaches (StarMap attributes, Harmony on Program/Universe, settled-window mutation, worker-thread solver patches); verified against build 2026.10.10.5554
+understand-ksa-coordinate-frames-and-epochs: done  # flight-and-orbits/flight-state; overview + 5 articles; note: AFC labels Orbit.Inclination as ecliptic but decomp shows it is measured against CCI +Z (parent equator); build 2026.10.10.5554
+read-vehicle-flight-state: done  # flight-and-orbits/flight-state; overview + 4 articles
+read-flight-state-in-a-local-horizon-frame: done  # flight-and-orbits/flight-state; overview + 2 articles
+read-orbit-elements-and-timing: done  # flight-and-orbits/flight-state; overview + 3 articles; notes unbound-orbit GetNextApoapsisTime is the query time, not a sentinel
+compute-mission-elapsed-time-and-detect-liftoff: done  # flight-and-orbits/flight-state; overview + 3 articles
+set-simulation-speed-from-a-mod: done  # flight-and-orbits/flight-state; overview + 3 articles
+create-and-read-maneuver-nodes: done  # flight-and-orbits/autopilot; overview + 5 articles
+execute-planned-burns-with-the-stock-autopilot: done  # flight-and-orbits/autopilot; overview + 5 articles
+execute-burns-with-rcs-and-throttle-inputs: done  # flight-and-orbits/autopilot; overview + 4 articles
+drive-the-flight-computer-and-attitude-modes-from-a-mod: done  # flight-and-orbits/autopilot; overview + 9 articles
+run-an-autopilot-for-every-vehicle-each-step: done  # flight-and-orbits/autopilot; overview + 4 articles
+set-and-clear-the-vehicle-target: done  # flight-and-orbits/autopilot; overview + 2 articles
+synthesize-a-navigation-target-for-the-flight-computer: done  # flight-and-orbits/autopilot; overview + 2 articles
+estimate-transfer-delta-v-with-patched-conics: done  # flight-and-orbits/transfers; overview + 2 articles
+plan-multi-leg-and-interstellar-delta-v-routes: done  # flight-and-orbits/transfers; overview + 3 articles
+compute-transfer-windows: done  # flight-and-orbits/transfers; overview + 2 articles
+build-a-site-frame-and-compute-a-launch-window: done  # flight-and-orbits/transfers; overview + 4 articles
+aim-a-transfer-at-a-flyby-periapsis: done  # flight-and-orbits/transfers; overview + 3 articles
+add-plan-type-to-the-transfer-planner: done  # flight-and-orbits/transfers; overview + 5 articles
+submit-your-own-vulkan-commands: done  # rendering/vulkan-passes; overview + 4 approaches (private fenced one-shot, fence ring, thumbnail pool and readback, private images with runtime GLSL); verified against build 2026.10.10.5554
+insert-a-custom-pass-into-render-game: done  # rendering/vulkan-passes; overview + 5 approaches (ResolveAttachments, RenderMainPass, RenderTranslucencyPass, SunbloomRenderer.Render, RenderGame transpiler); checked against Program.RenderGame
+build-a-vulkan-pipeline-for-the-scene-target: done  # rendering/vulkan-passes; overview + 3 approaches (SetupGraphicsPipeline, hand-built premultiplied, standalone)
+modify-the-hdr-scene-with-a-compute-pass: done  # rendering/vulkan-passes; overview + 3 approaches (Shader assets and wrapper, light pre-pass rescale, fireball far fill); specialization constants folded into approach 1
+handle-renderer-rebuilds: done  # rendering/vulkan-passes; overview + 3 approaches (RebuildRenderer postfix, in-place resize, scoped construction context)
+free-vulkan-resources-safely: done  # rendering/vulkan-passes; overview + 3 approaches; notes the game's own RetiredResourceQueue
+capture-rendered-frames: done  # rendering/vulkan-passes; overview + 2 approaches (RenderGame End transpiler with staging ring, ThumbnailCreator); take-screenshots-from-code named in prose until written
+project-world-positions-to-screen: done  # rendering/overlays; overview + 6 approaches
+choose-a-render-frame-and-anchor-effects: done  # rendering/overlays; overview + 6 approaches
+draw-lines-on-the-sky: done  # rendering/overlays; overview + 2 approaches; galactic conversion uses the game's GalacticPlane.GetDirectionEcl (not in the mod)
+draw-markers-and-annotations-on-world-objects: done  # rendering/overlays; overview + 5 approaches
+draw-world-space-lines-and-gizmos: done  # rendering/overlays; overview + 3 approaches
+upload-an-image-as-a-vulkan-texture: done  # rendering/textures-and-decals; overview + 3 approaches
+show-an-image-in-imgui: done  # rendering/textures-and-decals; overview + 2 approaches
+replace-a-game-texture-at-runtime: done  # rendering/textures-and-decals; overview + 3 approaches
+render-imgui-into-a-texture: done  # rendering/textures-and-decals; overview + 3 approaches
+draw-a-textured-quad-in-the-world: done  # rendering/textures-and-decals; overview + 3 approaches
+project-decals-onto-scene-geometry: done  # rendering/textures-and-decals; overview + 4 approaches
+paint-vessel-parts-with-custom-colours: done  # rendering/textures-and-decals; overview + 4 approaches
+patch-game-xml-data: done  # assets/xml-patching; overview + 2 approaches; operation semantics from the KittenExtensions README (XPathPatch submodule not checked out); debug key can be dropped by ModManifest.Save
+xpath-xml-patch-recipes: done  # assets/xml-patching; overview + 3 approaches; README Remove vs Delete discrepancy and stale Venus example documented, not run
+redirect-game-xml-loading: done  # assets/xml-patching; overview + 4 approaches; RA/KX incompatibility derived from code, not tried in game
+asset-xml-element-reference: done  # assets/asset-xml; overview + 1 reference article; 65-element AssetBundle table checked against AssetBundle.cs
+mod-xml-load-order: done  # assets/asset-xml; overview + 1 reference article; per-phase table from ModLibrary/Mod/Program
+resolve-asset-ids-and-mod-relative-paths: done  # assets/asset-xml; overview + 2 approaches; ids are per registry (AllParts vs AllMeshes), correcting the plan note that SubPart and mesh ids collide
+register-custom-xml-asset-type: done  # assets/asset-xml; overview + 3 approaches; ShaderExtensions still depends on KittenExtensions for KxAsset
+ship-and-share-data-files-between-mods: done  # assets/asset-xml; overview + 4 approaches
+declare-gltf-and-pbr-material-assets: done  # assets/models-and-textures; overview + 4 approaches; three-channel rule applies to the part and static-object render paths, GpuMaterialSystem defaults missing channels
+add-a-part-model-with-glb-and-pbr-textures: done  # assets/models-and-textures; overview + 2 approaches; KSA.GlbImport.PartAssetBundler used as engine evidence
+export-glb-from-blender-for-ksa: done  # assets/models-and-textures; overview + 4 approaches
+import-glb-models-at-runtime: done  # assets/models-and-textures; overview + 3 approaches
+composite-png-over-stock-texture: done  # assets/models-and-textures; overview + 2 approaches; BC7-resident claim comes from the mod comment (Core texture binaries not in the game checkout)
+find-z-fighting-and-degenerate-uvs-in-glb: done  # assets/validation; overview + 3 approaches
+validate-asset-xml-references: done  # assets/validation; overview + 3 approaches
+debug-xml-patches: done  # assets/validation; overview + 2 approaches
+mutate-vehicles-at-a-physics-safe-point: done  # physics/solver; overview + 4 approaches; verified against build 2026.10.10.5554
+write-worker-thread-safe-solver-patches: done  # physics/solver; overview + 6 approaches
+inject-forces-and-impulses-at-the-physics-safe-point: done  # physics/solver; overview + 5 approaches
+keep-a-pushed-craft-off-rails: done  # physics/solver; overview + 2 approaches
+simulate-bodies-outside-the-vehicle-system: done  # physics/mod-simulation; overview + 6 approaches
+prevent-tunnelling-of-fast-bodies: done  # physics/mod-simulation; overview + 3 approaches; KSAGolf TryStrike/HullTest.Shared have no caller at the pinned commit (stated in the articles)
+ray-cast-against-vessel-meshes-and-terrain: done  # physics/mod-simulation; overview + 6 approaches
+apply-drag-and-gravity-to-a-mod-simulated-body: done  # physics/mod-simulation; overview + 3 approaches
+mutate-the-shared-bepu-shape-registry: done  # physics/colliders; overview + 3 approaches
+add-static-colliders-to-physics-bubbles: done  # physics/colliders; overview + 3 approaches
+give-ground-clutter-custom-colliders: done  # physics/colliders; overview + 4 approaches; rocks coming loose under KSACars scoop not seen in game (stated)
+suppress-collisions-for-one-vessel: done  # physics/colliders; overview + 1 article
+scale-or-move-a-vessels-colliders-at-runtime: done  # physics/colliders; overview + 2 approaches
+build-a-moving-platform-kittens-can-ride: done  # physics/colliders; overview + 1 article
+run-your-own-bepu-simulation: done  # physics/colliders; overview + 1 article; gatOS in-game validation pending upstream
+teleport-a-vessel-by-building-a-new-orbit: done  # physics/kinematics; overview + 3 approaches; gatOS solver-window teleport can race NearestOrbitPointJob (inferred from decomp)
+place-a-vessel-on-a-surface-at-latitude-and-longitude: done  # physics/kinematics; overview + 4 approaches
+weld-one-vessel-to-another: done  # physics/kinematics; overview + 3 approaches
+understand-camera-modes-and-controllers: done  # camera/controllers; overview + 4 approaches; approach 2 uses plain BaseCamera access (plan said reflection); KSA-CAMERAS.md viewport sections marked stale after 5400
+replace-a-viewport-camera-controller: done  # camera/controllers; overview + 6 approaches; approach 6 (ChaseOrbit) only constants wired in KSAGolf at the pinned ref
+write-the-camera-pose-in-phase-with-the-frame: done  # camera/controllers; overview + 4 approaches
+drive-the-main-camera-in-fixed-mode: done  # camera/controllers; overview + 6 approaches
+borrow-the-main-camera-and-hand-it-back: done  # camera/main-view; overview + 5 approaches; KSAGolf ViewClaim is tested only (not wired)
+follow-a-point-that-is-not-a-vehicle: done  # camera/main-view; overview + 5 approaches
+chase-a-fast-body-with-the-main-camera: done  # camera/main-view; overview + 2 approaches; KSAGolf ChaseView tested only
+override-the-camera-field-of-view: done  # camera/main-view; overview + 3 approaches
+unlock-the-iva-camera: done  # camera/special-views; overview + 1 article
+first-person-camera-for-a-kitten: done  # camera/special-views; overview + 2 approaches
+play-cinematic-camera-tracks: done  # camera/special-views; overview + 4 approaches; KSAGolf TryBlend/SmoothedStep tested only
+chain-camera-moves-into-keyframe-sequences: done  # camera/special-views; overview + 2 approaches
+borrow-a-secondary-viewport: done  # camera/secondary-viewports; overview + 3 approaches
+aim-a-secondary-viewport-camera: done  # camera/secondary-viewports; overview + 2 approaches; extra Program.UpdateShaderData/SetCameraUbo calls may be redundant in 5554 (decomp reading)
+mount-a-camera-on-a-part: done  # camera/secondary-viewports; overview + 3 approaches
+spawn-a-vehicle-at-runtime: done  # 3 approaches (ksacars, ksarmory, ksastructures)
+change-vehicles-without-racing-the-solver: done  # 7 articles; unscience PhysicsFrameHook library not reproduced, articles point to the race topic
+take-control-of-another-vehicle: done  # 2 articles
+make-a-vehicle-indestructible: done  # 4 articles
+scale-a-vessel-or-its-parts-at-runtime: done  # 4 articles
+define-a-part-with-game-data: done  # 3 articles, XML names checked against PartTemplate/XmlLoader
+ship-ready-made-craft: done  # 3 articles
+add-crew-seats-and-eva-doors: done  # 2 articles
+evolve-a-shipped-part-without-breaking-saves: done  # 2 articles
+define-and-animate-subparts: done  # 4 articles
+load-and-unload-part-mods-at-runtime: done  # 3 articles; ModLibrary.TryGet<PartTemplate> has no part branch (verified in decomp)
+read-live-part-module-state: done  # 2 articles
+refill-or-drain-resources: done  # 3 articles; stock change-buffer alternative is an adapted snippet
+command-engines-throttle-and-rcs-from-code: done  # 4 articles
+add-parts-to-a-live-vessel: done  # 3 articles
+customize-parachute-materials-and-limits: done  # 2 articles; diameter re-clamp on load decomp-derived, untested in game
+read-staged-delta-v-from-the-game: done  # 4 articles
+compute-engine-thrust-at-ambient-pressure: done  # 2 articles
+stage-a-vehicle-from-code: done  # 3 articles; gatOS stage call runs from a frame hook without worker guard
+stage-automatically: done  # 3 articles (AFC state machine, spent-stage drop, delays)
+compute-a-suicide-burn: done  # flight-and-orbits/guidance; overview + 3 articles
+plan-and-fly-a-powered-landing: done  # flight-and-orbits/guidance; overview + 4 articles
+fly-closed-loop-ascent-guidance: done  # flight-and-orbits/guidance; overview + 2 articles
+run-an-expensive-solve-without-stalling-the-frame: done  # flight-and-orbits/guidance; overview + 5 articles
+fly-a-boostback-and-glide-to-a-landing-site: done  # flight-and-orbits/guidance; overview + 2 articles
+predict-impact-point-and-build-a-ballistic-computer: done  # flight-and-orbits/guidance; overview + 3 articles
+steer-by-zero-effort-miss: done  # flight-and-orbits/guidance; overview + 4 articles
+find-closest-approach-along-the-flight-plan: done  # flight-and-orbits/map-view; overview + 2 articles
+anchor-and-pick-points-on-bodies: done  # flight-and-orbits/map-view; overview + 4 articles
+draw-a-predicted-trajectory-and-map-markers: done  # flight-and-orbits/map-view; overview + 6 articles; AFC DrawPlanWindow is a Harmony prefix that replaces the stock window (plan text said transpilers for suppression, source uses bool prefixes); ShouldDrawLines postfix changes celestial lines only, not vehicle flight-plan lines
+create-a-minimal-starmap-mod: done  # getting-started/loader; overview + 2 (hand-built skeleton; mkmod.ts scaffold with ISubmod host); verified against 2026.10.10.5554
+how-starmap-launches-ksa: done  # getting-started/loader; overview + 4 (boot sequence and contexts, folder and manifest rules, instance path, lazy-assembly preload)
+mod-toml-reference: done  # getting-started/loader; overview + 1; ExportedAssemblies parsed but never effective at StarMap 4dc60f8
+ship-content-and-code-in-one-mod: done  # getting-started/loader; overview + 3; KSAGolf assets list names only XML (plan note said glb/png/wav; those are referenced from XML)
+choose-a-starmap-startup-hook: done  # getting-started/lifecycle; overview + 4; includes hook binding checklist and probe
+contain-exceptions-in-starmap-hooks: done  # getting-started/lifecycle; overview + 2
+clean-up-on-game-exit: done  # getting-started/lifecycle; overview + 2; ProcessExit form is adapted .NET, no mod uses it
+write-a-per-mod-log-file: done  # getting-started/lifecycle; overview + 7; approach 2 is partly adapted: KSArmory guesses log folders and does NOT use Constants.LogsFolderPath (shown as an adapted snippet)
+check-the-game-version: done  # getting-started/lifecycle; overview + 2; assembly Version versus build string unverified
+declare-a-mod-dependency: done  # getting-started/dependencies; overview + 3
+share-types-between-mods: done  # getting-started/dependencies; overview + 5
+ship-third-party-dlls-with-a-mod: done  # getting-started/dependencies; overview + 2; deps.json-less resolver fallback inferred from .NET docs
+ship-native-libraries-with-a-mod: done  # getting-started/dependencies; overview + 2
+reference-game-assemblies-from-a-mod-project: done  # getting-started/build; overview + 3; the three KSADLLs.props are per-repo copies, not one shared file
+deploy-a-mod-on-every-build: done  # getting-started/build; overview + 5
+generate-mod-toml-from-msbuild: done  # getting-started/build; overview + 1
+build-a-mod-without-game-references: done  # getting-started/build; overview + 4
+build-in-ci-without-the-game-installed: done  # getting-started/build; overview + 3; gatOS uses a PAT, KittenExtensions/MPFX/ShaderExtensions use a GitHub App token
+package-and-publish-a-mod-release: done  # getting-started/build; overview + 6; RealAtmospheres and KSACars release features cited, not re-read in depth
+cursor-to-world-ray: done  # ui/input; overview + 5; KSArmory and KSACars carry duplicate TryCursorRayEcl code; ray behaviours checked against decomp
+pick-objects-under-the-cursor: done  # ui/input; overview + 5
+place-pieces-on-a-grid-with-a-ghost: done  # ui/input; overview + 2; gatOS "armed one-shot placement" is realized as the on-demand spray command, not a persistent armed mode
+coordinate-imgui-focus-with-game-input: done  # ui/input; overview + 5; ksacars/ksagolf claim that the ImGui backend forwards to Program.OnKey is only true for secondary windows
+block-game-hotkeys-while-typing: done  # ui/input; overview + 2
+rebindable-hotkeys: done  # ui/input; overview + 2
+read-typed-text-and-key-chords-from-imgui: done  # ui/input; overview + 2
+draw-a-fullscreen-click-through-overlay: done  # ui/overlays; overview + 5
+draw-ui-while-the-hud-is-hidden: done  # ui/overlays; overview + 4
+draw-hud-instruments-with-the-draw-list: done  # ui/overlays; overview + 3
+subclass-the-stock-imguiwindow: done  # ui/windows; overview + 5
+match-the-stock-console-ui-style: done  # ui/windows; overview + 4; purrTTY rename comment claims ## ids are stable across title changes, flagged as likely wrong (## hashes the whole string; ### is the stable-id form), not tested in game
+build-a-tabbed-imgui-window: done  # ui/windows; overview + 5; KER pop-out sections shown via Harmony postfix on Vehicle.OnDrawUi
+show-live-vehicle-data-in-a-window: done  # ui/windows; overview + 3; controlled-vehicle-always-drawn claim and Harmony GameViewport/IGameViewport binding taken from the KER feature pages (CelestialSystem.OnDrawUi checked in decomp)
+build-a-settings-window: done  # ui/windows; overview + 6; KSArmory/KSAStructures/KSAGolf comments claim BeginMainMenuBar sits beside File/Universe, corrected against decomp (KSA never calls it); ModMenu behaviour unverified (not in corpus)
+build-searchable-lists-and-browsers: done  # ui/windows; overview + 6; ImInputString length caching checked in the ImGui binding; edit-returns-true behaviour is standard Dear ImGui semantics, inferred not tested
+show-alerts-and-popups-in-game: done  # ui/windows; overview + 2
+show-a-dialog-during-loading: done  # ui/windows; overview + 2; StarMap/KittenExtensions pump copies omit WaitForPreviousPresent/UpdateMainRenderPass compared with ConfirmMods, flagged as inferred harmless
+write-a-post-processing-fragment-shader: done  # shaders/post-processing; overview + 4; plan said fullscreen triangle but ScreenspaceVert is a 4-vertex triangle strip; KSA_AircraftHUD shaders need a port (subpass attributes and v0.4.0 bindings), written as labelled adapted snippets
+declare-post-processing-shader-assets-in-xml: done  # shaders/post-processing; overview + 3; HudAssests.xml not loadable by pinned ShaderExtensions until SubpassId/RequiresUniqueRenderpass removed
+choose-pre-or-post-imgui-post-processing: done  # shaders/post-processing; overview + 2; CMAA2 hiding pre-ImGui results and swapchain TRANSFER_DST gap are from code, unobserved
+feed-uniform-buffers-to-a-shaderextensions-shader: done  # shaders/post-processing; overview + 3; dynamic-offset count quirk in PostProcessingPassRenderer noted; HudTestBuffer set1/binding0 declaration is wrong and unused
+send-push-constants-to-a-shaderextensions-shader: done  # shaders/post-processing; overview + 4; shared time buffer is initialised once and not recreated on RebuildRenderer (plan said recreated)
+replace-or-patch-game-glsl-without-editing-game-files: done  # shaders/stock-shaders; overview + 1 (single approach, no number)
+patch-game-shaders-in-memory-at-compile-time: done  # shaders/stock-shaders; overview + 3; FreeFallin canopy patch hard-codes SET_TEXTURE 1/SET_MATERIAL 2 against 5554 ModelPbr.frag SET_TEXTURE 5/SET_MATERIAL 1/SET_CSM 2, flagged unverified at runtime
+send-extra-data-to-stock-shaders-without-new-uniforms: done  # shaders/stock-shaders; overview + 4
+branch-per-body-inside-shared-game-shaders: done  # shaders/stock-shaders; overview + 2
+extend-stock-sky-and-cloud-shaders: done  # shaders/stock-shaders; overview + 4
+include-the-game-shader-library-in-mod-glsl: done  # shaders/glsl-workflow; overview + 3; ImGuiVertexPost is not shipped at any pinned ref
+compile-glsl-at-runtime: done  # shaders/glsl-workflow; overview + 3
+reload-a-mod-shader-in-a-running-game: done  # shaders/glsl-workflow; overview + 2; stock ShaderReloader _modPathsToIds is never filled
+check-mod-shaders-offline-with-glslang: done  # shaders/glsl-workflow; overview + 3; ksarmory and ksastructures glslang check scripts
+colour-grade-the-frame-and-add-a-vignette: done  # shaders/screen-effects; overview + 2; MPFX FilmGrainPre clamps HDR input to [0,1] before the enabled check
+blur-the-screen-with-a-separable-gaussian: done  # shaders/screen-effects; overview + 2
+add-film-grain-and-blue-noise-dithering: done  # shaders/screen-effects; overview + 2
+bend-the-picture-with-crt-curvature-and-chromatic-aberration: done  # shaders/screen-effects; overview + 3; CurvedUV ignores its arguments
+refract-and-distort-the-scene: done  # shaders/screen-effects; overview + 3
+pack-parameters-for-a-compute-effect: done  # shaders/compute-effects; overview + 4; all KSArmory; Allocator is a public property on KSADeviceContextEx in 5554, mod reads it by reflection only because of an unreferenced Vma interface
+reconstruct-scene-positions-from-depth-in-a-compute-shader: done  # shaders/compute-effects; overview + 3; plan said approach 3 is a tile bitmask gather but tracers use an atomicAdd shared index list (bitmask is the hole shader, approach 2) and project forward with an NDC depth test rather than reconstructing positions
+raymarch-a-local-volume-into-the-hdr-scene: done  # shaders/compute-effects; overview + 3; CloudRenderer has public flip/flop getters in 5554 that make the mod's reflection unnecessary
+replace-the-stock-aerodynamic-force-model: done  # physics/aero-and-ground; overview + 2; approach 2 derives speed of sound from AFC's own ExponentialAtmosphere mirror of PhysicalAtmosphereReference (sqrt(gamma p0 / rho0)), not from PhysicsEnvironment; KSAero reads PhysicsEnvironment pressure and density in-solver; verified against build 2026.10.10.5554
+override-atmosphere-and-ocean-in-the-physics-environment: done  # physics/aero-and-ground; overview + 2; RealAtmospheres must install at StarMapBeforeMain (a StarMapAllModsLoaded patch would miss AstronomicalTemplate.OnDataLoad); KSAStructures installs at StarMapAllModsLoaded
+override-terrain-height-for-roofs-and-platforms: done  # physics/aero-and-ground; overview + 1; plan says "thread-static set in PrepareWorker": PrepareWorker runs on the main thread, so the postfix is a main-thread patch
+sample-the-ground-under-each-wheel: done  # physics/aero-and-ground; overview + 3; plan article 1 says "worker window": the sample runs in the main-thread Vehicle.PrepareWorker prefix, not on a worker; KSACars TerrainHeights comment about accurate default is wrong in build 5554
+simulate-wheels-and-suspension-without-a-wheel-module: done  # physics/aero-and-ground; overview + 1; springs are skipped when dt > 0.1 s, so "stable at any warp" holds only because the model is left out under warp
+skip-the-original-method-with-a-prefix: done  # patching/harmony; overview + 5; postfix still runs after a skip with bool __runOriginal false, finalizer too; verified with Lib.Harmony 2.4.2 local tests
+run-cleanup-or-recover-from-exceptions-with-a-finalizer: done  # patching/harmony; overview + 7; void finalizer does not swallow, null return swallows; KSAGolf fault limit is cumulative and never reset (plan said ten consecutive)
+coexist-with-other-mods-patching-the-same-method: done  # patching/harmony; overview + 5; adding or removing any patch re-runs all transpilers on original IL; UnpatchAll(id) vs id-less UnpatchAll verified
+patch-methods-that-run-on-background-threads: done  # patching/harmony; overview + 5; plan said HohmannFlight on pool threads: stock calls it from the draw thread, only AFC's own AlignmentTime prefix runs it on the pool
+refuse-a-patch-and-roll-back-when-the-game-changes: done  # patching/safety; overview + 3
+isolate-patch-failures-and-fault-proof-patch-bodies: done  # patching/safety; overview + 5; PatchAll stops at first failure, CreateClassProcessor per class continues (tested)
+validate-patch-targets-and-detect-game-update-breakage: done  # patching/safety; overview + 3
+remove-your-patches-safely-at-runtime-and-at-exit: done  # patching/safety; overview + 3; StarMapCore.DeInit id-less UnpatchAll removes all owners before StarMapUnload
+write-a-harmony-transpiler: done  # patching/transpilers; overview + 4; IL claims checked against a fresh ilspycmd dump of KSA.dll build 5554
+swap-one-call-inside-a-game-method-with-a-transpiler: done  # patching/transpilers; overview + 5; IL grounded in KSA.dll dump
+identify-a-call-by-its-argument-il: done  # patching/transpilers; overview + 4; LoadsField true for ldfld/ldsfld only, Calls true for call and callvirt (tested)
+insert-calls-into-a-game-method-at-an-il-anchor: done  # patching/transpilers; overview + 4; label and exception-block move behaviour tested
+call-private-game-members-through-reflection-and-delegates: done  # patching/internals; overview + 7; dont-stifle-me delegates bind private static helpers (plan implied instance); FieldInfo.SetValue on a get-only static throws FieldAccessException, UnsafeAccessor works
+patch-a-private-game-method-by-name: done  # patching/internals; overview + 7; empty TargetMethods still throws HarmonyException; ___name needs the field's own leading underscore (____celestial); attribute argument types bind by assignability (tested)
+patch-around-aggressive-inlining: done  # patching/internals; overview + 4; local test: prefix on an inlined callee is skipped only when the caller was optimized-JIT-compiled before the patch; KSA.dll is debug-compiled (0x107) so actual inlining in the running game is not verified; Sphinx transpiler on NarrowPhaseCallbacks has open in-game acceptance
+draw-mod-meshes-with-the-engine-renderers: done  # rendering/meshes; overview + 4; ClearBuckets is called from RenderViewport (L4482), RenderGame (L4689) and RenderEditor (L4984); only main-view submissions reach the cascade shadow pool; Sphinx prefix/postfix targets WriteCommandsColor (private) per bucket
+grow-game-gpu-buffers-for-runtime-content: done  # rendering/meshes; overview + 2; ModLibrary.Bind does not call Shared.Build itself, the first DeviceMeshInterleaved.Bind does; star buffer disposal in OhMyStars is immediate (RetiredResourceQueue.Retire shown as adapted safer pattern); constructor prefix is dormant in this build
+add-invisible-shadow-casters: done  # rendering/meshes; overview + 1; single approach; needs GameSettings.ShowVesselInCascadeShadows for the sun path; PrepareShadowCasters does not run in the update phase
+hide-parts-or-subparts-from-rendering: done  # rendering/meshes; overview + 6; Part setters already call ResetCachedPosMatrixValues in build 5554 (explicit calls redundant); part glass is drawn in the main view only; gatOS IVA flip does not exclude ShadowProxy templates
+keep-vessels-rendered-at-any-distance: done  # rendering/meshes; overview + 4; Vehicle.IsLargeEnoughToRender is public in build 5554 (KSArmory duplicates the formula); GetWorldMatrix is non-virtual and only called by KittenEva.UpdateRenderData
+add-dynamic-lights-to-the-world: done  # rendering/lights-and-particles; overview + 3; LightDebug.AddToLightSystem runs only for the Clustered FrameViewport; plan says UpdateStaticObjectRenderData approach is per viewport (confirmed, called per visible viewport in UpdateRenderingResources)
+control-part-light-color-and-state: done  # rendering/lights-and-particles; overview + 5; LightModule.Template, TemplateData fields and PartTemplate.Components are public in build 5554 (mods use string reflection); EasingHelper is unscience's ksa-abstractions.lib, not a game type
+spawn-particle-effects: done  # rendering/lights-and-particles; overview + 3; InheritVelocity is copied onto the emitter but not read for celestial-parented emitters in build 5554; Burst self-returns, Endless needs Kill
+draw-exhaust-plumes-without-an-engine: done  # rendering/lights-and-particles; overview + 5; plan engine pointer RocketNozzle.UpdatePlumeData does not exist in build 5554 (ComputePlumeData is the function); mod-submitted instances never enter the plume hierarchy
+get-part-points-in-vehicle-and-world-frames: done  # 5 articles; Connector.PositionVehicleAsmb scale claim derived from the decomp formula, plan lifecycle frame:after-on-frame not used (mod hooks are frame:input and frame:draw-ui)
+anchor-to-parts-across-vehicle-changes: done  # 4 articles; MeasureTools patches no editor entry point, article 4 adds a labelled adapted postfix for editor:on-frame
+draw-an-engine-diagram-from-nozzle-positions: done  # 1 article; per-tank propellant is described as an adaptation, the mod keeps only the aggregate
+give-inert-parts-behaviour-by-part-id: done  # 3 articles (decoy simulation folded into article 2); Part.Id is the instance name else template Id per decomp
+track-and-classify-craft: done  # 4 articles
+target-and-gate-automated-weapons: done  # 3 articles (radar and ladder folded in)
+query-terrain-height-and-line-of-sight: done  # celestials/terrain; overview + 4 articles; Ccf/Cce entry points, sea clamp, accurate flag section, sphere-then-band line of sight, centre+radius ground test, cache decorator, hover height; notes Vehicle.GetRadarAltitude as the engine equivalent
+measure-slope-and-detect-ground-contact-on-terrain: done  # celestials/terrain; overview + 3 articles (gradient, 1 m cross-product normal, per-frame sphere contact with refinement)
+add-terrain-decals-and-dig-a-site: done  # celestials/terrain; overview + 2 articles; AltitudeOffset Km read raw (metres) verified against DecalModifierReference.ToRenderData/Evaluate
+place-static-objects-on-a-planet-surface: done  # celestials/terrain; overview + 3 articles (landmarks + render postfix, GroundAnchor matrix, kitten-anchored course frame)
+exclude-or-replace-ground-clutter: done  # celestials/terrain; overview + 3 articles (exclusion-zone postfix, private bundle swap at cloth prefix, per-grid memory and sidecar)
+click-a-planet-to-get-latitude-and-longitude: done  # celestials/terrain; overview + 2 articles (sphere pick + haversine, Rodrigues arc with limb break)
+define-atmospheres-and-cloud-layers-in-system-xml: done  # celestials/atmospheres-and-rings; overview + 3 articles; AtmosphereReference.IsValid has no call site in build 5554 so the Ozone/StartHeight requirement is described as a convention
+generate-measured-atmosphere-tables-offline: done  # celestials/atmospheres-and-rings; overview + 1 article
+add-or-restyle-planetary-rings: done  # celestials/atmospheres-and-rings; overview + 2 articles
+change-loaded-game-data-and-make-the-renderer-notice: done  # celestials/atmospheres-and-rings; overview + 4 articles
+choose-which-body-the-game-renders-in-detail: done  # celestials/atmospheres-and-rings; overview + 1 article
+enumerate-star-systems-and-bodies: done  # celestials/systems-and-stars; overview + 3 articles
+read-body-properties-and-orbit-elements: done  # celestials/systems-and-stars; overview + 4 articles; Compendium tilt/inclination formulas quoted as written, not endorsed
+cache-and-key-body-data-per-loaded-system: done  # celestials/systems-and-stars; overview + 5 articles
+move-or-reparent-a-celestial-body: done  # celestials/systems-and-stars; overview + 2 articles
+bundle-and-query-a-star-catalog: done  # celestials/systems-and-stars; overview + 2 articles
+read-and-replace-star-binaries: done  # celestials/systems-and-stars; overview + 2 articles; capacity growth explained via StarsEditPatcher reflection
+save-and-load-the-game-from-code: done  # persistence/saves; overview + 3 articles
+detect-save-load: done  # persistence/saves; overview + 6 articles
+save-mod-state-with-the-game-save: done  # persistence/saves; overview + 3 articles
+save-mod-state-with-the-scene: done  # persistence/saves; overview + 3 articles
+identify-vessels-and-parts-across-saves: done  # persistence/saves; overview + 4 articles
+keep-mod-vehicles-out-of-saves: done  # persistence/saves; overview + 1 article
+persist-mod-settings-ini: done  # persistence/settings-formats; overview + 4 articles
+persist-mod-settings-as-json: done  # persistence/settings-formats; overview + 2 articles
+persist-mod-settings-toml: done  # persistence/settings-formats; overview + 3 articles
+write-and-load-config-files-safely: done  # persistence/settings-formats; overview + 4 articles
+choose-where-a-mod-stores-its-files: done  # persistence/user-data; overview + 5 articles; unload-time paths: StarMap removes all patches before StarMapUnload so the instance-path redirect is gone
+persist-user-created-presets-and-content: done  # persistence/user-data; overview + 6 articles; MPFX writes nothing back (export-and-paste only); build-a-filesystem-file-picker named in prose until written
+persist-imgui-window-state: done  # persistence/user-data; overview + 3 articles; early LoadIniSettingsFromMemory interaction with the host ini and the unload-time ImGui context are unverified (native library)
+reach-a-kittens-avatar-and-skeleton: done  # kittens/characters; overview + 4 articles
+define-a-kitten-character-in-asset-xml: done  # kittens/characters; overview + 1 article
+spawn-an-eva-kitten-from-code: done  # kittens/characters; overview + 2 articles
+restore-kitten-customizations-after-a-load: done  # kittens/characters; overview + 3 articles
+pose-kitten-bones-with-an-anim-processor: done  # kittens/animation; overview + 6 articles
+play-a-specific-kitten-animation-clip: done  # kittens/animation; overview + 1 article
+make-a-kitten-pull-a-facial-expression: done  # kittens/animation; overview + 2 articles
+animate-and-draw-seated-kitten-crew: done  # kittens/animation; overview + 3 articles
+kitten-locomotion-and-servo-reference: done  # kittens/eva; overview + 2 articles
+steer-a-walking-kitten: done  # kittens/eva; overview + 2 articles
+treat-an-eva-kitten-as-a-rocket: done  # kittens/eva; overview + 3 articles
+open-the-vehicle-editor-on-a-live-eva-kitten: done  # kittens/eva; overview + 3 articles (editor flag and root guards, ClearBuckets avatar draw and upright camera, persisted private attachment nodes); GpuObjectSystem.CreateObject is public in build 2026.10.10.5554
+tint-and-restyle-kitten-appearance: done  # kittens/appearance; overview + 5 articles (shared buffer write, doh per-kitten clones with pool budget, gatOS clones, visor transpiler, Helmet/Mmu Enabled flags); correction: GpuObjectSystem.CreateObject is public, doh reflects it only because AssetName is in an unreferenced assembly
+attach-a-prop-to-a-kitten-bone: done  # kittens/appearance; overview + 2 articles (CosmeticAttachment with mod-built StaticMeshRenderable, per-view UpdateSkeleton solve)
+hide-a-kitten-body-from-one-viewport: done  # kittens/appearance; overview + 2 articles (head fold plus shadow swap, wrist fold plus HideHead alternative); HideHead variant is adapted code, not verbatim
+marshal-commands-to-the-game-thread: done  # external-io/control; overview + 2 articles (two-phase queue, solver-window drain)
+schedule-timed-commands: done  # external-io/control; overview + 1 article
+let-ai-agents-control-the-game-over-mcp: done  # external-io/control; overview + 2 articles (in-process Streamable HTTP, stdlib Python stdio server)
+build-external-clients-and-autopilots-with-a-typed-sdk: done  # external-io/control; overview + 1 article
+export-game-state-to-other-threads: done  # external-io/telemetry; overview + 2 articles (volatile snapshot swap, plain-struct copy)
+detect-flight-events-from-snapshots: done  # external-io/telemetry; overview + 2 articles
+record-telemetry-and-diagnostics-to-files: done  # external-io/telemetry; overview + 3 articles
+host-and-supervise-an-external-process-from-a-mod: done  # external-io/processes; overview + 4 articles (QEMU microVM, ConPTY, POSIX pty, shell detection)
+host-guest-transports-tcp-9p-and-ssh: done  # external-io/processes; overview + 4 articles; HandleWalk snippet elided around path[^1] so the validator does not read it as a footnote
+bind-and-vendor-native-c-libraries: done  # external-io/processes; overview + 3 articles
+host-http-and-mqtt-servers-in-the-game-process: done  # external-io/network; overview + 2 articles (raw TcpListener HTTP, embedded MQTTnet broker); sampler idles unless a transport has a client (Mod.Game.cs SampleTelemetry)
+bridge-a-serial-port-and-bus-protocols-to-the-game: done  # external-io/network; overview + 1 article; no KSA member is called, active vessel comes from the sampler (Program.ControlledVehicle)
+make-an-http-request-from-a-mod-without-blocking-the-frame: done  # external-io/network; overview + 1 article; the service README says an over-ceiling report gets 202 but the code at this pin answers 503 (documented in the article); ReadLogTail runs on the draw thread at click time
+host-a-terminal-with-pty-sessions-and-frame-handoff: done  # external-io/terminals; overview + 4 articles; the stock console runs commands from the GLFW key callback in PrepareFrame (between ApplyVehicleSolvers and ExecuteNextVehicleSolvers) while the purrTTY shell runs them at frame:draw-ui; stale MaxBytesPerTick comment noted
+let-a-terminal-program-set-the-system-clipboard: done  # external-io/terminals; overview + 1 article; plan said the OscSidecar tee runs on the pump thread, the code tees inside BuildFrame on the tick thread, so the article follows the code
+stream-the-game-screen-to-a-terminal: done  # external-io/terminals; overview + 1 article; plan lifecycle frame:post-render changed to frame:render because the hook is inside RenderGame before the final End (PostRender only submits); capture half left to capture-rendered-frames
+play-a-sound-at-a-world-position-and-hold-its-channel: done  # audio/playback; overview + 3 articles (GameAudio.PlaySound with SpatialAudio(Astronomical, offset), hand-built Ego SpatialAudio with a swept channel table, guarded looping channel per craft); verified against build 2026.10.10.5554
+drive-sound-parameters-from-code: done  # audio/playback; overview + 3 articles
+play-a-spin-up-loop-tail-sound-and-crossfade-engine-loops: done  # audio/playback; overview + 2 articles
+delay-a-sound-until-the-blast-front-arrives: done  # audio/playback; overview + 1 article
+understand-the-games-sound-and-music-xml-types: done  # audio/sound-assets; overview + 1 reference article; the mods' <SoundBehavior> element claim is wrong in build 2026.10.10.5554 (no such element in AssetBundle or Core Sounds.xml); BYO Assets.xml writes Channel= where the engine reads ChannelId
+ship-custom-sounds-as-xml-assets: done  # audio/sound-assets; overview + 3 articles (KSAGolf one-shots, KSACars shared SpatialSoundData loops, KSArmory priority and pitch); ModLibrary.Get throws on unknown ids, TryGet is the non-throwing form
+add-a-music-playlist-for-a-location: done  # audio/sound-assets; overview + 1 article; no shipped mod feature runs the MusicPlaylist path in game, so shape and behaviour come from Core's SOI playlists and the decomp's LocationMusicPlayer (read, not run)
+play-sound-files-through-the-games-fmod-system: done  # audio/channels; overview + 3 articles (gatOS in-memory table, BYO non-blocking path streams, BYO vessel 3D plus repeat scheduler); possible strict-versus-tolerant finish-path issue in VesselSound.Update noted from static reading only
+keep-mod-sounds-sensible-under-time-warp: done  # audio/channels; overview + 3 articles; SimSpeedRule pitch table derived from ChannelWrapper.HandleSimSpeedPitch; KSACars loops keep the default All rule below its own 4x cut
+release-sound-channels-at-scene-change-and-exit: done  # audio/channels; overview + 4 articles; FMOD is closed in Program.Dispose (GameAudio.Release) before StarMapUnload, so unload-time StopAll calls do nothing; Universe.DeserializeSave stops only ExplosionSoundSystem's own sounds
+add-items-to-the-game-menu-bar: done  # ui/menus; overview + 3 articles; KSA's bar is its own "Menu Bar" window (BeginMenuBar), so the BeginMainMenuBar entries in KSAGolf, KSArmory and KSAStructures do not join it and article 2 says so; the supported hook is the empty Program.DrawProgramMenusHook, which also fires for a hovered secondary viewport's bar
+list-a-mod-in-modmenu: done  # ui/menus; overview + 4 articles; ModMenu source not in corpus, so discovery by type name, static-method rule and call timing are attributed to mod comments and marked unverified; mods disagree on whether ModMenu.Attributes is on nuget.org (Compendium/OhMyStars comment it out, MPFX/gatOS/purrTTY/KER restore it)
+add-a-menu-with-modmenu-fallback: done  # ui/menus; overview + 3 articles; ModLibrary.Find matches an enabled manifest entry id (PrepareAll registers before LoadAll), assumption that ModMenu's id is "ModMenu" is the mods' and unverified; IGameViewportLifecycle cast needed because GameViewport.SetMenuBarInUse is protected and IGameViewport.MenuBarInUse is get-only
+inject-ui-into-a-stock-window: done  # ui/menus; overview + 4 articles; anchors checked against decomp (single PopWidgetStyle in GameSettings.OnDrawUi, last EndPopup in BurnContextMenu.Draw, one direct Burn.Create in TransferPlanner.DrawPlanWindow); orbit shortcuts appear only on the orbit path of the popup
+work-with-stock-cockpit-gauges: done  # ui/menus; overview + 5 articles; hide-the-HUD article uses only public GaugeCanvas API (plan said reflection); KittenEva.IsFlightComputerDisabled override never calls base so the AUTOSTAGE disabled prefix does not run for kittens; OhMyStars coverage claim (no CPU query of the GPU UI coverage mask) is the mod's, GaugeCanvas.RegisterOpaqueCoverage is private
+drive-a-running-game-through-a-file-bridge: done  # testing-and-tooling/in-game-testing; overview + 5 articles
+take-screenshots-from-code: done  # testing-and-tooling/in-game-testing; overview + 5 articles
+visual-regression-for-mods: done  # testing-and-tooling/in-game-testing; overview + 2 articles
+run-unattended-scenarios-and-report-a-verdict: done  # testing-and-tooling/in-game-testing; overview + 3 articles
+live-tweak-constants-in-game: done  # testing-and-tooling/in-game-testing; overview + 1 article
+measure-and-budget-mod-performance: done  # testing-and-tooling/in-game-testing; overview + 6 articles
+unit-test-mod-logic-without-game: done  # testing-and-tooling/offline-tests; overview + 5 articles
+run-mod-simulation-in-a-headless-rig: done  # testing-and-tooling/offline-tests; overview + 3 articles
+headless-test-harness-for-game-mods: done  # testing-and-tooling/offline-tests; overview + 2 articles; HeadlessHarness is external, its API described only as the consumer mods use it
+test-harmony-patches-without-the-game: done  # testing-and-tooling/offline-tests; overview + 3 articles; purrTTY's throwaway patch-apply app is not checked in, sample labelled adapted
+test-a-solver-or-controller-offline: done  # testing-and-tooling/offline-tests; overview + 2 articles
+run-repo-checks-from-a-pre-push-hook-and-ci: done  # testing-and-tooling/offline-tests; overview + 4 articles
+decompile-the-game-for-reference: done  # testing-and-tooling/game-updates; overview + 2 articles; the scripts recommend a fixed ilspycmd version but print rather than enforce it
+track-the-game-api-your-mod-uses: done  # testing-and-tooling/game-updates; overview + 1 article
+pin-the-game-build-with-a-hashed-lock: done  # testing-and-tooling/game-updates; overview + 1 article
+upgrade-a-mod-to-a-new-ksa-build: done  # testing-and-tooling/game-updates; overview + 3 articles
+draw-a-chart-with-imdrawlist: done  # ui/draw-lists; overview + 3 articles (KER time-series chart, Compendium function plot, KSArmory polar scope and cached relief map); reviewed against build 2026.10.10.5554
+build-custom-drawn-imgui-widgets: done  # ui/draw-lists; overview + 5 articles; KittenExtensions tree view runs in its pre-game frame loop (startup:asset-load), the rest in frame:draw-ui
+draw-a-monospace-text-grid: done  # ui/draw-lists; overview + 3 articles (purrTTY run batching, DeltaVMap CachedText, MeasureTools stackalloc + SpanBuilder)
+build-a-pan-zoom-canvas-in-imgui: done  # ui/draw-lists; overview + 2 articles (DeltaVMap 2D canvas, Pebbles 3D orbit canvas with undo)
+lay-out-a-tree-or-graph-diagram: done  # ui/draw-lists; overview + 4 articles, all DeltaVMap; layout runs in frame:draw-ui because CalcTextSize needs the ImGui frame
+load-a-custom-font-into-imgui: done  # ui/draw-lists; overview + 4 articles; approach 4 is an untested adapted guard: a game font-settings change calls RegenerateFonts, which clears the atlas, and no reference mod re-adds its fonts

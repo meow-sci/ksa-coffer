@@ -1,0 +1,5 @@
+# Extend KSA's sky and cloud shaders: per-pixel haze and cloud lighting fixes history
+
+## 2026-10-10
+* **Creation**: Added [Extend KSA's sky and cloud shaders: per-pixel haze and cloud lighting fixes](overview.md) (4 approaches): [Extend the sky shader: a per-pixel raymarch inserted into Atmosphere.comp and blended by tangent altitude](extend-stock-sky-and-cloud-shaders-1.md), [Fix cloud lighting: light a thick raymarch step at its first optical depth by bisection](extend-stock-sky-and-cloud-shaders-2.md), [Fix the cloud handover: flow and lift the volumetric map to match the 2D layer](extend-stock-sky-and-cloud-shaders-3.md), [Reuse stock helpers in a cloud shader: include RingShadows.glsl and select mips without derivatives](extend-stock-sky-and-cloud-shaders-4.md). Written from the pinned mod checkouts and verified against the decompiled game build 2026.10.10.5554.
+* **Update**: Independent review (claude-code/sonnet-5.5): article 2 snippet was truncated under a longer range label; it now shows the whole `PatchFaceLight` function (L814-L835); other snippet ranges corrected.

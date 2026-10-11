@@ -1,0 +1,4 @@
+# Isolating patch failures and keeping patch bodies from throwing history
+
+## 2026-10-10
+* **Creation**: Added [Isolating patch failures and keeping patch bodies from throwing](overview.md) and 5 How-To articles ([isolate-patch-failures-and-fault-proof-patch-bodies-1](isolate-patch-failures-and-fault-proof-patch-bodies-1.md), [isolate-patch-failures-and-fault-proof-patch-bodies-2](isolate-patch-failures-and-fault-proof-patch-bodies-2.md), [isolate-patch-failures-and-fault-proof-patch-bodies-3](isolate-patch-failures-and-fault-proof-patch-bodies-3.md), [isolate-patch-failures-and-fault-proof-patch-bodies-4](isolate-patch-failures-and-fault-proof-patch-bodies-4.md), [isolate-patch-failures-and-fault-proof-patch-bodies-5](isolate-patch-failures-and-fault-proof-patch-bodies-5.md)), checked against build 2026.10.10.5554 and the pinned reference repositories.

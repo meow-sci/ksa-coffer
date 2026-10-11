@@ -1,0 +1,4 @@
+# Share types and design an inter-mod API between StarMap mods history
+
+## 2026-10-10
+* **Creation**: Added [Share types and design an inter-mod API between StarMap mods](overview.md) (engine background, approach comparison) and 5 how-to articles: [Share a contract assembly: the importer lists it in ImportedAssemblies](share-types-between-mods-1.md), [Design a text-only registration API with fault results and a CI-checked surface record](share-types-between-mods-2.md), [Duck-type an API: copy look-alike attributes and bind by full name across load contexts](share-types-between-mods-3.md), [Bind plugins by attribute type name the way StarMap does](share-types-between-mods-4.md), [Fork or rename a library mod without breaking its dependents: new mod id, unchanged assembly identity](share-types-between-mods-5.md). Verified against the decompiled game build 2026.10.10.5554 and the pinned reference repositories.

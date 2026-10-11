@@ -1,0 +1,6 @@
+# Simulate mod-owned bodies in sub-steps outside the vehicle system history
+
+## 2026-10-10
+* **Creation**: Added [overview](overview.md) and 2 article(s): [IProjectile objects with fixed 5 ms sub-steps and a faithful-step clamp](simulate-bodies-outside-the-vehicle-system-1.md); [Ball integrated at up to 1/240 s in the body-fixed frame](simulate-bodies-outside-the-vehicle-system-2.md). Verified against the decompiled game build 2026.10.10.5554 and the pinned mod repositories.
+* **Update**: Added articles 3 to 6: [Deduplicate GetLastSimStep on NextTime and widen to the span since the last boundary](simulate-bodies-outside-the-vehicle-system-3.md); [Ecl state at GetElapsedTime with epoch back-dating](simulate-bodies-outside-the-vehicle-system-4.md); [Read GetStatesCcf in the PrepareWorker prefix](simulate-bodies-outside-the-vehicle-system-5.md); [Differences-only inputs and headless tests](simulate-bodies-outside-the-vehicle-system-6.md). Removed a dangling footnote reference from article 2.
+* **Update**: Review: corrected the `accurate: false` callers in article 5; added the KSACars pin to the overview; added `group` to frontmatter. Reviewed against decompiled build 2026.10.10.5554 and the pinned mod repositories.

@@ -1,0 +1,1175 @@
+mod: ksa-advancedflightcomputer
+repo: KSA-AdvancedFlightComputer
+ref: 77c0ccf5608e49c459eec72c3a56d0b30d62da63
+summary: >-
+  AdvancedFlightComputer (AFC) is a large StarMap mod by Maximilian Nesslauer, with powered guidance
+  originally written by Oliver Cairns (cairn5) as PoweredGuidance, that extends the stock flight
+  computer and Transfer Planner instead of replacing them. Planning features add plan types, flyby
+  periapsis targeting, multi-pass burn splitting and hyperbolic (interstellar comet) targets to the
+  stock planner and create ordinary stock burns; execution features hook the stock Auto burn path for
+  RCS-only burns, automatic staging with delays and spent-booster drop, and removal of finished burns;
+  closed-loop guidance (UPFG and convex SCvx ascent, boostback with impact prediction and glide
+  steering, G-FOLD and 6-DOF SCvx landing, terminal hover) flies vehicles through the stock flight
+  computer from a Vehicle.PrepareWorker prefix, using vendored Clarabel and SCS native solvers. About
+  30 Harmony patch targets are applied per feature after validated reflection, and the repo ships a
+  HeadlessHarness test mod, game-free console checks against Python references, a native ABI check and
+  CI built against private reference assemblies.
+features:
+  - id: mods/ksa-advancedflightcomputer/features/aerodynamic-glide-impact-steering
+    title: "Steer an unpowered descent onto a site with angle of attack, using a measured lift curve and an impact Jacobian"
+    category: flight-and-orbits
+    submod: null
+    summary: "After a boostback, fly engine-first into the wind and turn the predicted impact miss into a lift request through the velocity Jacobian of a drag-integrated coast prediction, invert the measured lift curve for the angle of attack, and trim out the attitude loop's lag"
+    novelty: high
+    techniques: [closed-loop-guidance, automatic-differentiation]
+    lifecycle: ["frame:dispatch-solvers"]
+    hooks: ["harmony-prefix KSA.Vehicle.PrepareWorker"]
+    game_types: [KSA.Vehicle, KSA.IParentBody, KSA.PhysicsEnvironment, KSA.Orbit]
+    key_paths: [AdvancedFlightComputer/Features/Guidance/Modes/BoostbackGlide.cs, AdvancedFlightComputer/Features/Guidance/Modes/Boostback.cs, AdvancedFlightComputer/Features/Guidance/Adapters/KsaAeroSweep.cs, AdvancedFlightComputer/Features/Guidance/Numerics/Flight/ImpactPredictor.cs]
+    howto_topics:
+      - slug: steer-descent-with-angle-of-attack
+        title: "Steer an unpowered descent onto a target with angle of attack"
+        note: "impact miss -> lift via a velocity Jacobian; invert the measured lift curve"
+      - slug: aerodynamic-lift-model
+        title: "Read lift and drag coefficients of a vehicle under the active aero model"
+        note: "sample the game force function; sign of CL/CD tells which way to tilt"
+      - slug: zero-effort-miss-guidance
+        title: "Zero-effort-miss guidance on a predicted impact point"
+        note: "gain / tgo^2 law, integral off for long glides"
+  - id: mods/ksa-advancedflightcomputer/features/apse-and-inclination-quick-tools
+    title: "Set apse, match and set inclination with an ecliptic or equatorial reference"
+    category: flight-and-orbits
+    submod: null
+    summary: "Impulsive maneuver math on the game's Orbit API for set periapsis/apoapsis, circularize, match inclination and set inclination, planned on the trajectory after the last pending burn"
+    novelty: medium
+    techniques: [custom-physics]
+    lifecycle: ["frame:draw-ui"]
+    hooks: []
+    game_types: [KSA.Orbit, KSA.OrbitalTransfers, KSA.Celestial, KSA.BurnPlan, KSA.FlightPlan, KSA.PatchedConic, KSA.InputEvents]
+    key_paths: [AdvancedFlightComputer/Features/ManeuverTools/ManeuverToolsWindow.cs, AdvancedFlightComputer/Features/ManeuverTools/OrbitManeuvers.cs, AdvancedFlightComputer/Features/ManeuverTools/PlanningBasis.cs, AdvancedFlightComputer/Features/ManeuverTools/TargetSelection.cs]
+    howto_topics:
+      - slug: plan-apse-and-plane-change-burns
+        title: "Compute set-apsis, circularize and plane-change burns on the game Orbit API"
+        note: "impulsive math at the opposite apse or AN/DN"
+      - slug: ecl-vs-ego-reference-frames
+        title: "Ecliptic versus equatorial reference planes in KSA"
+        note: "Orbit.Inclination is measured against CCI +Z (the parent pole); the mod labels that Ecliptic and labels the CCE +Z normal via GetCce2Cci Equatorial, which is the reverse of the frames"
+      - slug: plan-after-pending-burns
+        title: "Plan a maneuver on the trajectory after the last pending burn"
+        note: "read the post-burn patch from the flight plan"
+  - id: mods/ksa-advancedflightcomputer/features/auto-remove-finished-burns
+    title: "Remove the last finished Auto burn"
+    category: flight-and-orbits
+    submod: null
+    summary: "Remove the completed burn that stock keeps when it is the last one in the plan, acting in a RaisePendingAlerts postfix so it never races stock's own removal"
+    novelty: medium
+    techniques: [harmony-postfix, toml-config]
+    lifecycle: ["frame:prepare"]
+    hooks: ["harmony-postfix KSA.FlightComputer.RaisePendingAlerts"]
+    game_types: [KSA.FlightComputer, KSA.BurnPlan, KSA.Burn, KSA.Constants]
+    key_paths: [AdvancedFlightComputer/Core/SharedVehicleHooks.cs, AdvancedFlightComputer/Features/AutoRemove/AutoRemoveConfig.cs, AdvancedFlightComputer/Features/AutoRemove/AutoRemoveFeature.cs, AdvancedFlightComputer/Features/AutoRemove/FinishedBurnRemover.cs]
+    howto_topics:
+      - slug: remove-finished-burns
+        title: "Remove a completed burn from the flight plan safely"
+        note: "act in a RaisePendingAlerts postfix so stock removal and yours never race"
+      - slug: react-to-stock-burn-completion
+        title: "React when the stock Auto burn ends"
+        note: "FlightComputer.RaisePendingAlerts prefix/postfix pair"
+  - id: mods/ksa-advancedflightcomputer/features/automatic-staging
+    title: "Automatic staging that keeps Auto burns alive"
+    category: vehicles-and-parts
+    submod: null
+    summary: "A per-vehicle state machine sampled before and evaluated after the vehicle-solver apply stages on burnout, cascades through empty rows, refuses to drop the last control module, and takes back the stock out-of-propellant stop so an Auto burn survives the staging"
+    novelty: high
+    techniques: [harmony-prefix, harmony-postfix, reflection]
+    lifecycle: ["frame:apply-solvers", "frame:input", "frame:dispatch-solvers"]
+    hooks: ["harmony-prefix KSA.Universe.ApplyVehicleSolvers", "harmony-postfix KSA.Universe.ApplyVehicleSolvers", "harmony-prefix KSA.Vehicle.PrepareWorker", "harmony-prefix KSA.SequenceList.ActivateNextSequence", "harmony-postfix KSA.SequenceList.ActivateNextSequence", "harmony-postfix KSA.SequenceList.ResetCaches", "reflection KSA.SequenceList.ActiveSequence", "reflection KSA.SequenceList._updatingSequence"]
+    game_types: [KSA.SequenceList, KSA.Sequence, KSA.Vehicle, KSA.FlightComputer, KSA.BurnTarget, KSA.EngineController, KSA.EngineControllerState, KSA.PartTree]
+    key_paths: [AdvancedFlightComputer/Core/VehiclePropellant.cs, AdvancedFlightComputer/Features/AutoStage/AutoStageFeature.cs, AdvancedFlightComputer/Features/AutoStage/NewEngineSeedPatch.cs, AdvancedFlightComputer/Features/AutoStage/SequenceListPatches.cs]
+    howto_topics:
+      - slug: auto-stage-on-burnout
+        title: "Stage automatically when engines burn out"
+        note: "sample before and act after ApplyVehicleSolvers; cascade through empty rows"
+      - slug: keep-auto-burn-alive-through-staging
+        title: "Keep a stock Auto burn alive across staging"
+        note: "take back the out-of-propellant stop while new engines light"
+      - slug: activate-next-sequence-from-code
+        title: "Activate the next staging sequence from code"
+        note: "SequenceList activation with control-module guard"
+  - id: mods/ksa-advancedflightcomputer/features/autostage-gauge-button
+    title: "A custom gauge button action backed by a mod enum"
+    category: ui
+    submod: null
+    summary: "Register a mod-defined enum in GaugeButtonFlightComputer.EnumTypes at immediate load, add a Button to the stock EngineControl gauge with a KittenExtensions XML patch, and give the enum toggle, lit and disabled state through Vehicle patches"
+    novelty: high
+    techniques: [starmap-lifecycle, xml-patch, harmony-prefix, reflection]
+    lifecycle: ["startup:immediate-load", "startup:asset-load", "frame:draw-ui", "frame:render", "frame:input"]
+    hooks: ["starmap StarMapImmediateLoad", "reflection KSA.GaugeButtonFlightComputer.EnumTypes", "harmony-prefix KSA.Vehicle.ToggleEnum", "harmony-prefix KSA.Vehicle.IsSet", "harmony-prefix KSA.Vehicle.IsFlightComputerDisabled"]
+    game_types: [KSA.GaugeButtonFlightComputer, KSA.EnumTypeOption, KSA.Vehicle, KSA.InputEvents, KSA.ModLibrary]
+    key_paths: [AdvancedFlightComputer/Core/GameReflection.cs, AdvancedFlightComputer/Features/AutoStage/AfcAutoStageToggle.cs, AdvancedFlightComputer/Features/AutoStage/AutoStageFeature.cs, AdvancedFlightComputer/Features/AutoStage/AutoStageGaugePatches.cs]
+    howto_topics:
+      - slug: add-button-to-stock-gauge
+        title: "Add a button to a stock cockpit gauge"
+        note: "KittenExtensions XML patch plus a mod enum in GaugeButtonFlightComputer.EnumTypes"
+      - slug: register-data-before-assets-load
+        title: "Register code-side data before game XML binds to it"
+        note: "StarMapImmediateLoad runs before Gauges.xml is read"
+  - id: mods/ksa-advancedflightcomputer/features/boostback-impact-prediction
+    title: "Booster boostback with a drag-integrated impact predictor"
+    category: flight-and-orbits
+    submod: null
+    summary: "Adopt a separated booster as its own guided vehicle, predict its impact point by integrating gravity and drag in a co-rotating atmosphere, and fly a receding-horizon boostback burn plus an engine-first glide that walks the impact onto the landing site"
+    novelty: high
+    techniques: [harmony-prefix, custom-physics]
+    lifecycle: ["frame:dispatch-solvers"]
+    hooks: ["harmony-prefix KSA.Vehicle.PrepareWorker"]
+    game_types: [KSA.Vehicle, KSA.SequenceList, KSA.Decoupler, KSA.PhysicsStates, KSA.FlightComputer, KSA.PartTree]
+    key_paths: [AdvancedFlightComputer/Features/Guidance/Modes/Autopilot.cs, AdvancedFlightComputer/Features/Guidance/Modes/Boostback.cs, AdvancedFlightComputer/Features/Guidance/Modes/BoostbackGlide.cs, AdvancedFlightComputer/Features/Guidance/Modes/ReturnableStages.cs]
+    howto_topics:
+      - slug: predict-impact-point-with-drag
+        title: "Predict where a falling vehicle hits the ground, with drag and a rotating atmosphere"
+        note: "integrate gravity plus drag on air-relative velocity"
+      - slug: adopt-separated-stage
+        title: "Take over a stage that separates from the controlled vehicle"
+        note: "record detached root parts before staging, match the new vehicle after the split"
+      - slug: fly-unfocused-vehicles
+        title: "Fly a vehicle that is not the controlled one"
+        note: "per-vehicle step in the Vehicle.PrepareWorker prefix"
+  - id: mods/ksa-advancedflightcomputer/features/ci-reference-assemblies
+    title: "Build a KSA mod in CI from private reference assemblies"
+    category: testing-and-tooling
+    submod: null
+    summary: "Strip the installed game's managed DLLs to API-only reference assemblies with Refasmer, keep them in a private bucket keyed by game build, fetch them in CI by the TestedGameVersion constant, and publish nightlies that are promoted to releases without rebuilding"
+    novelty: high
+    techniques: [reference-assemblies, github-actions]
+    lifecycle: []
+    hooks: []
+    game_types: [KSA.VersionInfo]
+    key_paths: [.github/workflows/ci.yml, .github/workflows/nightly.yml, .github/workflows/promote.yml, .github/workflows/spacedock-publish.yml]
+    howto_topics:
+      - slug: ci-without-redistributing-game-assemblies
+        title: "Build a KSA mod in CI without redistributing game assemblies"
+        note: "Refasmer reference assemblies in a private bucket keyed by build"
+      - slug: build-against-ksa-reference-assemblies
+        title: "Compile against API-only reference assemblies"
+        note: "strip the installed game DLLs"
+      - slug: automate-mod-releases
+        title: "Automate nightlies and promote them to releases"
+        note: "promote without rebuilding; SpaceDock publish workflow"
+  - id: mods/ksa-advancedflightcomputer/features/closed-loop-mpc-harness
+    title: "Closed-loop MPC harness and solve-purity checks without the game"
+    category: testing-and-tooling
+    submod: null
+    summary: "A console harness that flies the 6-DOF planner closed-loop through RK4 dynamics with injected thrust and gimbal errors to measure plan jump, path ratio and solve cost, plus determinism and threading checks that gated the worker-thread move"
+    novelty: high
+    techniques: [closed-loop-simulation, determinism-check, background-thread, game-free-assemblies, reference-fixtures]
+    lifecycle: []
+    hooks: []
+    game_types: []
+    key_paths: [AdvancedFlightComputer/Features/Guidance/Scvx/SixDof/Scvx6DofSolver.cs, AdvancedFlightComputer/Features/Guidance/Modes/SixDof.cs, build/ci/test-guidance.ps1, tests/AdvancedFlightComputer.Guidance.Tests/Scvx/McpHarness.cs]
+    howto_topics:
+      - slug: closed-loop-simulator-for-guidance
+        title: "Test a receding-horizon controller in closed loop without the game"
+        note: "solve, integrate the dynamics with injected dispersions, re-solve; measure plan jump and path length"
+      - slug: verify-solve-is-pure-before-threading
+        title: "Prove a computation is a pure function before moving it to a thread"
+        note: "replay determinism, inputs must matter, no cross-talk between instances"
+      - slug: unit-test-mod-logic-without-game
+        title: "Unit-test mod logic without the game"
+        note: "console flags in a game-free test executable"
+  - id: mods/ksa-advancedflightcomputer/features/convex-ascent-scvx
+    title: "Minimum-propellant ascent planned offline with SCvx and flown against air-relative speed"
+    category: flight-and-orbits
+    submod: null
+    summary: "Build a 3-DOF ascent problem from the vehicle on the main thread as plain data, solve it with successive convexification and Clarabel on its own thread, publish an immutable plan, and fly its pitch and azimuth against air-relative speed until UPFG takes over"
+    novelty: high
+    techniques: [native-interop, background-thread, harmony-prefix, custom-physics]
+    lifecycle: ["frame:dispatch-solvers", "thread:background", "frame:draw-ui"]
+    hooks: ["harmony-prefix KSA.Vehicle.PrepareWorker"]
+    game_types: [KSA.SequencePerformanceList, KSA.SolidMotor, KSA.Vehicle, KSA.PartTree]
+    key_paths: [AdvancedFlightComputer/Features/Guidance/Adapters/Scvx/Ascent/KsaAscentPlan.cs, AdvancedFlightComputer/Features/Guidance/Adapters/Scvx/Ascent/KsaAscentStages.cs, AdvancedFlightComputer/Features/Guidance/Modes/ConvexAscent.cs, AdvancedFlightComputer/Features/Guidance/Scvx/Ascent/AscentScvx.cs]
+    howto_topics:
+      - slug: optimal-ascent-trajectory
+        title: "Plan a propellant-optimal ascent trajectory"
+        note: "successive convexification with a conic solver"
+      - slug: solve-on-background-thread-with-plain-data
+        title: "Run an expensive planner on a background thread from game state"
+        note: "build plain data on the main thread, publish an immutable plan"
+      - slug: fly-against-air-relative-velocity
+        title: "Fly an ascent profile against air-relative velocity"
+        note: "subtract omega x r from inertial velocity"
+  - id: mods/ksa-advancedflightcomputer/features/deorbit-landing-planner
+    title: "Plan a deorbit to a landing site and let stock Auto fly the node"
+    category: flight-and-orbits
+    submod: null
+    summary: "A time-sliced Lambert search to an approach point uprange of a rotating site, run as a C# iterator under a per-step and total work budget, then a stock maneuver node whose ignition timing stock computes before AFC arms Auto, followed by braking re-planned from the measured orbit"
+    novelty: high
+    techniques: [harmony-prefix, custom-physics]
+    lifecycle: ["frame:dispatch-solvers", "physics:vehicle-solver"]
+    hooks: ["harmony-prefix KSA.Vehicle.PrepareWorker", "reflection KSA.Vehicle._manualControlInputs"]
+    game_types: [KSA.Burn, KSA.BurnTarget, KSA.FlightComputer, KSA.FlightPlan, KSA.PatchedConic, KSA.Orbit, KSA.Universe, KSA.ManualControlInputs]
+    key_paths: [AdvancedFlightComputer/Features/Guidance/Modes/Deorbit.cs, AdvancedFlightComputer/Features/Guidance/Modes/DeorbitPlanner.cs, AdvancedFlightComputer/Features/Guidance/Modes/Landing.cs, AdvancedFlightComputer/Features/Guidance/Modes/SitePasses.cs]
+    howto_topics:
+      - slug: plan-deorbit-to-landing-site
+        title: "Plan a deorbit burn to a site on a rotating body"
+        note: "time-sliced Lambert search to an approach point"
+      - slug: time-slice-search-with-iterators
+        title: "Spread a long search across frames with a C# iterator"
+        note: "per-step and total work budgets"
+      - slug: let-stock-autopilot-fly-a-node
+        title: "Hand a computed maneuver to the stock Auto burn"
+        note: "stock computes ignition timing before you arm Auto"
+  - id: mods/ksa-advancedflightcomputer/features/drag-table-measurement
+    title: "Measure a vehicle's drag table by calling the game's force function on a state copy"
+    category: physics
+    submod: null
+    summary: "Copy the vehicle's physics state structs, set the airspeed per sample, call the static PhysicsStates.ComputeDerivatives with dt 0 and no thrusters, and fit Cd and CL over Mach and angle of attack, so planners use whatever drag model is active, including aero mods"
+    novelty: high
+    techniques: [custom-physics]
+    lifecycle: ["frame:dispatch-solvers", "frame:draw-ui"]
+    hooks: []
+    game_types: [KSA.PhysicsStates, KSA.Vehicle, KSA.BubbleOrigin, KSA.KinematicStates, KSA.VehicleProperties, KSA.PhysicsEnvironment, KSA.Disturbances]
+    key_paths: [AdvancedFlightComputer/Features/Guidance/Adapters/KsaAeroSweep.cs, AdvancedFlightComputer/Features/Guidance/Numerics/Flight/Aero.cs, AdvancedFlightComputer/Features/Guidance/Numerics/Flight/Atmosphere.cs, AdvancedFlightComputer/Features/Guidance/Ui/Gauges/BoostbackGauge.cs]
+    howto_topics:
+      - slug: aerodynamic-lift-model
+        title: "Read lift and drag coefficients of a vehicle under the active aero model"
+        note: "call PhysicsStates.ComputeDerivatives on copied state with dt 0"
+      - slug: call-game-physics-on-a-state-copy
+        title: "Evaluate the game force model on a copy of vehicle state"
+        note: "copy the physics structs, vary airspeed, no thrusters"
+      - slug: compute-mach-number
+        title: "Compute Mach number from the game atmosphere"
+        note: "speed of sound from the atmosphere reference"
+  - id: mods/ksa-advancedflightcomputer/features/engine-performance-and-throttle-inversion
+    title: "Thrust at ambient pressure, the structural throttle cap and thrust-to-throttle inversion"
+    category: vehicles-and-parts
+    submod: null
+    summary: "Evaluate active engines through the game's own core model at a given throttle and pressure, mirror the flight computer's g-load throttle cap, and invert a thrust demand into a throttle with a bracketed root find that reports saturation and solid-motor states"
+    novelty: medium
+    techniques: [engine-model-reuse, root-finding]
+    lifecycle: ["frame:dispatch-solvers"]
+    hooks: ["harmony-prefix KSA.Vehicle.PrepareWorker"]
+    game_types: [KSA.EngineController, KSA.RocketControllerData, KSA.RocketCore, KSA.RocketCoreState, KSA.Combustor, KSA.ThermalCore, KSA.SolidMotor, KSA.AntimatterRamCore, KSA.FlightComputer, KSA.VehicleStructuralLimits, KSA.PhysicalAtmosphereReference, KSA.ModuleStateful]
+    key_paths: [AdvancedFlightComputer/Features/Guidance/Control/EnginePerf.cs, AdvancedFlightComputer/Features/Guidance/Modes/Autopilot.cs, AdvancedFlightComputer/Features/Guidance/Modes/TerminalHover.cs, AdvancedFlightComputer/Features/Guidance/Modes/ConvexAscent.cs]
+    howto_topics:
+      - slug: thrust-at-ambient-pressure
+        title: "Compute engine thrust and Isp at the current ambient pressure"
+        note: "EngineController.ComputeActivePerformance and RocketControllerData.ComputeFromCores"
+      - slug: throttle-for-a-thrust-demand
+        title: "Find the throttle that delivers a requested thrust"
+        note: "bracketed Illinois root find on the game engine model"
+      - slug: respect-g-load-throttle-cap
+        title: "Respect the flight computer structural g-load throttle cap"
+        note: "mirror FlightComputer.SolveGLoadThrottleCap; it applies in Manual"
+      - slug: detect-solid-motors
+        title: "Tell throttleable engines from solid motors"
+        note: "core types Combustor/ThermalCore vs SolidMotor"
+  - id: mods/ksa-advancedflightcomputer/features/feature-gated-patch-sets
+    title: "Feature-gated Harmony patch sets with rollback"
+    category: patching
+    submod: null
+    summary: "One Harmony instance per feature, validated before patching and rolled back on failure, so a game update disables one feature instead of the whole mod"
+    novelty: high
+    techniques: [starmap-lifecycle, harmony-prefix, harmony-postfix, harmony-transpiler, reflection]
+    lifecycle: ["startup:all-mods-loaded", "event:mod-unload"]
+    hooks: ["starmap StarMapAllModsLoaded", "starmap StarMapUnload"]
+    game_types: [KSA.VersionInfo]
+    key_paths: [AdvancedFlightComputer/Core/FeaturePatchSet.cs, AdvancedFlightComputer/Core/SharedVehicleHooks.cs, AdvancedFlightComputer/Mod.cs, tests/AdvancedFlightComputer.HarnessTests/Features/Core/FeaturePatchSetTest.cs]
+    howto_topics:
+      - slug: fail-safe-harmony-patching
+        title: "Apply Harmony patches per feature with rollback"
+        note: "one Harmony id per feature; unpatch on partial failure"
+      - slug: gate-features-on-patch-success
+        title: "Disable one feature instead of the whole mod when a patch fails"
+        note: "validated handles then TryApply"
+      - slug: game-version-guard
+        title: "Warn when the running game build differs from the tested one"
+        note: "VersionInfo.Current.VersionString vs a TestedGameVersion constant"
+  - id: mods/ksa-advancedflightcomputer/features/flight-computer-command-sink
+    title: "One ComputeControl postfix as an actuator command sink"
+    category: patching
+    submod: null
+    summary: "A single postfix on FlightComputer.ComputeControl runs every mod-owned actuator writer on the vehicle worker and merges their wake and off-rails requests into the stock output"
+    novelty: high
+    techniques: [harmony-postfix]
+    lifecycle: ["physics:vehicle-solver"]
+    hooks: ["harmony-postfix KSA.FlightComputer.ComputeControl"]
+    game_types: [KSA.FlightComputer, KSA.FlightComputerOutput, KSA.FlightComputerNavigation, KSA.ManualControlInputs, KSA.PhysicsBubble]
+    key_paths: [AdvancedFlightComputer/Core/VehicleCommandSink.cs, AdvancedFlightComputer/Features/Guidance/Control/GimbalControl.cs, AdvancedFlightComputer/Features/RcsTranslation/RcsComputeControlPatch.cs, tests/AdvancedFlightComputer.HarnessTests/Features/Core/VehicleCommandSinkTest.cs]
+    howto_topics:
+      - slug: write-actuators-on-vehicle-worker
+        title: "Write mod actuator commands inside the vehicle physics step"
+        note: "one postfix on FlightComputer.ComputeControl merging all writers"
+      - slug: worker-thread-safe-physics-code
+        title: "Write worker-thread-safe code for the physics step"
+        note: "immutable commands published before the solver job is queued"
+  - id: mods/ksa-advancedflightcomputer/features/flight-computer-worker-copy-channels
+    title: "Reach the physics worker through the references FlightComputer.CopyFrom shares"
+    category: patching
+    submod: null
+    summary: "The vehicle worker flies a copy of the flight computer that Vehicle.PrepareWorker takes and ApplyVehicleSolvers writes back over the original; AFC keys worker-side command tables by the BurnPlan and VehicleConfigInfo objects the copy shares by reference, and confines flight-computer writes to the window between the solver apply and the snapshot"
+    novelty: high
+    techniques: [conditional-weak-table, harmony-prefix, harmony-postfix]
+    lifecycle: ["frame:apply-solvers", "frame:dispatch-solvers", "physics:vehicle-solver"]
+    hooks: ["harmony-postfix KSA.Universe.ApplyVehicleSolvers", "harmony-prefix KSA.Vehicle.PrepareWorker", "harmony-postfix KSA.FlightComputer.ComputeControl", "harmony-postfix KSA.FlightComputer.UpdateAttitudeTarget"]
+    game_types: [KSA.FlightComputer, KSA.FlightComputer.VehicleConfigInfo, KSA.BurnPlan, KSA.BurnTarget, KSA.Vehicle, KSA.VehicleUpdateData, KSA.VehicleUpdateState]
+    key_paths: [AdvancedFlightComputer/Features/RcsTranslation/RcsWorkerCommand.cs, AdvancedFlightComputer/Features/Guidance/Control/GimbalControl.cs, AdvancedFlightComputer/Features/Guidance/Control/AttitudeRate.cs, AdvancedFlightComputer/Features/RcsTranslation/RcsCtrlFrame.cs, AdvancedFlightComputer/Features/Guidance/Modes/Autopilot.cs]
+    howto_topics:
+      - slug: flight-computer-worker-copy
+        title: "Understand the flight computer's copy to and from the physics worker"
+        note: "CopyFrom in PrepareWorker and again at ApplyVehicleSolvers; what is shared by reference and what is never copied back"
+      - slug: pass-data-to-physics-worker-postfix
+        title: "Pass per-vehicle data from the main thread to a postfix on the physics worker"
+        note: "ConditionalWeakTable keyed by an object the worker copy shares; publish before dispatch"
+      - slug: write-flight-computer-settings-safely
+        title: "Change flight-computer settings so the next physics step keeps them"
+        note: "only between the solver apply and the PrepareWorker snapshot; queue UI requests"
+  - id: mods/ksa-advancedflightcomputer/features/flyby-encounter-prediction
+    title: "Confirm a planned flyby by propagating it through the game's patched conics"
+    category: flight-and-orbits
+    submod: null
+    summary: "Propagate a candidate burn with FlightPlan.CalculateBurnPatch and ComputeCompleteTrajectory filtered to the target, read the periapsis of the patch around the target, report a typed reason when there is none, and draw that plan in place of stock's preview"
+    novelty: medium
+    techniques: [harmony-postfix, harmony-prefix]
+    lifecycle: ["frame:draw-ui", "frame:pre-render"]
+    hooks: ["harmony-postfix KSA.TransferPlanner.OnPreRender", "harmony-prefix KSA.TransferPlanner.DrawSelectedTransfer"]
+    game_types: [KSA.FlightPlan, KSA.PatchedConic, KSA.Orbit, KSA.TransferPlanner]
+    key_paths: [AdvancedFlightComputer/Features/Flyby/FlybyPrediction.cs, AdvancedFlightComputer/Features/Flyby/HohmannFlybyUI.cs, tests/AdvancedFlightComputer.HarnessTests/Features/Flyby/FlybyPreviewTest.cs]
+    howto_topics:
+      - slug: predict-encounter-periapsis
+        title: "Predict the periapsis of an encounter for a planned burn"
+        note: "FlightPlan.CalculateBurnPatch and ComputeCompleteTrajectory"
+      - slug: typed-failure-reasons-for-predictions
+        title: "Report why a trajectory prediction failed"
+        note: "typed reasons instead of NaN"
+  - id: mods/ksa-advancedflightcomputer/features/flyby-periapsis-targeting
+    title: "Aim a transfer at a flyby periapsis instead of the body center"
+    category: flight-and-orbits
+    submod: null
+    summary: "Retarget a stock porkchop transfer by solving Lambert to the target's center offset by the impact parameter that yields the requested periapsis, on a chosen side perpendicular to the approach, and hand the result to the stock Create button"
+    novelty: high
+    techniques: [harmony-transpiler, custom-physics]
+    lifecycle: ["frame:draw-ui"]
+    hooks: ["harmony-transpiler KSA.TransferPlanner.DrawPlanWindow"]
+    game_types: [KSA.OrbitalTransfers, KSA.Orbit, KSA.IParentBody, KSA.Astronomical, KSA.TransferPlanner, KSA.Burn, KSA.CorrectionBurnTask]
+    key_paths: [AdvancedFlightComputer/Features/Flyby/FlybyReference.cs, AdvancedFlightComputer/Features/Flyby/FlybySide.cs, AdvancedFlightComputer/Features/Flyby/FlybyTargeting.DepartureCache.cs, AdvancedFlightComputer/Features/Flyby/FlybyTargeting.cs]
+    howto_topics:
+      - slug: target-flyby-periapsis
+        title: "Aim a transfer at a flyby periapsis instead of the body center"
+        note: "offset the Lambert target by the impact parameter"
+      - slug: open-stock-transfer-planner
+        title: "Drive the stock Transfer Planner from a mod"
+        note: "hand a retargeted transfer to its Create path"
+  - id: mods/ksa-advancedflightcomputer/features/game-free-guidance-checks
+    title: "Game-free numerical assemblies with console checks against Python references"
+    category: testing-and-tooling
+    submod: null
+    summary: "Keep solver and math code in separate assemblies with no game references, so console programs can check them against JAX and CVXPY reference fixtures in CI without the game, and link single game-facing files into small test executables"
+    novelty: medium
+    techniques: [game-free-assemblies, reference-fixtures]
+    lifecycle: []
+    hooks: []
+    game_types: []
+    key_paths: [AdvancedFlightComputer/AdvancedFlightComputer.csproj, AdvancedFlightComputer/Features/Guidance/Numerics/AdvancedFlightComputer.Guidance.Numerics.csproj, build/ci/test-guidance.ps1, tests/AdvancedFlightComputer.Guidance.Tests/Gfold/Program.cs]
+    howto_topics:
+      - slug: split-game-adapters-from-pure-logic
+        title: "Split pure logic into assemblies without game references"
+        note: "Compile Remove plus ProjectReference"
+      - slug: unit-test-mod-logic-without-game
+        title: "Unit-test mod logic without the game"
+        note: "console checks against Python reference fixtures"
+  - id: mods/ksa-advancedflightcomputer/features/gfold-powered-descent
+    title: "G-FOLD fuel-optimal powered descent solved in-frame with Clarabel"
+    category: flight-and-orbits
+    submod: null
+    summary: "Lossless-convexification powered descent as a second-order cone program in a site-fixed frame, solved synchronously with a time limit inside the per-vehicle step and flown as committed-trajectory tracking with periodic re-solves"
+    novelty: high
+    techniques: [native-interop, harmony-prefix, custom-physics]
+    lifecycle: ["frame:dispatch-solvers"]
+    hooks: ["harmony-prefix KSA.Vehicle.PrepareWorker"]
+    game_types: [KSA.Vehicle, KSA.Celestial, KSA.IParentBody, KSA.FlightComputer]
+    key_paths: [AdvancedFlightComputer/Features/Guidance/Adapters/Gfold/KsaGfold.cs, AdvancedFlightComputer/Features/Guidance/Conic/ConicProblem.cs, AdvancedFlightComputer/Features/Guidance/Gfold/GfoldParams.cs, AdvancedFlightComputer/Features/Guidance/Gfold/GfoldPlanner.cs]
+    howto_topics:
+      - slug: fuel-optimal-powered-landing
+        title: "Fly a fuel-optimal powered landing with G-FOLD"
+        note: "lossless convexification as an SOCP solved with Clarabel"
+      - slug: solve-in-frame-with-time-limit
+        title: "Run an optimizer synchronously inside the frame with a time budget"
+        note: "solver time limit plus committed-trajectory tracking"
+  - id: mods/ksa-advancedflightcomputer/features/guidance-attitude-and-gimbal-actuation
+    title: "Steer through the stock flight computer with a rate feedforward and direct gimbal commands"
+    category: flight-and-orbits
+    submod: null
+    summary: "Command a Custom attitude in an inertial frame, add the commanded turning rate in a postfix on the private FlightComputer.UpdateAttitudeTarget on the physics worker, write least-squares gimbal deflections after ComputeControl, and invert engine performance to deliver a thrust rather than a throttle"
+    novelty: high
+    techniques: [harmony-postfix, reflection, conditional-weak-table]
+    lifecycle: ["frame:dispatch-solvers", "physics:vehicle-solver"]
+    hooks: ["harmony-postfix KSA.FlightComputer.UpdateAttitudeTarget", "harmony-postfix KSA.FlightComputer.ComputeControl", "harmony-prefix KSA.Vehicle.PrepareWorker"]
+    game_types: [KSA.FlightComputer, KSA.FlightComputer.VehicleConfigInfo, KSA.FlightComputerOutput, KSA.GimbalController, KSA.GimbalControllerState, KSA.EngineController, KSA.RocketCore]
+    key_paths: [AdvancedFlightComputer/Features/Guidance/Control/AttitudeOwnership.cs, AdvancedFlightComputer/Features/Guidance/Control/AttitudeRate.cs, AdvancedFlightComputer/Features/Guidance/Control/EnginePerf.cs, AdvancedFlightComputer/Features/Guidance/Control/GimbalControl.cs]
+    howto_topics:
+      - slug: command-attitude-through-flight-computer
+        title: "Point a vehicle through the stock flight computer"
+        note: "Custom attitude target in an inertial frame"
+      - slug: attitude-rate-feedforward
+        title: "Add a turning-rate feedforward to the stock attitude controller"
+        note: "postfix on the private FlightComputer.UpdateAttitudeTarget on the worker"
+      - slug: command-engine-gimbals-directly
+        title: "Command engine gimbal deflections from a mod"
+        note: "least-squares TVC allocation after ComputeControl"
+  - id: mods/ksa-advancedflightcomputer/features/guidance-flight-telemetry-csv
+    title: "Guidance flight recorder with per-cycle CSV, plan snapshots and an event log"
+    category: testing-and-tooling
+    submod: null
+    summary: "A static, single-owner telemetry sink that never throws or waits on the disk, writing a per-step CSV, rate-limited whole-plan snapshots and an event log per 6-DOF run, plus vehicle-prefixed log lines keyed on a bucketed stage signature"
+    novelty: medium
+    techniques: [harmony-prefix, imgui-window, buffered-file-sink, change-signature-logging]
+    lifecycle: ["frame:dispatch-solvers", "frame:draw-ui"]
+    hooks: ["harmony-prefix KSA.Vehicle.PrepareWorker", "starmap StarMapAfterGui"]
+    game_types: [KSA.Vehicle, KSA.Universe, Brutal.Logging.DefaultCategory, Brutal.Logging.LogCategory]
+    key_paths: [AdvancedFlightComputer/Features/Guidance/Adapters/Scvx/SixDof/SixDofLog.cs, AdvancedFlightComputer/Features/Guidance/GuidanceLog.cs, AdvancedFlightComputer/Features/Guidance/Modes/SixDof.cs, AdvancedFlightComputer/Features/Guidance/Ui/Gauges/SixDofGauge.cs]
+    howto_topics:
+      - slug: flight-telemetry-to-csv
+        title: "Record per-step flight telemetry to CSV without stalling the frame"
+        note: "buffer rows in memory, flush every N rows, never throw, one owner vehicle"
+      - slug: imgui-window-begin-end-safety
+        title: "Keep exceptions out of ImGui draw code"
+        note: "an exception that escapes past End() breaks the frame and blames the wrong window"
+      - slug: log-on-change-signature
+        title: "Log a state only when it changes shape"
+        note: "bucketed signature (5 percent steps) instead of logging every refresh"
+  - id: mods/ksa-advancedflightcomputer/features/guidance-panel-and-overlays
+    title: "A detachable console-window panel and world-space trajectory overlays"
+    category: ui
+    submod: null
+    summary: "Draw a mod panel with the game's ConsoleStyle window skin unpinned from the main viewport, gauge-styled tab content, and click-through full-screen overlays that project CCI or body-fixed points through the main camera, all from StarMapAfterGui with fault isolation"
+    novelty: medium
+    techniques: [starmap-lifecycle, imgui-window, imgui-drawlist]
+    lifecycle: ["frame:draw-ui"]
+    hooks: ["starmap StarMapAfterGui", "harmony-postfix KSA.Program.DrawProgramMenusHook"]
+    game_types: [KSA.ConsoleStyle, KSA.ImGuiHelper, KSA.ImGauge, KSA.Camera, KSA.Celestial, KSA.Program]
+    key_paths: [AdvancedFlightComputer/Features/Guidance/GuidanceFeature.cs, AdvancedFlightComputer/Features/Guidance/Ui/GaugeKit.cs, AdvancedFlightComputer/Features/Guidance/Ui/Overlays/AscentOverlay.cs, AdvancedFlightComputer/Features/Guidance/Ui/Overlays/OverlayCore.cs]
+    howto_topics:
+      - slug: stock-styled-console-widgets
+        title: "Draw mod UI in the game console style"
+        note: "ConsoleStyle window skin unpinned from the main viewport"
+      - slug: click-through-imgui-overlay
+        title: "Draw a click-through full-screen overlay"
+        note: "project CCI points through the main camera"
+      - slug: add-top-level-menu-bar-entry
+        title: "Add a top-level menu to the main menu bar"
+        note: "postfix Program.DrawProgramMenusHook"
+  - id: mods/ksa-advancedflightcomputer/features/guidance-vehicle-step-loop
+    title: "Per-vehicle autopilot step in a Vehicle.PrepareWorker prefix"
+    category: flight-and-orbits
+    submod: null
+    summary: "Run a closed-loop autopilot for every vehicle on the main thread after the player's input is drained and before the flight computer is snapshotted for the physics worker, with per-craft state, takeover checks, fault counting and a menu-bar off switch"
+    novelty: high
+    techniques: [harmony-prefix, harmony-postfix, reflection, imgui-menu, conditional-weak-table]
+    lifecycle: ["frame:dispatch-solvers", "frame:draw-ui", "event:save-load", "event:vehicle-destroyed"]
+    hooks: ["harmony-prefix KSA.Vehicle.PrepareWorker", "harmony-postfix KSA.Program.DrawProgramMenusHook", "reflection KSA.Vehicle._manualControlInputs"]
+    game_types: [KSA.Vehicle, KSA.Universe, KSA.FlightComputer, KSA.ManualControlInputs, KSA.Program, KSA.KittenEva]
+    key_paths: [AdvancedFlightComputer/Features/Guidance/GuidanceFeature.cs, AdvancedFlightComputer/Features/Guidance/Modes/Autopilot.cs, AdvancedFlightComputer/Features/Guidance/Modes/Lifecycle.cs, AdvancedFlightComputer/Features/Guidance/Modes/VehicleAutopilotState.cs]
+    howto_topics:
+      - slug: per-vehicle-autopilot-step
+        title: "Run per-vehicle automation every physics step on the main thread"
+        note: "Vehicle.PrepareWorker prefix after input is drained"
+      - slug: identify-vehicle-in-prepareworker-window
+        title: "Know what is safe to read and write in Vehicle.PrepareWorker"
+        note: "previous step applied, worker not yet started"
+      - slug: fault-limit-and-self-disable
+        title: "Count faults and disengage instead of throwing every frame"
+        note: "per-craft fault counter and retry gate"
+  - id: mods/ksa-advancedflightcomputer/features/headless-harness-test-mod
+    title: "In-game tests as a separate HeadlessHarness consumer mod"
+    category: testing-and-tooling
+    submod: null
+    summary: "Ship tests as a second StarMap mod that depends on HeadlessHarness and the mod under test, discovered by interface and run against the real simulation without a GPU, with API-drift classification, sim-time clocks and test-scoped Harmony owners"
+    novelty: high
+    techniques: [starmap-lifecycle, harmony-prefix, reflection]
+    lifecycle: ["event:headless-test-run"]
+    hooks: []
+    game_types: [KSA.Vehicle, KSA.Universe, KSA.CelestialSystem, KSA.FlightComputer]
+    key_paths: [tests/AdvancedFlightComputer.HarnessTests/AdvancedFlightComputer.HarnessTests.csproj, tests/AdvancedFlightComputer.HarnessTests/Features/Core/ReflectionTargetsTest.cs, tests/AdvancedFlightComputer.HarnessTests/Features/ManeuverTools/ManeuverTranspilerTest.cs, tests/AdvancedFlightComputer.HarnessTests/Fixtures/VehicleFixtures.cs]
+    howto_topics:
+      - slug: headless-game-tests
+        title: "Run in-game tests headlessly with HeadlessHarness"
+        note: "tests as a second StarMap mod discovered by interface"
+      - slug: test-scoped-harmony-patches
+        title: "Apply a feature patch set only for the duration of a test"
+        note: "IDisposable scope with its own Harmony id"
+      - slug: deterministic-async-tests
+        title: "Make wall-clock-gated code deterministic in tests"
+        note: "swap the clock source for simulation time"
+  - id: mods/ksa-advancedflightcomputer/features/hyperbolic-transfer-targets
+    title: "Transfer Planner targets on hyperbolic orbits"
+    category: flight-and-orbits
+    submod: null
+    summary: "Give interstellar comets a mass and SOI with an XML patch, list them as planner targets, and patch the time-of-flight, transfer-window, alignment, intercept and closest-approach code that assumes a finite period, including a finalizer that finishes a method that throws"
+    novelty: high
+    techniques: [harmony-prefix, harmony-postfix, harmony-finalizer, xml-patch, reflection, background-thread]
+    lifecycle: ["startup:asset-load", "frame:draw-ui", "thread:background", "physics:vehicle-solver"]
+    hooks: ["harmony-postfix KSA.TransferPlanner.PopulateWithPlanets", "harmony-prefix KSA.OrbitalTransfers.HohmannFlight", "harmony-finalizer KSA.TransferPlanner.SetTransferInfo", "harmony-prefix KSA.OrbitalTransfers.AlignmentTime", "harmony-prefix KSA.RefineBurnTask.TryFindIntercept", "harmony-prefix KSA.PatchedConic.FindClosestApproaches"]
+    game_types: [KSA.TransferPlanner, KSA.OrbitalTransfers, KSA.RefineBurnTask, KSA.TransferTask, KSA.PatchedConic, KSA.Orbit, KSA.UniverseTime]
+    key_paths: [AdvancedFlightComputer/Features/HyperbolicTargets/EncounterPatches.cs, AdvancedFlightComputer/Features/HyperbolicTargets/HyperbolicTargets.cs, AdvancedFlightComputer/Features/HyperbolicTargets/TransferPlannerPatches.cs, AdvancedFlightComputer/Patches/HyperbolicBodies.xml]
+    howto_topics:
+      - slug: target-unbound-bodies-in-transfer-planner
+        title: "Let the Transfer Planner target bodies on hyperbolic orbits"
+        note: "patch every NaN-period assumption"
+      - slug: harmony-finalizer-for-thrown-exceptions
+        title: "Recover from an exception inside a game method with a Harmony finalizer"
+        note: "replay the lines after the throw and return null"
+      - slug: patch-code-running-on-threadpool
+        title: "Patch game code that also runs on ThreadPool tasks"
+        note: "touch only thread-safe state; defer UI to the draw thread"
+  - id: mods/ksa-advancedflightcomputer/features/launch-window-to-target-plane
+    title: "Launch window to a target vehicle's plane, co-elliptic chase orbit and warp to the window"
+    category: flight-and-orbits
+    submod: null
+    summary: "Derive the target's plane from its state vectors, time the next ascending or descending crossing of the launch site with a lead for the ascent, aim a co-elliptic orbit below the target, and request the warp through the game's InputEvents.AutoWarpBuffer"
+    novelty: medium
+    techniques: [input-buffer, orbital-geometry]
+    lifecycle: ["frame:dispatch-solvers", "frame:draw-ui", "frame:input"]
+    hooks: ["harmony-prefix KSA.Vehicle.PrepareWorker", "starmap StarMapAfterGui"]
+    game_types: [KSA.Orbit, KSA.StateVectors, KSA.IParentBody, KSA.InputEvents, KSA.Universe, KSA.Vehicle]
+    key_paths: [AdvancedFlightComputer/Features/Guidance/Modes/ChaseOrbit.cs, AdvancedFlightComputer/Features/Guidance/Modes/Ascent.cs, AdvancedFlightComputer/Features/Guidance/Modes/Autopilot.cs, AdvancedFlightComputer/Features/Guidance/Upfg/UpfgTarget.cs]
+    howto_topics:
+      - slug: launch-window-to-orbit-plane
+        title: "Compute the launch window into a target orbit plane"
+        note: "site latitude vs inclination; ascending or descending crossing with a lead"
+      - slug: set-simulation-speed-from-a-mod
+        title: "Request time warp safely from mod UI"
+        note: "InputEvents.AutoWarpBuffer drained in PrepareFrame"
+      - slug: rendezvous-chase-orbit
+        title: "Choose a co-elliptic chase orbit below a target"
+        note: "match eccentricity and argument of periapsis"
+  - id: mods/ksa-advancedflightcomputer/features/mod-deploy-msbuild-targets
+    title: "MSBuild deploy and packaging for a StarMap mod with native payload"
+    category: getting-started
+    submod: null
+    summary: "Shared MSBuild targets that copy a mod into the game's mods folder with a running-game check, a launch profile and a worktree stamp, plus an explicit payload list that drives both deployment and a Release zip verified file by file"
+    novelty: medium
+    techniques: [msbuild-targets]
+    lifecycle: []
+    hooks: []
+    game_types: []
+    key_paths: [AdvancedFlightComputer/AdvancedFlightComputer.csproj, Directory.Build.props, build/GuidanceNative.props, build/GuidancePayload.targets]
+    howto_topics:
+      - slug: build-and-deploy-starmap-mod
+        title: "Build and deploy a StarMap mod into the game mods folder"
+        note: "shared MSBuild targets with a running-game check"
+      - slug: package-mod-release-zip
+        title: "Package a release zip verified file by file"
+        note: "one payload list drives deploy and packaging"
+      - slug: load-native-libraries-from-a-mod
+        title: "Ship native libraries with a mod"
+        note: "per-RID payload beside the mod assembly"
+  - id: mods/ksa-advancedflightcomputer/features/mods-settings-page-sections
+    title: "Sections on the stock Mods settings page"
+    category: ui
+    submod: null
+    summary: "A one-call transpiler on GameSettings.OnDrawUi inserts a section host before the page's PopWidgetStyle, and draws registered sections only while the private Mods tab is open"
+    novelty: high
+    techniques: [harmony-transpiler, reflection, imgui-window]
+    lifecycle: ["frame:draw-ui"]
+    hooks: ["harmony-transpiler KSA.GameSettings.OnDrawUi", "reflection KSA.GameSettings._openTab", "reflection KSA.ModLibrary.AllParts"]
+    game_types: [KSA.GameSettings, KSA.ConsoleStyle, KSA.ConsoleWidgets, KSA.ModLibrary]
+    key_paths: [AdvancedFlightComputer/Core/GameReflection.cs, AdvancedFlightComputer/Core/ModSettingsPage.cs, AdvancedFlightComputer/Features/AutoRemove/AutoRemoveFeature.cs, AdvancedFlightComputer/Features/AutoStage/AutoStageSettingsPage.cs]
+    howto_topics:
+      - slug: add-section-to-stock-mods-settings
+        title: "Add a section to the stock Mods settings page"
+        note: "one-call transpiler on GameSettings.OnDrawUi before PopWidgetStyle"
+      - slug: harmony-transpiler-call-site-swap
+        title: "Insert a call into a game method with a Harmony transpiler"
+        note: "anchor on a unique call and validate the anchor"
+  - id: mods/ksa-advancedflightcomputer/features/multi-pass-burn-splitting
+    title: "Split a maneuver into passes with a forward-chained flight plan"
+    category: flight-and-orbits
+    submod: null
+    summary: "Allocate a maneuver's delta-v to N passes by equal burn time or equal delta-v from a private staging model, then chain FlightPlan.CalculateBurnPatch pass by pass so every later pass is placed on the orbit the earlier passes produce"
+    novelty: high
+    techniques: [custom-physics]
+    lifecycle: ["frame:draw-ui", "frame:apply-solvers"]
+    hooks: []
+    game_types: [KSA.FlightPlan, KSA.PatchedConic, KSA.Orbit, KSA.SequencePerformanceList, KSA.SequencePerformance, KSA.PatchTransition]
+    key_paths: [AdvancedFlightComputer/Features/MultiPass/ApseBurnPlanner.cs, AdvancedFlightComputer/Features/MultiPass/IManeuverIntent.cs, AdvancedFlightComputer/Features/MultiPass/MultiPassForwardChainPlanner.cs, AdvancedFlightComputer/Features/MultiPass/MultiPassLoss.cs]
+    howto_topics:
+      - slug: split-a-burn-into-passes
+        title: "Split a long burn into several periapsis passes"
+        note: "equal burn time or equal dv from the staging model"
+      - slug: chain-burns-through-flight-plan
+        title: "Place a chain of burns on the orbits earlier burns produce"
+        note: "FlightPlan.CalculateBurnPatch pass by pass"
+  - id: mods/ksa-advancedflightcomputer/features/multi-pass-execution
+    title: "Multi-pass execution as a per-vehicle state machine on stock Auto burns"
+    category: flight-and-orbits
+    submod: null
+    summary: "Fly a split maneuver hands-free by placing one stock burn per pass, advancing when stock ends a pass, re-arming Auto through Vehicle.SetEnum once the next queued burn has materialized, and surviving saves, propellant stops and player edits"
+    novelty: high
+    techniques: [harmony-postfix, harmony-prefix, save-sidecar]
+    lifecycle: ["frame:apply-solvers", "frame:prepare", "frame:input"]
+    hooks: ["harmony-postfix KSA.Universe.ApplyVehicleSolvers", "harmony-postfix KSA.FlightComputer.RaisePendingAlerts"]
+    game_types: [KSA.FlightComputer, KSA.BurnPlan, KSA.Burn, KSA.Vehicle, KSA.InputEvents, KSA.TransferPlanner]
+    key_paths: [AdvancedFlightComputer/Features/MultiPass/MultiPassCommitter.cs, AdvancedFlightComputer/Features/MultiPass/MultiPassController.cs, AdvancedFlightComputer/Features/MultiPass/MultiPassExecution.cs, AdvancedFlightComputer/Features/MultiPass/MultiPassRegistry.cs]
+    howto_topics:
+      - slug: execute-burn-sequence-hands-free
+        title: "Execute a sequence of planned burns hands-free on stock Auto"
+        note: "state machine advanced by stock burn-end events"
+      - slug: re-arm-stock-auto-burn
+        title: "Re-arm stock Auto for the next burn from code"
+        note: "Vehicle.SetEnum once the queued burn has materialized"
+  - id: mods/ksa-advancedflightcomputer/features/multi-pass-hohmann-schedule
+    title: "Multi-pass Hohmann departures with a period schedule and a shifted window"
+    category: flight-and-orbits
+    submod: null
+    summary: "Raise apoapsis in periapsis kicks whose orbital periods sum to a whole number of parking periods so the final kick lands on the transfer window, shifting a same-parent window forward and re-solving Lambert when there is not enough time"
+    novelty: high
+    techniques: [harmony-transpiler, custom-physics]
+    lifecycle: ["frame:draw-ui", "frame:apply-solvers"]
+    hooks: ["harmony-transpiler KSA.TransferPlanner.DrawPlanWindow"]
+    game_types: [KSA.OrbitalTransfers, KSA.Orbit, KSA.FlightPlan, KSA.TransferPlanner, KSA.Burn]
+    key_paths: [AdvancedFlightComputer/Features/MultiPass/HohmannCreateInterceptor.cs, AdvancedFlightComputer/Features/MultiPass/HohmannMultiPassPlanner.cs, AdvancedFlightComputer/Features/MultiPass/HohmannMultiPassUI.cs, AdvancedFlightComputer/Features/MultiPass/HohmannTransferIntent.cs]
+    howto_topics:
+      - slug: phasing-orbits-for-transfer-window
+        title: "Schedule phasing orbits so the final kick hits a transfer window"
+        note: "periods summing to whole parking periods"
+      - slug: compute-transfer-windows
+        title: "Compute and shift transfer windows"
+        note: "re-solve Lambert when the window moves"
+  - id: mods/ksa-advancedflightcomputer/features/multi-pass-preview-rendering
+    title: "Draw several predicted orbits with a brightness ramp and custom map markers"
+    category: rendering
+    submod: null
+    summary: "Render one FlightPlan per planned pass through FlightPlan.AddLineInstances with per-pass dimmed orbit colors, draw apsis, node and SOI markers on the viewport's overlay draw list, and cache the expensive previews behind quantized vehicle-state keys"
+    novelty: medium
+    techniques: [imgui-drawlist, harmony-postfix]
+    lifecycle: ["frame:draw-ui", "frame:pre-render"]
+    hooks: ["harmony-postfix KSA.TransferPlanner.OnPreRender", "harmony-postfix KSA.TransferPlanner.DrawPlanWindow"]
+    game_types: [KSA.FlightPlan, KSA.PatchedConic, KSA.Orbit, KSA.BurnPlan, KSA.ImGuiHelper, KSA.UpdateTaskUtils, KSA.SequencePerformanceList]
+    key_paths: [AdvancedFlightComputer/Features/MultiPass/MultiPassMarkers.cs, AdvancedFlightComputer/Features/MultiPass/MultiPassPreviewCache.cs, AdvancedFlightComputer/Features/MultiPass/MultiPassRenderer.cs, AdvancedFlightComputer/Features/MultiPass/PassPreview.cs]
+    howto_topics:
+      - slug: draw-predicted-orbits-with-game-lines
+        title: "Draw extra predicted orbits with the game orbit-line renderer"
+        note: "FlightPlan.AddLineInstances per plan with dimmed colors"
+      - slug: draw-overlay-in-map-view
+        title: "Draw markers in the map view"
+        note: "viewport overlay draw list"
+      - slug: cache-expensive-previews
+        title: "Cache expensive trajectory previews"
+        note: "quantized input keys"
+  - id: mods/ksa-advancedflightcomputer/features/native-conic-solver-interop
+    title: "Ship and call native solver libraries from a mod"
+    category: external-io
+    submod: null
+    summary: "Load clarabel_c and scs from beside the mod assembly with a single module-initializer DllImportResolver per platform, bind them with layout-exact structs, reuse sparse CSC patterns across solves, and keep native calls on one thread per solver instance"
+    novelty: high
+    techniques: [native-interop, assembly-load-context, background-thread]
+    lifecycle: ["frame:dispatch-solvers", "thread:background"]
+    hooks: []
+    game_types: []
+    key_paths: [AdvancedFlightComputer/Features/Guidance/Conic/AdvancedFlightComputer.Guidance.Conic.csproj, AdvancedFlightComputer/Features/Guidance/Conic/CcsAssembler.cs, AdvancedFlightComputer/Features/Guidance/Conic/ClarabelNative.cs, AdvancedFlightComputer/Features/Guidance/Conic/ClarabelSolver.cs]
+    howto_topics:
+      - slug: load-native-libraries-from-a-mod
+        title: "Load native libraries shipped beside a mod assembly"
+        note: "one DllImportResolver per assembly in a module initializer"
+      - slug: p-invoke-with-layout-exact-structs
+        title: "Bind a C library with layout-exact structs"
+        note: "verify layouts against a C probe"
+  - id: mods/ksa-advancedflightcomputer/features/native-solver-build-and-abi-check
+    title: "Build vendored native libraries for Windows and Linux and check the ABI against C#"
+    category: testing-and-tooling
+    submod: null
+    summary: "Build Clarabel with cargo and SCS with zig cc from vendored sources with pinned, hash-verified toolchains, and compare the C# struct layouts and export list against a C probe compiled from the same headers on each target platform"
+    novelty: high
+    techniques: [native-interop, msbuild-targets]
+    lifecycle: []
+    hooks: []
+    game_types: []
+    key_paths: [.github/workflows/ci.yml, build/NativeChecks/Program.cs, build/NativeChecks/native-layout.c, build/build-clarabel.ps1]
+    howto_topics:
+      - slug: vendor-and-build-native-dependencies
+        title: "Vendor and build native dependencies for Windows and Linux"
+        note: "cargo and zig cc with hash-pinned toolchains"
+      - slug: check-pinvoke-abi-in-ci
+        title: "Check P/Invoke struct layouts and exports in CI"
+        note: "compare against a C probe compiled from the same headers"
+  - id: mods/ksa-advancedflightcomputer/features/optional-kittenextensions-patches
+    title: "Optional KittenExtensions XML patches from mod.toml"
+    category: assets
+    submod: null
+    summary: "Declare XML patch files in mod.toml and KittenExtensions as an optional StarMap dependency, so data patches apply when it is installed and the code-side features degrade cleanly when it is not"
+    novelty: medium
+    techniques: [xml-patch, starmap-lifecycle, toml-config]
+    lifecycle: ["startup:asset-load"]
+    hooks: ["harmony-prefix KSA.ModLibrary.PrepareAll (KittenExtensions)", "harmony-transpiler KSA.Mod.LoadAssetBundles (KittenExtensions)", "harmony-transpiler KSA.Mod.LoadPlanetMeshes (KittenExtensions)", "harmony-transpiler KSA.Mod.LoadSystems (KittenExtensions)", "harmony-transpiler KSA.Mod.PrepareSystems (KittenExtensions)"]
+    game_types: [KSA.ModLibrary, KSA.Mod, KSA.XmlLoader]
+    key_paths: [AdvancedFlightComputer/AdvancedFlightComputer.csproj, AdvancedFlightComputer/Patches/AutoStageButton.xml, AdvancedFlightComputer/Patches/HyperbolicBodies.xml, AdvancedFlightComputer/mod.toml]
+    howto_topics:
+      - slug: optional-mod-dependency-with-fallback
+        title: "Depend on another mod optionally and degrade without it"
+        note: "StarMap ModDependencies Optional = true"
+      - slug: patch-game-xml-with-kittenextensions
+        title: "Patch game XML data with KittenExtensions"
+        note: "patches list in mod.toml, Copy Pos=Append"
+  - id: mods/ksa-advancedflightcomputer/features/orbit-context-menu-shortcuts
+    title: "Entries in the stock orbit right-click menu"
+    category: ui
+    submod: null
+    summary: "A transpiler on BurnContextMenu.Draw inserts a submenu before the popup's final EndPopup and appends entries to the \"At Periapsis\" and \"At Apoapsis\" submenus, found by reading the UTF-8 label literals from the IL"
+    novelty: high
+    techniques: [harmony-transpiler, imgui-menu]
+    lifecycle: ["frame:draw-ui"]
+    hooks: ["harmony-transpiler KSA.BurnContextMenu.Draw"]
+    game_types: [KSA.BurnContextMenu, KSA.TransferPlanner, Brutal.ImGuiApi.ImGui]
+    key_paths: [AdvancedFlightComputer/Features/ManeuverTools/BurnMenuLauncher.cs, AdvancedFlightComputer/Features/ManeuverTools/ManeuverTools.cs, AdvancedFlightComputer/Features/ManeuverTools/Patch_BurnContextMenu_Launcher.cs, tests/AdvancedFlightComputer.HarnessTests/Features/ManeuverTools/BurnMenuLauncherTest.cs]
+    howto_topics:
+      - slug: add-entries-to-orbit-context-menu
+        title: "Add entries to the stock orbit right-click menu"
+        note: "transpiler on BurnContextMenu.Draw before the final EndPopup"
+      - slug: identify-call-by-argument-il
+        title: "Find an IL anchor by its UTF-8 string literal"
+        note: "read u8 label literals from the IL"
+  - id: mods/ksa-advancedflightcomputer/features/plan-window-transpiler-injection
+    title: "Inject UI and swap calls inside the stock plan window with anchored transpilers"
+    category: patching
+    submod: null
+    summary: "One transpiler pipeline on TransferPlanner.DrawPlanWindow inserts a draw call before two IL anchors, filters the Create button's result with a click gate, and swaps the Burn.Create call site for a same-signature replacement, moving labels and exception markers correctly"
+    novelty: high
+    techniques: [harmony-transpiler, reflection]
+    lifecycle: ["startup:all-mods-loaded", "frame:draw-ui"]
+    hooks: ["harmony-transpiler KSA.TransferPlanner.DrawPlanWindow"]
+    game_types: [KSA.TransferPlanner, KSA.Burn, KSA.ConsoleWidgets, KSA.ConsoleStyle]
+    key_paths: [AdvancedFlightComputer/Core/TranspilerInsertion.cs, AdvancedFlightComputer/Features/MultiPass/HohmannCreateInterceptor.cs, AdvancedFlightComputer/Features/MultiPass/HohmannMultiPassUI.cs, AdvancedFlightComputer/Features/PlanWindow/Patch_DrawPlanWindow.cs]
+    howto_topics:
+      - slug: harmony-transpiler-call-site-swap
+        title: "Swap one call inside a method with a Harmony transpiler"
+        note: "same-signature replacement for Burn.Create"
+      - slug: inject-ui-into-stock-window
+        title: "Inject UI into a stock ImGui window at a precise spot"
+        note: "insert a draw call before validated IL anchors"
+  - id: mods/ksa-advancedflightcomputer/features/planner-burn-node-creation
+    title: "Create a stock maneuver node from a computed impulse"
+    category: flight-and-orbits
+    submod: null
+    summary: "Turn an impulsive delta-v at a time into a stock Burn with Burn.Create on the right flight-plan patch and queue it through InputEvents.BurnUpdateBuffer exactly as the Transfer Planner does, so stock Auto, saves and the burn editor treat it as a normal node"
+    novelty: medium
+    techniques: [harmony-prefix]
+    lifecycle: ["frame:draw-ui", "frame:input"]
+    hooks: ["harmony-prefix KSA.TransferPlanner.DrawPlanWindow"]
+    game_types: [KSA.Burn, KSA.BurnPlan, KSA.FlightComputer, KSA.FlightPlan, KSA.PatchedConic, KSA.InputEvents, KSA.TransferPlanner]
+    key_paths: [AdvancedFlightComputer/Features/MultiPass/MultiPassCommitter.cs, AdvancedFlightComputer/Features/PlanWindow/Patch_DrawPlanWindow.Commit.cs, AdvancedFlightComputer/Features/PlanWindow/Patch_DrawPlanWindow.cs, tests/AdvancedFlightComputer.HarnessTests/Features/ManeuverTools/SetApoapsisTest.cs]
+    howto_topics:
+      - slug: create-maneuver-node-from-code
+        title: "Create a stock maneuver node from a computed impulse"
+        note: "Burn.Create on the right patch, queued through InputEvents.BurnUpdateBuffer"
+      - slug: avoid-racing-vehicle-solver-from-ui
+        title: "Mutate vehicle state from UI without racing the solver"
+        note: "use the game input buffers"
+  - id: mods/ksa-advancedflightcomputer/features/planner-preview-trajectories
+    title: "Preview a planned burn's trajectory with the game's own orbit lines"
+    category: flight-and-orbits
+    submod: null
+    summary: "Build a FlightPlan for a candidate burn with OrbitalTransfers.BuildFlightPlan, draw it in a TransferPlanner.OnPreRender postfix with FlightPlan.AddLineInstances, and suppress stock's selected-transfer preview while a replacement is shown"
+    novelty: medium
+    techniques: [harmony-postfix, harmony-prefix, reflection]
+    lifecycle: ["frame:draw-ui", "frame:pre-render"]
+    hooks: ["harmony-postfix KSA.TransferPlanner.OnPreRender", "harmony-postfix KSA.TransferPlanner.DrawPlanWindow", "harmony-prefix KSA.TransferPlanner.DrawSelectedTransfer", "harmony-prefix KSA.TransferPlanner.DrawSelectedTransferUi"]
+    game_types: [KSA.TransferPlanner, KSA.FlightPlan, KSA.OrbitalTransfers, KSA.PatchedConic, KSA.Orbit, KSA.UpdateTaskUtils, KSA.CelestialSystem]
+    key_paths: [AdvancedFlightComputer/Features/PlanWindow/Patch_DrawPlanWindow.Preview.cs, AdvancedFlightComputer/Features/PlanWindow/Patch_OnPreRender.cs, AdvancedFlightComputer/Features/PlanWindow/Patch_TransferPlanner_DrawSelectedTransferUi_Flyby.cs, AdvancedFlightComputer/Features/PlanWindow/Patch_TransferPlanner_DrawSelectedTransfer_Flyby.cs]
+    howto_topics:
+      - slug: preview-a-planned-burn-trajectory
+        title: "Preview a planned burn trajectory with game orbit lines"
+        note: "OrbitalTransfers.BuildFlightPlan drawn in a TransferPlanner.OnPreRender postfix"
+      - slug: suppress-stock-preview
+        title: "Suppress a stock preview while yours is shown"
+        note: "paired transpilers on DrawSelectedTransfer and DrawSelectedTransferUi"
+  - id: mods/ksa-advancedflightcomputer/features/post-solver-vehicle-tick
+    title: "Main-thread vehicle tick right after the solver apply"
+    category: patching
+    submod: null
+    summary: "A prefix and postfix on Universe.ApplyVehicleSolvers give mod state machines one main-thread tick per frame with fresh physics results, before input is drained and before stock reacts to burn flags"
+    novelty: high
+    techniques: [harmony-prefix, harmony-postfix]
+    lifecycle: ["frame:apply-solvers"]
+    hooks: ["harmony-prefix KSA.Universe.ApplyVehicleSolvers", "harmony-postfix KSA.Universe.ApplyVehicleSolvers"]
+    game_types: [KSA.Universe, KSA.VehicleUpdateTask, KSA.Vehicle, KSA.CelestialSystem, KSA.Program]
+    key_paths: [AdvancedFlightComputer/Core/GameReflection.cs, AdvancedFlightComputer/Core/LoadedVehicles.cs, AdvancedFlightComputer/Core/SharedVehicleHooks.cs, tests/AdvancedFlightComputer.HarnessTests/Features/Core/SharedVehicleHooksTest.cs]
+    howto_topics:
+      - slug: main-thread-physics-sync-point
+        title: "Run mod logic right after physics results land on the main thread"
+        note: "prefix and postfix on Universe.ApplyVehicleSolvers"
+      - slug: read-vehicle-state-on-main-thread
+        title: "Read settled vehicle state on the main thread"
+        note: "enumerate the live registry, not Program.VehiclesInFrame"
+  - id: mods/ksa-advancedflightcomputer/features/rcs-burn-editor-and-gauge-ui
+    title: "RCS options in the burn editor and a re-enabled Auto gauge button"
+    category: ui
+    submod: null
+    summary: "Postfixes add per-burn RCS settings to the stock burn editors (gauge-styled when docked, plain ImGui when detached) and rewrite the Auto gauge button's disabled bits and tooltip for engineless vehicles"
+    novelty: medium
+    techniques: [harmony-postfix, harmony-prefix, reflection, imgui-window]
+    lifecycle: ["frame:draw-ui", "frame:render"]
+    hooks: ["harmony-postfix KSA.Burn.DrawBurnEditorWindowContent", "harmony-postfix KSA.BurnCanvasHost.Draw", "harmony-postfix KSA.GaugeButtonFlightComputer.IsDisabled", "harmony-postfix KSA.GaugeButtonFlightComputer.PackData", "harmony-prefix KSA.Vehicle.Hovered", "reflection KSA.GaugeButtonFlightComputer._enumValue"]
+    game_types: [KSA.Burn, KSA.BurnCanvasHost, KSA.GaugeCanvas, KSA.GaugeButtonFlightComputer, KSA.ImGauge, KSA.Vehicle, KSA.BurnTarget]
+    key_paths: [AdvancedFlightComputer/Features/RcsTranslation/RcsBurnCanvasUi.cs, AdvancedFlightComputer/Features/RcsTranslation/RcsBurnPreview.cs, AdvancedFlightComputer/Features/RcsTranslation/RcsBurnUi.cs, AdvancedFlightComputer/Features/RcsTranslation/RcsBurnWindowUi.cs]
+    howto_topics:
+      - slug: extend-stock-burn-editor
+        title: "Add settings to the stock burn editor"
+        note: "postfixes, docked gauge style vs detached ImGui"
+      - slug: change-stock-gauge-button-state
+        title: "Change a stock gauge button enabled state and tooltip"
+        note: "rewrite disabled bits in a postfix"
+  - id: mods/ksa-advancedflightcomputer/features/rcs-burn-execution
+    title: "RCS-only burn execution through the stock Auto button"
+    category: flight-and-orbits
+    submod: null
+    summary: "Intercept the Auto burn-mode request, drive the burn from a main-thread state machine, hand an immutable command to the vehicle worker keyed by the shared BurnPlan, and end it through the stock completion flags"
+    novelty: high
+    techniques: [harmony-prefix, harmony-postfix, conditional-weak-table, save-sidecar]
+    lifecycle: ["frame:input", "frame:apply-solvers", "physics:vehicle-solver"]
+    hooks: ["harmony-prefix KSA.Vehicle.SetEnum", "harmony-postfix KSA.Universe.ApplyVehicleSolvers", "harmony-postfix KSA.FlightComputer.ComputeControl", "harmony-prefix KSA.Universe.AutoWarpTo"]
+    game_types: [KSA.Vehicle, KSA.FlightComputer, KSA.BurnTarget, KSA.BurnPlan, KSA.FlightComputerOutput, KSA.Universe]
+    key_paths: [AdvancedFlightComputer/Features/RcsTranslation/RcsCapability.cs, AdvancedFlightComputer/Features/RcsTranslation/RcsComputeControlPatch.cs, AdvancedFlightComputer/Features/RcsTranslation/RcsDriverPatch.cs, AdvancedFlightComputer/Features/RcsTranslation/RcsExecution.cs]
+    howto_topics:
+      - slug: rcs-translation-burns
+        title: "Execute a burn with RCS translation only"
+        note: "intercept the Auto request, closed loop on stock dv accounting"
+      - slug: intercept-burn-mode-request
+        title: "Intercept the player arming the Auto burn mode"
+        note: "Vehicle.SetEnum prefix"
+  - id: mods/ksa-advancedflightcomputer/features/rcs-thruster-allocation
+    title: "RCS jet selection with axis groups or a linear program"
+    category: vehicles-and-parts
+    submod: null
+    summary: "Build a live per-thruster force, torque and mass-flow table in the control frame, then fire signed-axis groups or solve a fuel-optimal jet-selection LP with a hand-written simplex"
+    novelty: high
+    techniques: [custom-physics]
+    lifecycle: ["frame:apply-solvers", "physics:vehicle-solver"]
+    hooks: ["harmony-postfix KSA.FlightComputer.ComputeControl"]
+    game_types: [KSA.ThrusterController, KSA.ThrusterControllerState, KSA.RocketCore, KSA.RocketNozzle, KSA.NozzlePerformance, KSA.FlightComputer]
+    key_paths: [AdvancedFlightComputer/Features/RcsTranslation/RcsComputeControlPatch.cs, AdvancedFlightComputer/Features/RcsTranslation/RcsCtrlFrame.cs, AdvancedFlightComputer/Features/RcsTranslation/RcsExecutor.Allocation.cs, AdvancedFlightComputer/Features/RcsTranslation/RcsExecutor.Estimates.cs]
+    howto_topics:
+      - slug: allocate-rcs-thrusters
+        title: "Choose which RCS jets fire for a translation"
+        note: "signed-axis groups or a jet-selection LP"
+      - slug: read-thruster-geometry
+        title: "Read per-thruster force, torque and mass flow in the control frame"
+        note: "live wrench table from thruster modules"
+  - id: mods/ksa-advancedflightcomputer/features/save-scoped-sidecar-registries
+    title: "Save-scoped TOML registries beside the mod"
+    category: persistence
+    submod: null
+    summary: "Per-save, per-vehicle execution state lives in TOML files in the mod folder, keyed by save id and vehicle id, loaded and rekeyed by postfixes on UncompressedSave.Load and Write"
+    novelty: medium
+    techniques: [harmony-postfix, harmony-prefix, save-sidecar, toml-config]
+    lifecycle: ["event:save-load", "event:save-write", "event:vehicle-destroyed"]
+    hooks: ["harmony-prefix KSA.UncompressedSave.Load", "harmony-postfix KSA.UncompressedSave.Load", "harmony-postfix KSA.UncompressedSave.Write", "harmony-postfix KSA.Vehicle.Dispose", "harmony-postfix KSA.Vehicle.SetName"]
+    game_types: [KSA.UncompressedSave, KSA.GameSave, KSA.Universe, KSA.Vehicle]
+    key_paths: [AdvancedFlightComputer/Core/SaveLoadObserver.cs, AdvancedFlightComputer/Core/SaveScopedState.cs, AdvancedFlightComputer/Core/SharedVehicleHooks.cs, AdvancedFlightComputer/Features/MultiPass/MultiPassRegistry.cs]
+    howto_topics:
+      - slug: detect-save-load
+        title: "Detect save load and save write"
+        note: "postfixes on UncompressedSave.Load and Write"
+      - slug: persist-mod-settings-toml
+        title: "Persist per-save mod state as TOML beside the mod"
+        note: "key by save id and vehicle id"
+      - slug: follow-vehicle-rename-and-dispose
+        title: "Keep per-vehicle state across rename and dispose"
+        note: "Vehicle.SetName and Vehicle.Dispose(bool) hooks"
+  - id: mods/ksa-advancedflightcomputer/features/scvx-6dof-landing-mpc
+    title: "6-DOF successive-convexification landing as a receding-horizon MPC on a solver thread"
+    category: flight-and-orbits
+    submod: null
+    summary: "A rigid-body landing planner re-solved every cycle from the measured state with SCS on a dedicated background thread, with immutable input snapshots, a single result slot, an estimated acceleration bias, a wall-clock budget and a node ladder"
+    novelty: high
+    techniques: [native-interop, background-thread, harmony-prefix, custom-physics]
+    lifecycle: ["frame:dispatch-solvers", "thread:background", "physics:vehicle-solver"]
+    hooks: ["harmony-prefix KSA.Vehicle.PrepareWorker", "harmony-postfix KSA.FlightComputer.ComputeControl", "harmony-postfix KSA.FlightComputer.UpdateAttitudeTarget"]
+    game_types: [KSA.Vehicle, KSA.FlightComputer, KSA.Celestial]
+    key_paths: [AdvancedFlightComputer/Features/Guidance/Adapters/Scvx/SixDof/Ksa6DofGuidance.cs, AdvancedFlightComputer/Features/Guidance/Adapters/Scvx/SixDof/Ksa6DofInputs.cs, AdvancedFlightComputer/Features/Guidance/Adapters/Scvx/SixDof/Ksa6DofSetup.cs, AdvancedFlightComputer/Features/Guidance/Adapters/Scvx/SixDof/Ksa6DofSolveWorker.cs]
+    howto_topics:
+      - slug: receding-horizon-mpc-on-background-thread
+        title: "Run a receding-horizon planner on a background thread"
+        note: "immutable inputs, single result slot, wall-clock budget"
+      - slug: background-threads-and-ksa-main-thread
+        title: "Coordinate a mod thread with the KSA main thread"
+        note: "lock-protected single request/result slot"
+  - id: mods/ksa-advancedflightcomputer/features/solver-problem-json-replay
+    title: "Dump the in-game solver problem as JSON and replay it offline"
+    category: testing-and-tooling
+    submod: null
+    summary: "The convex-ascent request writes the exact problem it built from the live vehicle to plain SI JSON before solving, and a test-console flag re-solves that file offline with a full trace, with round-trip checks keeping old files readable"
+    novelty: high
+    techniques: [harmony-prefix, problem-dump-replay, json-dto, game-free-assemblies]
+    lifecycle: ["frame:dispatch-solvers"]
+    hooks: ["harmony-prefix KSA.Vehicle.PrepareWorker"]
+    game_types: [KSA.Vehicle, KSA.Universe, KSA.IParentBody]
+    key_paths: [AdvancedFlightComputer/Features/Guidance/Scvx/Ascent/AscentProblemFile.cs, AdvancedFlightComputer/Features/Guidance/Scvx/Ascent/AscentModel.cs, AdvancedFlightComputer/Features/Guidance/Scvx/Ascent/AscentPhasePlan.cs, AdvancedFlightComputer/Features/Guidance/Modes/ConvexAscent.cs]
+    howto_topics:
+      - slug: replay-game-built-problem-offline
+        title: "Replay a computation the game fed with live data, offline"
+        note: "serialize the exact input object to JSON where it is built; a console flag re-runs it"
+      - slug: versioned-json-mod-files
+        title: "Keep JSON files readable across format changes"
+        note: "nullable fields read back as not set in older files"
+      - slug: split-game-adapters-from-pure-logic
+        title: "Keep the serialized problem type in a game-free assembly"
+        note: "shared by the mod and the test console"
+  - id: mods/ksa-advancedflightcomputer/features/spent-stage-drop
+    title: "Predict a jettison and drop spent boosters early"
+    category: vehicles-and-parts
+    submod: null
+    summary: "Predict which parts the next sequence would shed by mirroring Vehicle.Split on its decouplers, and stage early only when that sheds nothing but burnt-out engines and carries off no propellant a retained engine can still use"
+    novelty: high
+    techniques: [custom-physics]
+    lifecycle: ["frame:apply-solvers"]
+    hooks: ["harmony-postfix KSA.Universe.ApplyVehicleSolvers"]
+    game_types: [KSA.Vehicle, KSA.Decoupler, KSA.Part, KSA.Tank, KSA.ResourceManager, KSA.FuelLink, KSA.EngineController]
+    key_paths: [AdvancedFlightComputer/Features/AutoStage/JettisonAnalysis.cs, AdvancedFlightComputer/Features/AutoStage/StagingDetector.cs, AdvancedFlightComputer/Features/AutoStage/StagingHelpers.cs, tests/AdvancedFlightComputer.HarnessTests/Features/AutoStage/SpentStageDropTest.cs]
+    howto_topics:
+      - slug: predict-jettisoned-parts
+        title: "Predict which parts the next stage would drop"
+        note: "mirror Vehicle.Split on the sequence decouplers"
+      - slug: drop-spent-boosters-early
+        title: "Drop burnt-out boosters while the core keeps burning"
+        note: "refuse when crossfeed propellant would be cut off"
+  - id: mods/ksa-advancedflightcomputer/features/stage-model-from-staging-simulator
+    title: "Per-stage thrust, Isp and burn time from the game's staging simulator"
+    category: vehicles-and-parts
+    submod: null
+    summary: "Turn PartTree.PerformanceSequences, the drain simulation behind the stage menu, into constant-thrust stages for guidance by reading its phases, repairing double-registered engines, merging artificial phase splits and rescaling the burning stage to the craft's real back pressure"
+    novelty: high
+    techniques: [game-simulator-reuse]
+    lifecycle: ["frame:dispatch-solvers"]
+    hooks: ["harmony-prefix KSA.Vehicle.PrepareWorker"]
+    game_types: [KSA.PartTree, KSA.SequenceList, KSA.Sequence, KSA.SequencePerformanceList, KSA.SequencePerformance, KSA.SequencePhaseInfo, KSA.PerformanceEnvironment, KSA.Part, KSA.RocketNozzle, KSA.SolidMotor]
+    key_paths: [AdvancedFlightComputer/Features/Guidance/Upfg/KsaVehicleAdapter.cs, AdvancedFlightComputer/Features/Guidance/Upfg/UpfgVehicle.cs, AdvancedFlightComputer/Features/Guidance/Modes/Autopilot.cs, AdvancedFlightComputer/Features/Guidance/GuidanceLog.cs]
+    howto_topics:
+      - slug: read-vehicle-staged-delta-v
+        title: "Read per-stage thrust, Isp and delta-v from the game staging simulator"
+        note: "SequencePerformance.Phases, not headline figures"
+      - slug: rocket-equation-propellant-from-stages
+        title: "Turn staging data into constant-thrust stages"
+        note: "coalesce artificial phase splits exactly"
+      - slug: staging-simulator-double-registration
+        title: "Correct double-counted engines in the staging simulator"
+        note: "parts listed under several sequences are registered once per sequence"
+  - id: mods/ksa-advancedflightcomputer/features/staging-delays
+    title: "Staging delays per part variant and per sequence"
+    category: vehicles-and-parts
+    submod: null
+    summary: "Hold engines and decouplers of a staged row for configurable delays with on-screen countdowns, configured globally per part variant in TOML and per vehicle sequence from a part-window postfix"
+    novelty: medium
+    techniques: [harmony-postfix, toml-config, imgui-window, reflection]
+    lifecycle: ["frame:apply-solvers", "frame:draw-ui", "event:mod-unload"]
+    hooks: ["harmony-postfix KSA.Part.DrawPartInfo", "harmony-transpiler KSA.GameSettings.OnDrawUi", "reflection KSA.ModLibrary.AllParts"]
+    game_types: [KSA.SequenceList, KSA.Sequence, KSA.Part, KSA.ISequenced, KSA.EngineController, KSA.Decoupler, KSA.TimedAlert, KSA.ModLibrary]
+    key_paths: [AdvancedFlightComputer/Features/AutoStage/AutoStageSettingsPage.cs, AdvancedFlightComputer/Features/AutoStage/SequencedModules.cs, AdvancedFlightComputer/Features/AutoStage/StagingConfig.cs, AdvancedFlightComputer/Features/AutoStage/StagingDelayPartWindow.cs]
+    howto_topics:
+      - slug: delay-engine-ignition-after-staging
+        title: "Delay engine ignition and decoupling after a stage"
+        note: "hold modules with countdown alerts"
+      - slug: per-part-window-settings
+        title: "Add per-sequence settings to the stock part window"
+        note: "part-window postfix with per-vehicle TOML overrides"
+  - id: mods/ksa-advancedflightcomputer/features/stock-burn-end-detection
+    title: "Detect which planned burn stock just ended"
+    category: flight-and-orbits
+    submod: null
+    summary: "A prefix on FlightComputer.RaisePendingAlerts captures the completed or propellant-stopped burn in Harmony state before stock clears the flags, and the postfix learns whether EndAutoBurn kept it"
+    novelty: high
+    techniques: [harmony-prefix, harmony-postfix]
+    lifecycle: ["frame:prepare"]
+    hooks: ["harmony-prefix KSA.FlightComputer.RaisePendingAlerts", "harmony-postfix KSA.FlightComputer.RaisePendingAlerts"]
+    game_types: [KSA.FlightComputer, KSA.BurnPlan, KSA.Burn, KSA.BurnTarget, KSA.Program]
+    key_paths: [AdvancedFlightComputer/Core/SharedVehicleHooks.cs, AdvancedFlightComputer/Core/StockBurnIdentity.cs, AdvancedFlightComputer/Features/AutoRemove/FinishedBurnRemover.cs, AdvancedFlightComputer/Features/MultiPass/PassCompletionPatch.cs]
+    howto_topics:
+      - slug: react-to-stock-burn-completion
+        title: "Detect which planned burn the stock flight computer just ended"
+        note: "Harmony state across a RaisePendingAlerts prefix/postfix pair"
+  - id: mods/ksa-advancedflightcomputer/features/stock-styled-console-ui
+    title: "Stock-styled rows inside game console windows"
+    category: ui
+    submod: null
+    summary: "Small wrappers over the game's public ConsoleWidgets and ConsoleStyle reproduce the Transfer Planner's private row helpers, so UI injected into stock windows matches stock fonts, colors and columns"
+    novelty: medium
+    techniques: [imgui-window]
+    lifecycle: ["frame:draw-ui"]
+    hooks: []
+    game_types: [KSA.ConsoleWidgets, KSA.ConsoleStyle, KSA.TransferPlanner, KSA.IComboable]
+    key_paths: [AdvancedFlightComputer/Core/ConsoleUi.cs, AdvancedFlightComputer/Features/AutoRemove/AutoRemoveFeature.cs, AdvancedFlightComputer/Features/ManeuverTools/ManeuverToolsWindow.cs]
+    howto_topics:
+      - slug: stock-styled-console-widgets
+        title: "Match stock console window styling in injected UI"
+        note: "public ConsoleWidgets and ConsoleStyle wrappers"
+  - id: mods/ksa-advancedflightcomputer/features/stock-timed-alerts
+    title: "Player messages through the game's timed alerts"
+    category: ui
+    submod: null
+    summary: "Show transient centred messages with TimedAlert.Create and CreateWarning from main-thread hooks, reuse the game's localized alert strings with the controlled-vehicle variant, and keep worker-thread code from touching the unsynchronized alert list"
+    novelty: low
+    techniques: [stock-ui-reuse]
+    lifecycle: ["frame:apply-solvers", "frame:prepare", "frame:draw-ui"]
+    hooks: ["harmony-postfix KSA.Universe.ApplyVehicleSolvers", "harmony-postfix KSA.FlightComputer.RaisePendingAlerts", "harmony-prefix KSA.TransferPlanner.DrawPlanWindow"]
+    game_types: [KSA.TimedAlert, KSA.Alert, KSA.LStrings, KSA.Program]
+    key_paths: [AdvancedFlightComputer/Features/AutoStage/StagingDetector.cs, AdvancedFlightComputer/Core/StockBurnMode.cs, AdvancedFlightComputer/Features/HyperbolicTargets/TransferPlannerPatches.cs, AdvancedFlightComputer/Features/MultiPass/MultiPassController.cs]
+    howto_topics:
+      - slug: show-player-alert
+        title: "Show a transient on-screen alert to the player"
+        note: "TimedAlert.Create / CreateWarning from a main-thread hook"
+      - slug: player-time-vs-sim-time
+        title: "Player time versus simulation time"
+        note: "alerts expire on player time, game logic runs on sim time"
+      - slug: ui-skipped-when-hud-hidden
+        title: "What happens to UI when the HUD is hidden"
+        note: "DrawUI = false clears all timed alerts"
+  - id: mods/ksa-advancedflightcomputer/features/superseded-mod-detection-and-settings-import
+    title: "Stand down for a superseded standalone mod and import its settings"
+    category: getting-started
+    submod: null
+    summary: "Detect the standalone mods a merged mod replaces, by a gauge-enum marker their immediate load registers or by a type lookup, keep the built-in copy off or warn, and copy the old mod's TOML settings once on first load"
+    novelty: medium
+    techniques: [starmap-lifecycle, reflection, toml-config]
+    lifecycle: ["startup:all-mods-loaded"]
+    hooks: ["starmap StarMapAllModsLoaded", "reflection KSA.GaugeButtonFlightComputer.EnumTypes"]
+    game_types: [KSA.GaugeButtonFlightComputer, KSA.EnumTypeOption, KSA.ModLibrary, KSA.Constants]
+    key_paths: [AdvancedFlightComputer/Mod.cs, AdvancedFlightComputer/Features/AutoStage/AutoStageFeature.cs, AdvancedFlightComputer/Features/AutoStage/AfcAutoStageToggle.cs, AdvancedFlightComputer/Features/AutoRemove/AutoRemoveFeature.cs]
+    howto_topics:
+      - slug: detect-conflicting-mod
+        title: "Detect another installed mod and stand down"
+        note: "marker registered at immediate load, or AccessTools.TypeByName"
+      - slug: migrate-settings-from-old-mod
+        title: "Import settings from a predecessor mod once"
+        note: "copy-once when your own file is absent"
+      - slug: ksa-startup-sequence
+        title: "KSA startup sequence and when StarMap hooks fire"
+        note: "PrepareAll (immediate load) before LoadAll (all mods loaded)"
+  - id: mods/ksa-advancedflightcomputer/features/terminal-hover-touchdown
+    title: "Terminal hover and touchdown with keypad nudges"
+    category: flight-and-orbits
+    submod: null
+    summary: "A pilot-in-the-loop final descent on a quadratic sink profile with per-axis PID and gravity feedforward, a coast-and-burn mode for engines whose minimum thrust exceeds weight, terrain height below the craft, and touchdown taken from the game's contact flag"
+    novelty: medium
+    techniques: [harmony-prefix, imgui-window]
+    lifecycle: ["frame:dispatch-solvers", "frame:draw-ui"]
+    hooks: ["harmony-prefix KSA.Vehicle.PrepareWorker"]
+    game_types: [KSA.Vehicle, KSA.Celestial, KSA.FlightComputer, KSA.ManualControlInputs]
+    key_paths: [AdvancedFlightComputer/Features/Guidance/Gfold/TerminalBraking.cs, AdvancedFlightComputer/Features/Guidance/Modes/Landing.cs, AdvancedFlightComputer/Features/Guidance/Modes/LandingEngineWait.cs, AdvancedFlightComputer/Features/Guidance/Modes/TerminalBurn.cs]
+    howto_topics:
+      - slug: hover-controller
+        title: "Hover and touch down under engine power"
+        note: "quadratic sink profile, PID with gravity feedforward"
+      - slug: query-terrain-height
+        title: "Read terrain height below a vehicle"
+        note: "for touchdown detection"
+  - id: mods/ksa-advancedflightcomputer/features/transfer-planner-custom-plan-types
+    title: "Custom plan types in the stock Transfer Planner"
+    category: flight-and-orbits
+    submod: null
+    summary: "Insert mod entries into TransferPlanner.TransferTypes and take over the window for those keys with a skip-original prefix that redraws the stock window under the same id, title and signature"
+    novelty: high
+    techniques: [harmony-prefix, harmony-postfix, reflection, imgui-window]
+    lifecycle: ["startup:all-mods-loaded", "frame:draw-ui", "event:mod-unload"]
+    hooks: ["harmony-prefix KSA.TransferPlanner.DrawPlanWindow", "harmony-postfix KSA.TransferPlanner.DrawPlanWindow", "reflection KSA.TransferPlanner._transferType", "reflection KSA.TransferPlanner._showPlanWindow", "reflection KSA.TransferPlanner.SetTransferInfo"]
+    game_types: [KSA.TransferPlanner, KSA.TransferType, KSA.ConsoleStyle, KSA.ConsoleWidgets, KSA.OrbitalTransfers]
+    key_paths: [AdvancedFlightComputer/Core/StockPlanner.cs, AdvancedFlightComputer/Features/ManeuverTools/ManeuverTools.cs, AdvancedFlightComputer/Features/ManeuverTools/ManeuverToolsWindow.cs, AdvancedFlightComputer/Features/PlanWindow/Patch_DrawPlanWindow.Commit.cs]
+    howto_topics:
+      - slug: add-plan-type-to-transfer-planner
+        title: "Add a custom plan type to the stock Transfer Planner"
+        note: "insert into TransferPlanner.TransferTypes; skip-original prefix redraws the window"
+      - slug: take-over-stock-window-body
+        title: "Take over a stock window body for your own entries"
+        note: "same id, title and signature so stock state is preserved"
+  - id: mods/ksa-advancedflightcomputer/features/upfg-ascent-guidance
+    title: "UPFG ascent to orbit on KSA's staging model"
+    category: flight-and-orbits
+    submod: null
+    summary: "A double-precision port of Unified Powered Flight Guidance flown once per guidance second, fed with a stage list built from the game's own SequencePerformance phases at live ambient pressure, with gravity turn, launch window, co-elliptic chase target, g-limit and staging through AutoStage"
+    novelty: high
+    techniques: [harmony-prefix, custom-physics]
+    lifecycle: ["frame:dispatch-solvers", "frame:draw-ui"]
+    hooks: ["harmony-prefix KSA.Vehicle.PrepareWorker"]
+    game_types: [KSA.SequencePerformanceList, KSA.SequencePerformance, KSA.PartTree, KSA.SolidMotor, KSA.Vehicle, KSA.FlightComputer, KSA.Orbit]
+    key_paths: [AdvancedFlightComputer/Features/Guidance/Modes/Ascent.cs, AdvancedFlightComputer/Features/Guidance/Modes/Autopilot.cs, AdvancedFlightComputer/Features/Guidance/Modes/ChaseOrbit.cs, AdvancedFlightComputer/Features/Guidance/Modes/GravityTurn.cs]
+    howto_topics:
+      - slug: closed-loop-ascent-guidance
+        title: "Fly a closed-loop ascent to a target orbit"
+        note: "UPFG once per guidance second, steering law every step"
+      - slug: read-vehicle-staged-delta-v
+        title: "Read per-stage figures from the staging simulator"
+        note: "live ambient pressure only for the burning stage"
+  - id: mods/ksa-advancedflightcomputer/features/validated-reflection-handles
+    title: "Validated reflection handles with per-feature tags"
+    category: patching
+    submod: null
+    summary: "A single class resolves every private game member once, tags each handle with the features that need it, and lets each feature refuse to load when one of its handles is gone"
+    novelty: high
+    techniques: [reflection, harmony-transpiler]
+    lifecycle: ["startup:all-mods-loaded"]
+    hooks: ["reflection KSA.TransferPlanner._transferType", "reflection KSA.Vehicle._manualControlInputs", "reflection KSA.GameSettings._openTab", "reflection KSA.FlightComputer.UpdateAttitudeTarget"]
+    game_types: [KSA.TransferPlanner, KSA.Vehicle, KSA.FlightComputer, KSA.GameSettings, KSA.PatchedConic, KSA.Program]
+    key_paths: [AdvancedFlightComputer/Core/GameReflection.cs, AdvancedFlightComputer/Core/StockPlanner.cs, AdvancedFlightComputer/Mod.cs, tests/AdvancedFlightComputer.HarnessTests/Features/Core/ReflectionTargetsTest.cs]
+    howto_topics:
+      - slug: pin-harmony-targets
+        title: "Resolve and validate every private game member at load"
+        note: "one class of handles tagged by feature"
+      - slug: patch-private-method-safely
+        title: "Refuse a feature when a private member is gone"
+        note: "per-feature validation and a headless test"
+  - id: mods/ksa-advancedflightcomputer/features/vehicle-control-ownership
+    title: "Vehicle control ownership, takeover detection and hand-back"
+    category: flight-and-orbits
+    submod: null
+    summary: "Main-thread claims per vehicle, a burn-mode hold that mirrors Vehicle.SetEnum, and attitude takeover detection by comparing the exact fields the flight computer reads, so automation yields to the player and restores only what it changed"
+    novelty: high
+    techniques: [conditional-weak-table]
+    lifecycle: ["frame:apply-solvers", "frame:dispatch-solvers"]
+    hooks: []
+    game_types: [KSA.Vehicle, KSA.FlightComputer, KSA.FlightComputerBurnMode, KSA.FlightComputerAttitudeTrackTarget, KSA.BurnTarget]
+    key_paths: [AdvancedFlightComputer/Core/StockBurnMode.cs, AdvancedFlightComputer/Core/VehicleControlOwnership.cs, AdvancedFlightComputer/Features/Guidance/Control/AttitudeOwnership.cs, AdvancedFlightComputer/Features/RcsTranslation/RcsExecution.cs]
+    howto_topics:
+      - slug: automation-control-ownership
+        title: "Arbitrate control of a vehicle between automation and the player"
+        note: "claims per vehicle; release only what you changed"
+      - slug: detect-player-takeover
+        title: "Detect when the player takes over attitude control"
+        note: "compare the exact fields the flight computer reads"
+  - id: mods/ksa-advancedflightcomputer/features/vehicle-state-to-site-frame
+    title: "Convert a vehicle's state into a landing-site frame through the game's own transforms"
+    category: flight-and-orbits
+    submod: null
+    summary: "Build a local site frame from CCI, derive the model's body axes from the measured engine thrust direction, and convert attitude by transforming basis vectors with KSA's own quaternion so no quaternion convention is ever assumed"
+    novelty: medium
+    techniques: [frame-conversion, coordinate-bridge]
+    lifecycle: ["frame:dispatch-solvers", "frame:draw-ui"]
+    hooks: ["harmony-prefix KSA.Vehicle.PrepareWorker", "starmap StarMapAfterGui"]
+    game_types: [KSA.Vehicle, KSA.IParentBody, KSA.Orbit, KSA.StateVectors, KSA.GimbalController, KSA.GimbalControllerData, KSA.FlightComputerNavigation, KSA.Double3Ex, Brutal.Numerics.doubleQuat]
+    key_paths: [AdvancedFlightComputer/Features/Guidance/Adapters/KsaFrameBridge.cs, AdvancedFlightComputer/Features/Guidance/Adapters/Gfold/KsaGfold.cs, AdvancedFlightComputer/Features/Guidance/Modes/SixDof.cs, AdvancedFlightComputer/Features/Guidance/Adapters/Scvx/SixDof/Ksa6DofSetup.cs]
+    howto_topics:
+      - slug: local-east-north-up-frame
+        title: "Build a local site frame on a rotating body"
+        note: "origin at the site, up radial, horizontal axes from a fixed reference"
+      - slug: convert-ksa-quaternions-safely
+        title: "Convert KSA attitude without assuming a quaternion convention"
+        note: "transform basis vectors with the game Transform; doubleQuat is scalar-last"
+      - slug: surface-relative-velocity
+        title: "Get velocity relative to the rotating surface"
+        note: "v - omega x r with IParentBody.GetAngularVelocityCci"
+  - id: mods/ksa-advancedflightcomputer/features/warn-once-logging-and-diagnostics
+    title: "Warn-once logging, debug switches and a perf scope"
+    category: getting-started
+    submod: null
+    summary: "Thread-safe once-per-key warnings, throttled diagnostics, compile-time per-feature debug switches and a DEBUG-only stopwatch scope keep a large mod's log readable"
+    novelty: low
+    techniques: [background-thread]
+    lifecycle: ["frame:draw-ui", "frame:apply-solvers", "physics:vehicle-solver", "thread:background"]
+    hooks: []
+    game_types: [Brutal.Logging.DefaultCategory]
+    key_paths: [AdvancedFlightComputer/Core/DebugConfig.cs, AdvancedFlightComputer/Core/FormatHelper.cs, AdvancedFlightComputer/Core/LogHelper.cs, AdvancedFlightComputer/Core/PerfTracker.cs]
+    howto_topics:
+      - slug: log-once-per-key
+        title: "Log a warning once per key"
+        note: "thread-safe dedup set reset on unload"
+      - slug: lightweight-perf-scopes
+        title: "Measure hot paths with a DEBUG-only stopwatch scope"
+        note: "compile-time feature debug switches"

@@ -1,0 +1,463 @@
+category: kittens
+description: Characters and EVA kittens - reaching the avatar and skeleton, spawning and tracking kittens, per-kitten materials, animation clips and processors, posing, held props, seated crew, first-person views, locomotion facts and turning a kitten into a flyable vessel.
+topics:
+- slug: reach-a-kittens-avatar-and-skeleton
+  title: Reach a kitten's avatar, skeleton and bones, and know how kittens are drawn
+  summary: 'Get from a KittenEva to its CharacterAvatar, the animated character model, its Skeleton and named bones, and to the private renderable fields other kitten mods need, without breaking silently when a game update renames something. (Scope also covers: Understand where and when kittens are animated and drawn.)'
+  game_types: [KSA.KittenEva, KSA.KittenRenderable, KSA.CharacterAvatar, KSA.AnimatedRenderable, RenderCore.Animation.Skeleton, KSA.Program, KSA.IAnimProcessor, KSA.IVASeat, KSA.Vehicle]
+  engine_pointers: [current/decomp/KSA/KittenEva.cs Renderable, current/decomp/KSA/KittenRenderable.cs _characterAvatar, current/decomp/KSA/CharacterAvatar.cs Core Attachments Animations Expressions Fur, current/decomp/KSA/AnimatedRenderable.cs Skeleton AnimProcessors, current/decomp/KSA/Program.cs RenderGame RenderViewport UpdateRenderingResources, current/decomp/KSA/KittenEva.cs UpdateRenderData, current/decomp/KSA/KittenRenderable.cs UpdateRenderData UpdateAnimationLod, current/decomp/KSA/AnimatedRenderable.cs UpdateAnimation Draw, current/decomp/KSA/Vehicle.cs UpdateSeatedCrewRenderData]
+  lifecycle: ['frame:draw-ui', 'frame:after-on-frame', 'frame:render', 'render:prepass', 'render:shadows']
+  approaches:
+  - n: 1
+    title: One reflection hop to the private avatar field, bones resolved by name
+    mod: ksagolf
+    features: [mods/ksagolf/features/kitten-pose-processor, mods/ksastructures/features/first-person-body-hiding-and-shadow]
+    technique: reflection
+    note: KittenEva.Renderable is public but KittenRenderable._characterAvatar is private. Keep a single AvatarOf helper so every feature breaks together; Skeleton.BoneNames.IndexOf gives the pose-span index, unknown names are reported and not thrown.
+  - n: 2
+    title: Cached FieldInfo reads of the private clip and processor fields with a visible unresolved list
+    mod: unscience
+    features: [mods/unscience/features/kitten-animations-clip-catalog]
+    technique: reflection
+    note: Thirteen private clip fields, four blend samplers and four anim processors are read by name; any name that no longer resolves is recorded and shown in the UI so a game update degrades visibly instead of doing nothing.
+  - n: 3
+    title: Walk renderable struct fields down to the live MaterialIndices arrays
+    mod: unscience
+    features: [mods/unscience/features/doh-runtime-gpu-materials]
+    technique: reflection
+    note: Core, Fur, Attachments, Helmet and Mmu are structs so each reflected read boxes a copy, but the final int[] is a reference to the live renderable array.
+  - n: 4
+    title: 'Background: the per-viewport kitten draw path and animation order (give it its own section)'
+    mod: ksastructures
+    features: [mods/ksastructures/features/first-person-body-hiding-and-shadow, mods/unscience/features/humble-arteest-kitten-visor-toggle, mods/ksacars/features/seated-crew-of-unflown-craft, mods/unscience/features/kitten-animations-forced-clip-playback]
+    technique: starmap-lifecycle
+    note: 'Engine explainer assembled from the lifecycle tables of four features: secondary viewports record before the main one, dt is zeroed after the first call in a frame, processors see ShouldUpdate and Priority, and the shadow pool is filled by Draw.'
+  related: [pose-kitten-bones-with-an-anim-processor, enumerate-kitten-animation-clips-and-processors, tint-and-restyle-kitten-appearance, contain-exceptions-in-starmap-hooks, hide-a-kitten-body-from-one-viewport, animate-and-draw-seated-kitten-crew, render-kitten-equipment-in-the-right-order]
+  borrowed_from: []
+  merged_from: [understand-how-kittens-are-rendered]
+- slug: define-a-kitten-character-in-asset-xml
+  title: Read and extend the character asset XML (characters, fur, expressions, attachments)
+  kind: reference
+  summary: 'Explains CharacterAssets.xml: a Character composes CharacterCore, CharacterTextures, CharacterFur, CharacterExpressions, ground and MMU animation sets, animation masks and helmet, visor, MMU and cosmetic attachments, and how the game lists, selects and renders the result. Engine-only; no reference mod declares a new Character.'
+  game_types: [KSA.CharacterReference, KSA.CharacterCoreReference, KSA.CharacterAttachmentReference, KSA.CharacterTexturesReference, KSA.CharacterFurReference, KSA.CharacterExpressionsReference, KSA.CharacterGroundAnimationsReference, KSA.ModLibrary, KSA.CharacterAvatar, KSA.KittenRosterData]
+  engine_pointers: [current/Content/Core/CharacterAssets.xml, 'current/decomp/KSA/CharacterReference.cs (CosmeticAttachments element, OnDataLoad registration)', current/decomp/KSA/CharacterAvatar.cs CharacterAvatar(CharacterReference), current/decomp/KSA/ModLibrary.cs AllCharacters, current/decomp/KSA/KittenRosterData.cs]
+  lifecycle: ['startup:asset-load']
+  approaches:
+  - n: 1
+    title: Compose a Character from the shared asset blocks
+    mod: unscience
+    features: [mods/unscience/features/doh-kitten-spawning, mods/unscience/features/kitten-animations-clip-catalog, mods/ksagolf/features/kitten-held-props]
+    technique: xml-asset
+    note: 'Evidence is engine XML plus three features that read the loaded result back: doh lists ModLibrary.AllCharacters by reflection, the clip catalog reads the ground animation set, KSAGolf deliberately avoids declaring a Character and uses a runtime CosmeticAttachment instead. The writer must ground every element in CharacterAssets.xml and CharacterReference; state clearly that a modded Character is untested by any reference mod.'
+  related: [spawn-an-eva-kitten-from-code, attach-a-prop-to-a-kitten-bone, make-a-kitten-pull-a-facial-expression, enumerate-kitten-animation-clips-and-processors, declare-post-processing-shader-assets-in-xml]
+  borrowed_from: []
+- slug: kitten-locomotion-and-servo-reference
+  title: Kitten locomotion, modes and the servo, from the decompiled game
+  kind: reference
+  summary: 'Reference for how a walking, floating or swimming kitten is simulated: the IsKitten flag on the worker snapshot, LocomotionMode and LocomotionState, KittenLocomotion.Advance and its per-mode steppers, the KittenServoPrecomp traction and upright gains that PoseIntegratorCallbacks applies, wake rules and the tuning struct copied to the worker. (Scope also covers: Tune kitten locomotion and animation parameters live.)'
+  game_types: [KSA.KittenLocomotion, KSA.KittenServoPrecomp, KSA.LocomotionMode, KSA.LocomotionState, KSA.LocomotionFacts, KSA.LocomotionCommand, KSA.KittenLocomotionTuning, KSA.PhysicsBubble, KSA.VehicleUpdateState, KSA.PoseIntegratorCallbacks, KSA.KittenEva, KSA.KittenTuningWindow, KSA.KittenRenderable, KSA.Rendering.AnimationPairBlendSampler]
+  engine_pointers: [current/decomp/KSA/LocomotionMode.cs (Mmu Grounded Airborne Tumbling Rightening Ladder Swimming), current/decomp/KSA/KittenLocomotion.cs DeriveMode Advance StepGrounded StepMmu StepSwimming StepLadder, current/decomp/KSA/KittenServoPrecomp.cs Compute ComputeLadderFollow, current/decomp/KSA/PhysicsBubble.cs AdvanceKittenLocomotion KittenWantsWake, current/decomp/KSA/PoseIntegratorCallbacks.cs ServoOwnsAngularRate, current/decomp/KSA/VehicleUpdateState.cs IsKitten PrepareFromVehicle, current/decomp/KSA/KittenEva.cs PrepareWorker, current/decomp/KSA/KittenLocomotionTuning.cs Current Default, current/decomp/KSA/KittenTuningWindow.cs, current/decomp/KSA/KittenEva.cs PrepareWorker PrepareCharacterWorkerState, current/decomp/KSA/KittenLocomotion.cs ComputeMoonwalkWeight ResolveSwimBlend]
+  lifecycle: ['frame:dispatch-solvers', 'physics:vehicle-solver', 'physics:bepu', 'frame:draw-ui', 'frame:render']
+  approaches:
+  - n: 1
+    title: Where the kitten branches live and which of them mods have patched
+    mod: unscience
+    features: [mods/unscience/features/iron-man-kitten-rocket-flight, mods/unscience/features/kitten-animations-locomotion-tuning, mods/ksastructures/features/first-person-kitten-view]
+    technique: custom-physics
+    note: Worker code branches on VehicleUpdateState.IsKitten, not the CLR type (Iron Man flips it); KittenLocomotionTuning.Current is read on the main thread by PrepareWorker and by KittenRenderable; StepGrounded is the seam the first-person mods patch.
+  - n: 2
+    title: 'Sub-step: tune locomotion and animation parameters live from an ImGui panel (own section)'
+    mod: unscience
+    features: [mods/unscience/features/kitten-animations-locomotion-tuning]
+    technique: imgui-window
+    note: Twenty animation fields grouped as blending and rate, nominal clip speeds, low gravity, swimming and jump and ladder; drag ranges are not clamps; copy fields one by one from the Default property for a reset that leaves physics tuning alone.
+  related: [steer-a-walking-kitten, treat-an-eva-kitten-as-a-rocket, let-kittens-stand-on-mod-geometry, write-worker-thread-safe-solver-patches, restore-kitten-customizations-after-a-load, build-a-settings-window]
+  borrowed_from: []
+  merged_from: [tune-kitten-locomotion-and-animation-parameters]
+  dedupe_with: [physics/write-worker-thread-safe-solver-patches, ui/build-a-settings-window]
+- slug: spawn-an-eva-kitten-from-code
+  title: Spawn an EVA kitten from code
+  summary: 'Create a real KittenEva with a backpack part, a chosen or random character, an orbit and registration with its parent body, by replicating the private EVADoor.CreateKittenEva with the public eight-argument KittenEva constructor, and do it without racing the vehicle solver. (Scope also covers: Place a new vessel at a body-frame offset from another vessel; Track, select and despawn spawned kittens safely.)'
+  game_types: [KSA.KittenEva, KSA.EVADoor, KSA.Part, KSA.PartTree, KSA.Tank, KSA.CharacterReference, KSA.ModLibrary, KSA.Orbit, KSA.CelestialSystem, KSA.JobSystems, KSA.InputEvents, KSA.Vehicle, KSA.StateVectors, KSA.IParentBody, KSA.Universe, KSA.LookupCollection, KSA.VehicleProvider]
+  engine_pointers: [current/decomp/KSA/EVADoor.cs CreateKittenEva, 'current/decomp/KSA/KittenEva.cs KittenEva(CelestialSystem, string, doubleQuat, double3, IParentBody, string, Part, Orbit)', current/decomp/KSA/InputEvents.cs EvaSpawnBuffer EvaSpawnData, current/decomp/KSA/ModLibrary.cs AllParts AllCharacters, current/decomp/KSA/Orbit.cs CreateFromStateCci StateVectors, current/decomp/KSA/Vehicle.cs GetAsmb2Cci Teleport, current/decomp/KSA/EVADoor.cs CreateKittenEva (uses stateVectors.StateTime), current/decomp/KSA/CelestialSystem.cs Deregister, current/decomp/KSA/LookupCollection.cs Deregister, current/decomp/KSA/Vehicle.cs Dispose IsDisposed]
+  lifecycle: ['frame:draw-ui', 'frame:input']
+  approaches:
+  - n: 1
+    title: Replicate EVADoor.CreateKittenEva with the public KittenEva constructor, place it relative to a neighbour, and track and despawn it
+    mod: unscience
+    features: [mods/unscience/features/doh-kitten-spawning]
+    technique: reflection
+    note: 'Backpack Part looked up by reflection on ModLibrary.AllParts, CreateOwnTree because the Part ctor no longer creates a tree, tanks refilled, JobSystems.VehicleSolver.Wait before construction, Teleport, parent.Children.Add and UpdatePerFrameData. Include the try/catch cleanup of a vehicle whose constructor throws after registration and the character pick via reflected ModLibrary.AllCharacters. Also (from place-a-spawned-vessel-relative-to-another approach 1): Pairing a position with a separately read clock shifts the spawn by velocity times the time difference; EVADoor itself uses stateVectors.StateTime. NaN body rates become zero. Absolute mode builds a temporary orbit at Universe.GetElapsedTime. Also (from track-select-and-despawn-spawned-kittens approach 1): GetDisposed allocates only when something was disposed because it is polled each frame; despawn prefers the stored object over an id lookup; a vanished selection is cleared, never replaced by whatever now sits at that index; spawned-but-untinted problems are warnings.'
+  - n: 2
+    title: Build a KittenEva from a saved craft that names a Character
+    mod: ksarmory
+    features: [mods/ksarmory/features/spawn-and-teleport-test-craft]
+    technique: vehicle-spawn
+    note: 'A VehicleSave with a Character is created as KittenEva instead of Vehicle.CreateVehicle, matching VehicleTemplate; shows the ShapesRegistry lock handling around construction. Also (from place-a-spawned-vessel-relative-to-another approach 2): Orbit.CreateFromStateCci after rotating an Ecl state into the parent''s CCI frame.'
+  related: [create-or-dispose-vehicles-without-racing-the-solver, spawn-a-vehicle-at-runtime, define-a-kitten-character-in-asset-xml, add-crew-seats-and-eva-doors, teleport-a-vessel-by-building-a-new-orbit, understand-ksa-coordinate-frames, sample-positions-at-a-consistent-epoch, track-and-classify-craft, persist-vessel-references-across-save-and-load]
+  borrowed_from: [mods/ksarmory/features/spawn-and-teleport-test-craft]
+  merged_from: [place-a-spawned-vessel-relative-to-another, track-select-and-despawn-spawned-kittens]
+  dedupe_with: [vehicles-and-parts/spawn-a-vehicle-at-runtime, vehicles-and-parts/change-vehicles-without-racing-the-solver, vehicles-and-parts/track-and-classify-craft, vehicles-and-parts/teleport-a-vehicle, physics/mutate-vehicles-at-a-physics-safe-point, physics/teleport-a-vessel-by-building-a-new-orbit, flight-and-orbits/understand-ksa-coordinate-frames-and-epochs]
+- slug: tint-and-restyle-kitten-appearance
+  title: Tint kitten fur, body and eyes, and hide the visor, helmet or MMU
+  summary: 'Recolour kittens by changing the AlbedoColor of their character materials: write a float4 into the shared GPU material buffer to recolour everything at once, clone the materials per kitten and swap the handles in place, or bind mod-owned material clones; includes why glass and eyes barely respond. (Scope also covers: Create runtime GPU materials and stay inside the fixed material pool; Hide kitten helmet visors, helmets and the MMU.)'
+  game_types: [KSA.GpuMaterialSystem, KSA.GpuObjectSystem, KSA.MaterialData, KSA.CharacterRenderResources, KSA.CharacterAvatar, KSA.AnimatedRenderable, KSA.CatFurRenderable, KSA.KittenRenderable, KSA.AssetManager, KSA.GpuObjectAssetRef, KSA.LoadedAssetRef, KSA.PbrMaterialReference, Brutal.Collections.FreeListIndexPool, KSA.StaticMeshRenderable, RenderCore.Systems.ViewHandle, KSA.KittenEva, KSA.IVASeat]
+  engine_pointers: [current/decomp/KSA/MaterialData.cs AlbedoColor, current/decomp/KSA/GpuMaterialSystem.cs BigBuffer, current/decomp/KSA/CharacterRenderResources.cs CreateFurMaterial GlassRenderer, current/Content/Core/Shaders/Mesh/ModelPbr.frag, current/Content/Core/Shaders/Mesh/ModelTranslucent.frag, current/decomp/KSA/GpuObjectSystem.cs CreateObject Free, current/decomp/KSA/AssetManager.cs AssetMap GetOrLoad, 'current/decomp/KSA/KittenRenderable.cs UpdateRenderData (Helmet.HasAttachment, VisorMesh.Draw)', current/decomp/KSA/CharacterAvatar.cs Helmet Mmu Enabled HasAttachment]
+  lifecycle: ['frame:draw-ui', 'event:load', 'startup:all-mods-loaded', 'frame:render']
+  approaches:
+  - n: 1
+    title: Staged one-float4 write into the shared material buffer
+    mod: unscience
+    features: [mods/unscience/features/humble-arteest-kitten-color]
+    technique: vulkan-buffer
+    note: Offset is handle times sizeof(MaterialData) plus the AlbedoColor offset (16); recolours every kitten using that material; alpha under 0.1 discards in ModelPbr.frag; remember original colours and restore only handles whose AssetMap entry is still the same asset object.
+  - n: 2
+    title: Clone the materials per kitten and swap the MaterialIndices handles, staying inside the 512-slot pool
+    mod: unscience
+    features: [mods/unscience/features/doh-runtime-gpu-materials]
+    technique: reflection
+    note: 'Same textures, new AlbedoColor via the private GpuObjectSystem.CreateObject; fur needs the fur shader ExtraData rebuilt from CharacterRenderSystem resources; a batch can share one set or use unique sets; per-material colour tables. Also (from create-and-budget-runtime-gpu-materials approach 1): Capacity from BigBufferAllocator, used slots from distinct valid AssetMap handles, preflight of sets times an estimated slots per set, remove the name from AssetMap before disposing the asset ref, skip set prefixes still present from an earlier mod instance.'
+  - n: 3
+    title: Mod-owned material clones bound to the EVA renderables
+    mod: gatos
+    features: [mods/gatos/features/vehicle-and-eva-paint]
+    technique: reflection
+    note: gatOS recolours the EVA suit, fur and visor by binding its own material clones through KittenEva._renderable and KittenRenderable._characterAvatar, opt-in and reversible; vehicle-part paint in the same feature is covered by paint-vessel-parts-with-custom-colours.
+  - n: 4
+    title: Transpile the single VisorMesh.Draw call into a gated forwarder
+    mod: unscience
+    features: [mods/unscience/features/humble-arteest-kitten-visor-toggle]
+    technique: harmony-transpiler
+    note: Match ldfld VisorMesh, ldloc view, call Draw so the adjacent helmet draw stays stock; throw unless exactly one match so a game change disables the feature; visor, helmet and eyes stay untouched, seated crew are covered too.
+  - n: 5
+    title: Toggle CharacterAvatar.Attachments Helmet.Enabled and Mmu.Enabled
+    mod: ksagolf
+    features: [mods/ksagolf/features/putting-session, mods/ksagolf/features/kitten-pose-processor]
+    technique: reflection
+    note: Hides helmet and visor together (and the MMU) per avatar with no patch; restore on let-go. The engine itself sets both false for seated renderables.
+  related: [restore-kitten-customizations-after-a-load, paint-vessel-parts-with-custom-colours, give-mod-objects-a-private-material-buffer, grow-game-gpu-buffers-for-runtime-content, hide-a-kitten-body-from-one-viewport, reach-a-kittens-avatar-and-skeleton]
+  borrowed_from: [mods/gatos/features/vehicle-and-eva-paint]
+  merged_from: [tint-kitten-materials, create-and-budget-runtime-gpu-materials, hide-kitten-helmet-and-visor]
+  dedupe_with: [rendering/give-mod-objects-a-private-material-buffer, rendering/grow-game-gpu-buffers-for-runtime-content, rendering/paint-vessel-parts-with-custom-colours, rendering/hide-parts-or-subparts-from-rendering]
+- slug: pose-kitten-bones-with-an-anim-processor
+  title: Pose a kitten's bones and aim its limbs with an IAnimProcessor
+  summary: 'Add your own IAnimProcessor to the kitten''s character model to edit the sampled local pose or the world transforms before skinning, with procedural swing, bounce and spin shapes on a simulated-time clock that stops while paused, and safe attach and detach timing. (Scope also covers: Aim a kitten''s arm at a point; Convert between a kitten''s model space and the world; Draw a kitten stepped, turned or leaning without moving its physics body; Know when a kitten''s animation processors are culled by distance.)'
+  game_types: [KSA.IAnimProcessor, KSA.AnimatedRenderable, KSA.CharacterAvatar, KSA.KittenRenderable, RenderCore.Animation.Skeleton, RenderCore.TransformTRS, KSA.KittenEva, KSA.IVASeat, KSA.KittenLocomotionTuning, RenderCore.TransformNodeInfo, KSA.Vehicle]
+  engine_pointers: [current/decomp/KSA/IAnimProcessor.cs Priority ShouldUpdate CanCacheAnimation UpdateLocalPose UpdateSkeleton, current/decomp/KSA/AnimatedRenderable.cs UpdateAnimation AnimProcessors, current/decomp/KSA/KittenRenderable.cs UpdateRenderData, current/decomp/KSA/IAnimProcessor.cs UpdateSkeleton, current/decomp/KSA/CatPostAnim.cs MixPoseLocal, current/decomp/KSA/KittenRenderable.cs ModelToBodyMatrix, current/decomp/KSA/KittenEva.cs UpdateRenderData, current/decomp/KSA/IVASeat.cs GetSeatedModelPointAsmb, current/decomp/KSA/KittenLocomotionTuning.cs SeatedOffset, current/decomp/KSA/Vehicle.cs Teleport, current/decomp/KSA/AnimatedRenderable.cs UpdateAnimation, current/decomp/KSA/KittenRenderable.cs UpdateAnimationLod, current/decomp/KSA/IAnimProcessor.cs Priority ShouldUpdate]
+  lifecycle: ['frame:after-on-frame', 'frame:draw-ui', 'frame:render']
+  approaches:
+  - n: 1
+    title: Edit the local TRS pose in UpdateLocalPose, with the distance cull in mind
+    mod: ksagolf
+    features: [mods/ksagolf/features/kitten-pose-processor]
+    technique: anim-processor
+    note: 'Once per frame on the pose after the clip was copied into the span: pre-multiply a rotation, add to translation, scale a bone; rest-pose replacement through Skeleton.SetDefaultPose; Swing, Bounce and Spin shapes with fades and loops; dt is simulated time so a paused game freezes the pose; mutate AnimProcessors outside the render (after-on-frame). Also (from keep-custom-kitten-animation-running-at-distance approach 1): Stock eye, ear and expression processors use priorities 0.8, 2 and 1; first-person or far cameras change the distance; fly the kitten (or draw it) before expecting the processor to run.'
+  - n: 2
+    title: Overwrite world transforms in UpdateSkeleton once per view
+    mod: ksacars
+    features: [mods/ksacars/features/driver-hands-steering-ik, mods/ksastructures/features/first-person-body-hiding-and-shadow]
+    technique: anim-processor
+    note: Runs after the clip, processors and world transforms and before skinning matrices InverseBindPose times WorldTransform; edits go straight into the skin; called per viewport so a view-dependent edit is possible; exceptions switch the processor off once.
+  - n: 3
+    title: One-bone shoulder aim
+    mod: ksagolf
+    features: [mods/ksagolf/features/putting-address-pose, mods/ksagolf/features/kitten-pose-processor]
+    technique: anim-processor
+    note: GolfPose.Reach turns each shoulder; there is no elbow solve and the repo notes call two-bone IK recorded but not implemented. Good enough when the target is near the reach.
+  - n: 4
+    title: Two-bone IK with a clamped reach and an outward-and-down elbow, in seat-relative model space
+    mod: ksacars
+    features: [mods/ksacars/features/driver-hands-steering-ik]
+    technique: two-bone-ik
+    note: 'Shoulder, elbow and wrist read from Skeleton.WorldTransforms, wrist aimed 4.5 cm short of the grip, elbow by law of cosines, shoulder then elbow rotated and written with SetWorldTransform; the pure maths lives in a KSA-free class with tests. Also (from convert-between-kitten-model-space-and-the-world approach 2): Model origin sits 0.63 m below the seat eye along UpAxis (SeatedOffset), centimetres, seat forward and left axes; where the car is in the world never enters the solve.'
+  - n: 5
+    title: 'Sub-step: convert a standing kitten''s model space to the ecliptic or a camera ego frame'
+    mod: ksagolf
+    features: [mods/ksagolf/features/putting-address-pose, mods/ksastructures/features/first-person-kitten-view]
+    technique: reflection
+    note: A KittenFrame helper repeats the chain so any model-space point converts to the ecliptic or to a given camera's ego frame without reading a drawn matrix that belongs to whichever camera drew last.
+  - n: 6
+    title: Stance matrix on the roots plus a spine lean, eased on player time
+    mod: ksagolf
+    features: [mods/ksagolf/features/putting-address-pose]
+    technique: anim-processor
+    note: Multiply every bone with ParentIndex below zero by the stance; refuse a step beyond 90 cm reach; abort when the real body drifts 15 cm; posture is written by the step on the main thread and only read in the render so nothing needs locking. Explain why teleport fails.
+  related: [reach-a-kittens-avatar-and-skeleton, choose-a-clock-under-time-warp, animate-and-draw-seated-kitten-crew, attach-a-prop-to-a-kitten-bone, understand-ksa-coordinate-frames, choose-ecl-or-ego-positions-for-rendering, steer-a-walking-kitten, keep-vessels-rendered-at-any-distance]
+  borrowed_from: []
+  merged_from: [aim-a-kitten-limb-at-a-target, convert-between-kitten-model-space-and-the-world, draw-a-kitten-displaced-without-moving-its-body, keep-custom-kitten-animation-running-at-distance]
+  dedupe_with: [rendering/render-kitten-equipment-in-the-right-order, flight-and-orbits/understand-ksa-coordinate-frames-and-epochs, rendering/choose-a-render-frame-and-anchor-effects]
+- slug: enumerate-kitten-animation-clips-and-processors
+  title: List every animation clip, blend sampler and anim processor a kitten has loaded
+  summary: Build a live catalog of ground, MMU, blend and overlay clips and typed handles to the personality, reactive, eye and ear processors, from the private KittenRenderable fields and the public CharacterAvatar animation sets, filtering zero-length clips.
+  game_types: [KSA.KittenRenderable, KSA.CharacterAvatar, KSA.AnimationAssetRef, KSA.IAnimation, KSA.CatExpressionAnim, KSA.CatEyeAnim, KSA.CatEarAnim, KSA.BoneAnimRuntime]
+  engine_pointers: [current/decomp/KSA/KittenRenderable.cs _groundIdleAnim _walkPairSampler _catEyeAnim, current/decomp/KSA/CharacterAvatar.cs CharacterAnimations AnimationsMmu, 'current/Content/Core/CharacterAssets.xml (CharacterGroundAnimations, CharacterMMUAnimations)']
+  lifecycle: ['frame:draw-ui']
+  approaches:
+  - n: 1
+    title: Rebuild on bind from reflected fields, report unresolved names
+    mod: unscience
+    features: [mods/unscience/features/kitten-animations-clip-catalog]
+    technique: reflection
+    note: WalkingAnimations is unusable (RunningAnim is never assigned in 5554); drop entries with non-positive LoopPeriod because BoneAnimRuntime.SampleCurrentAnimation divides by it; use field names for the two CatExpressionAnim instances.
+  related: [play-a-specific-kitten-animation-clip, make-a-kitten-pull-a-facial-expression, reach-a-kittens-avatar-and-skeleton, define-a-kitten-character-in-asset-xml]
+  borrowed_from: []
+- slug: play-a-specific-kitten-animation-clip
+  title: Force a kitten to play a chosen clip, freeze it or change its speed, and hold values the game rewrites
+  summary: 'Keep any loaded clip playing whatever the kitten is doing by re-asserting it from a prefix on AnimatedRenderable.UpdateAnimation, which runs after the game''s clip choice and before sampling; add freeze, restart, cross-fade time and a playback-rate multiplier. (Scope also covers: Hold a value the game rewrites every frame.)'
+  game_types: [KSA.AnimatedRenderable, KSA.BoneAnimRuntime, KSA.KittenRenderable, KSA.KittenEva, KSA.IAnimation, KSA.LocomotionState, KSA.CatEyeAnim, KSA.CatEarAnim, KSA.CatExpressionAnim]
+  engine_pointers: [current/decomp/KSA/AnimatedRenderable.cs UpdateAnimation SetAnimation PlayAnimation FreezeAnimation, current/decomp/KSA/KittenRenderable.cs UpdateLocomotionAnimationState, current/decomp/KSA/AnimatedRenderable.cs UpdateAnimation, current/decomp/KSA/KittenRenderable.cs UpdateRenderData]
+  lifecycle: ['frame:draw-ui', 'frame:render']
+  approaches:
+  - n: 1
+    title: Prefix on UpdateAnimation compares the instance by reference and re-applies (the patch-the-consumer pattern for any per-frame rewrite)
+    mod: unscience
+    features: [mods/unscience/features/kitten-animations-forced-clip-playback]
+    technique: harmony-prefix
+    note: 'SetAnimation is a no-op when the clip is already current; dt is multiplied by the rate, which already includes simulation speed; a frozen model skips RuntimeAnim.Update so a restored phase must call SampleCurrentAnimation; target a pinned kitten without taking control of it. Also (from beat-the-games-per-frame-writes approach 1): Keep the hot-path check a reference compare against the bound instance; reset the driver on any exception.'
+  related: [enumerate-kitten-animation-clips-and-processors, restore-kitten-customizations-after-a-load, make-a-kitten-pull-a-facial-expression, apply-harmony-patches-independently]
+  borrowed_from: []
+  merged_from: [beat-the-games-per-frame-writes]
+  dedupe_with: [patching/replace-a-game-method-with-a-prefix, patching/consume-game-input-with-a-skipping-prefix]
+- slug: make-a-kitten-pull-a-facial-expression
+  title: Make a kitten pull a facial expression
+  summary: Trigger the five authored faces (angry, awe, happy, sad, scared) with strength, ease-in, hold and ease-out, or latched, through a mod-owned CatExpressionAnim appended last in the processor list, and take over individual ear, eye and personality weights.
+  game_types: [KSA.CatExpressionAnim, KSA.CatPostAnim, KSA.CatEyeAnim, KSA.CatEarAnim, KSA.CharacterAvatar, KSA.KittenRenderable]
+  engine_pointers: [current/decomp/KSA/CatExpressionAnim.cs, current/decomp/KSA/CatPostAnim.cs, current/decomp/KSA/KittenRenderable.cs UpdateRenderData (ExpressionWeight damping), current/Content/Core/CharacterAssets.xml (CharacterExpressions)]
+  lifecycle: ['frame:draw-ui', 'frame:render']
+  approaches:
+  - n: 1
+    title: Own CatExpressionAnim appended after the game's four, pose cache busted on every swap (the later-running-processor pattern)
+    mod: unscience
+    features: [mods/unscience/features/kitten-animations-facial-expressions]
+    technique: anim-processor
+    note: 'The game rewrites the reactive expression weight from acceleration every render, so writing to it never shows; the mod processor runs last in list order and MixPoseLocal blends over all of them; null the private _expressionPose when swapping the clip; use DragFloat so typed values past the drag range are allowed. Also (from beat-the-games-per-frame-writes approach 2): List order is execution order; blending over the game''s pose is unaffected by what the game writes to its own processor.'
+  - n: 2
+    title: Re-apply each frame, cap with Math.Min, restore the bind-time value on unbind (the re-apply pattern for eye and ear weights)
+    mod: unscience
+    features: [mods/unscience/features/kitten-animations-facial-expressions]
+    technique: harmony-prefix
+    note: Eye pitch offset is re-applied every frame; reactive face cap is min(current, cap) after the game's write; BindTarget records originals and UnbindTarget restores them.
+  related: [play-a-specific-kitten-animation-clip, enumerate-kitten-animation-clips-and-processors, pose-kitten-bones-with-an-anim-processor, define-a-kitten-character-in-asset-xml]
+  borrowed_from: []
+- slug: attach-a-prop-to-a-kitten-bone
+  title: Attach a prop to a kitten's hand or another bone at runtime, building the prop mesh from mod assets
+  summary: 'Hang a mesh on a bone with a CharacterAvatar CosmeticAttachment: the engine overwrites the mesh transform every frame, so you write the attachment Transform; edit the struct in the engine list by read, change, write back; solve the transform per view when the prop must sit exactly on the drawn hand. (Scope also covers: Build a StaticMeshRenderable from a mod''s glTF and material, including a see-through one.)'
+  game_types: [KSA.CharacterAvatar, KSA.KittenRenderable, KSA.StaticMeshRenderable, KSA.AnimatedRenderable, KSA.SuperMeshRenderSystem, KSA.LoadedAssetRef, KSA.GltfPbrAssetRef, KSA.AssetManager, KSA.CharacterRenderResources, Core.AssetName]
+  engine_pointers: [current/decomp/KSA/CharacterAvatar.cs CosmeticAttachment CosmeticAttachments, 'current/decomp/KSA/KittenRenderable.cs UpdateRenderData (attachment loop, SocketTurn)', current/decomp/KSA/CharacterReference.cs CosmeticAttachments (XML route), current/decomp/KSA/StaticMeshRenderable.cs, current/decomp/KSA/SuperMeshRenderSystem.cs GltfSystem MaterialSystem, current/decomp/KSA/CharacterRenderResources.cs GlassRenderer, current/decomp/KSA/CharacterAvatar.cs (helmet visor construction)]
+  lifecycle: ['frame:after-on-frame', 'frame:draw-ui', 'frame:render']
+  approaches:
+  - n: 1
+    title: Static offset on a CosmeticAttachment, prop mesh built from the mod's glTF and material (mesh construction is a sub-step with its own section)
+    mod: ksagolf
+    features: [mods/ksagolf/features/kitten-held-props, mods/ksagolf/features/prop-and-course-asset-xml]
+    technique: reflection
+    note: 'Resolve the socket bone by name, build the mesh once per avatar, add or update the CosmeticAttachment (struct in a List, so read, change, write back); the engine does not check Enabled or HasAttachment for cosmetic entries; one frame stale against a moving bone. Also (from build-a-static-mesh-renderable-from-mod-assets approach 1): Take the AssetName type from LoadedAssetRef.Id''s property type; the StaticMeshRenderable ctor reads Materials[MaterialIndices[i]].Handle once; a glb must name a material slot so Materials has a length; glass variant uses GlassRenderer, isOpaque false, CastShadows false; Dispose to unregister buckets.'
+  - n: 2
+    title: Solve the attachment transform in UpdateSkeleton against the view's wrist
+    mod: ksagolf
+    features: [mods/ksagolf/features/putting-address-pose]
+    technique: anim-processor
+    note: attachment = placed times inverse(SocketTurn times wristWorld), written from UpdateSkeleton just before the attachment loop reads it, so the prop has no frame of lag in any view; model-space placement via the putter rig.
+  related: [pose-kitten-bones-with-an-anim-processor, define-a-kitten-character-in-asset-xml, draw-mod-meshes-with-the-engine-renderers, use-shaderextensions-without-referencing-its-assembly, call-imgui-without-referencing-brutal]
+  borrowed_from: []
+  merged_from: [build-a-static-mesh-renderable-from-mod-assets]
+  dedupe_with: [rendering/draw-mod-meshes-with-the-engine-renderers, assets/import-glb-models-at-runtime, assets/convert-gltf-pbr-to-game-materials, getting-started/ship-content-and-code-in-one-mod]
+- slug: steer-a-walking-kitten
+  title: Make a walking kitten move and face along the look direction, and drive it with the mouse
+  summary: 'Patch KittenLocomotion.StepGrounded on the vehicle worker so ground movement uses a mod-supplied heading instead of the camera forward and the kitten keeps its facing while side-stepping, passing the heading across threads as an immutable volatile array. (Scope also covers: Drive a kitten action with the mouse - capture, swing and strike.)'
+  game_types: [KSA.KittenLocomotion, KSA.CharacterControlInputs, KSA.LocomotionCommand, KSA.LocomotionState, KSA.LocomotionFacts, KSA.PhysicsBubble, KSA.KittenEva, KSA.FixedController, KSA.Program, Brutal.ImGuiApi.ImGui, Brutal.GlfwApi.GlfwWindowAttribute]
+  engine_pointers: [current/decomp/KSA/KittenLocomotion.cs StepGrounded ResolveTangentBasis, current/decomp/KSA/KittenEva.cs PrepareWorker, current/decomp/KSA/PhysicsBubble.cs AdvanceKittenLocomotion, current/decomp/KSA/FixedController.cs OnCursorPos OnMouseButton, current/decomp/KSA/Program.cs PrepareFrame IsWindowOpen]
+  lifecycle: ['startup:all-mods-loaded', 'physics:vehicle-solver', 'frame:input', 'frame:viewports', 'frame:draw-ui', 'frame:render', 'frame:after-on-frame']
+  approaches:
+  - n: 1
+    title: Prefix replaces CameraForwardCce, postfix writes FacingDirPhys to command and state
+    mod: ksastructures
+    features: [mods/ksastructures/features/first-person-kitten-view, mods/ksagolf/features/first-person-kitten-view]
+    technique: harmony-postfix
+    note: Stock flattens the camera forward which degenerates when looking straight down; both mods publish the heading as a volatile float array swapped as a whole; KSAGolf makes the walk patch optional and draws the turn on the skeleton while the kitten stands still.
+  - n: 2
+    title: 'Sub-step: capture the cursor and drive a kitten action (swing, strike) with raw mouse deltas'
+    mod: ksagolf
+    features: [mods/ksagolf/features/putting-session, mods/ksagolf/features/level-horizon-camera-controller]
+    technique: mouse-capture
+    note: G and V read with ImGui.IsKeyPressed from the GUI pass; ignore the first jump after capture (over 400 px); pixels to angle 0.0035 rad with a clamp; strike needs forward motion, leading face crossing the ball and sole below its centre; the code means to release the mouse for open windows but the window test has no effect where asked (pitfall); scripted swings fed one entry per frame.
+  related: [look-through-a-kittens-eyes, kitten-locomotion-and-servo-reference, write-worker-thread-safe-solver-patches, apply-harmony-patches-independently, pose-kitten-bones-with-an-anim-processor, attach-a-prop-to-a-kitten-bone, swallow-game-input-while-a-tool-is-active, rebindable-hotkeys, choose-a-clock-under-time-warp, script-gameplay-through-a-command-bridge]
+  borrowed_from: [mods/ksastructures/features/first-person-kitten-view, mods/ksagolf/features/first-person-kitten-view, mods/ksagolf/features/putting-session]
+  merged_from: [swing-a-tool-with-the-mouse-as-a-kitten]
+  dedupe_with: [camera/make-a-walking-kitten-follow-the-look, camera/look-around-with-the-mouse-in-a-character-view, camera/take-input-through-a-camera-controller, camera/replace-a-viewport-camera-controller, ui/swallow-game-input-while-a-tool-is-active, ui/rebindable-hotkeys, physics/write-worker-thread-safe-solver-patches]
+- slug: animate-and-draw-seated-kitten-crew
+  title: Animate seated kittens, draw them on unflown craft and fly another craft from a chair
+  summary: 'Attach a pose processor to the renderable of the kitten in a given IVASeat, stop the seated idle actions from pulling the hands off the rim, and put each wrist on a grip that turns with the wheel, re-attaching whenever the seat builds a new renderable. (Scope also covers: Draw seated kittens on craft that are not being flown; Sit in a chair or at a computer to fly another craft.)'
+  game_types: [KSA.IVASeat, KSA.KittenRenderable, KSA.CharacterAvatar, KSA.IAnimProcessor, KSA.AnimatedRenderable, KSA.Vehicle, KSA.Program, KSA.IViewport, KSA.ViewportType, KSA.KittenEva, KSA.EVADoor, KSA.ViewportRegistry, KSA.GameViewport, KSA.Camera]
+  engine_pointers: [current/decomp/KSA/IVASeat.cs UpdateSeatedRenderable Renderable, current/decomp/KSA/KittenRenderable.cs _seatedIdleActionAnims, current/decomp/KSA/KittenLocomotionTuning.cs SeatedOffset, current/decomp/KSA/Vehicle.cs UpdateSeatedCrewRenderData, current/decomp/KSA/IVASeat.cs UpdateSeatedRenderable, current/decomp/KSA/Program.cs RenderGame RenderViewport, current/decomp/KSA/Program.cs ControlledVehicle DispatchKeyEvent, current/decomp/KSA/ViewportRegistry.cs TryOpenSecondaryViewport ReleaseSecondaryViewport, current/decomp/KSA/EVADoor.cs]
+  lifecycle: ['frame:draw-ui', 'frame:render', 'startup:all-mods-loaded', 'frame:viewports', 'event:key']
+  approaches:
+  - n: 1
+    title: Per-frame attach check, processor on CharacterModel.AnimProcessors, reflection nulling the idle actions
+    mod: ksacars
+    features: [mods/ksacars/features/driver-hands-steering-ik, mods/ksacars/features/seats-and-eva-doors]
+    technique: two-bone-ik
+    note: Pick the driver seat as the IVASeat nearest the profile eye (0.25 m); a new KittenRenderable replaces the old processor; rim slides through the hands past 20 degrees of wheel; any exception switches the solve off for good.
+  - n: 2
+    title: Harmony postfix with its own id, skipping character portrait viewports
+    mod: ksacars
+    features: [mods/ksacars/features/seated-crew-of-unflown-craft]
+    technique: harmony-postfix
+    note: The only point where submitting a skinned kitten lands in the current buckets; reuse the matrix from GetMatrixAsmb2Ego(camera); a PinTheSignature method keeps the patched member in the API-surface record. Overlaps approach 3 of add-crew-seats-and-eva-doors; keep one.
+  - n: 3
+    title: Seated means the flown craft is the chair; swap ControlledVehicle and restore on log-off
+    mod: ksastructures
+    features: [mods/ksastructures/features/computer-flies-nearest-craft, mods/ksastructures/features/office-furniture-craft]
+    technique: viewport-borrow
+    note: 'Overlaps approach 1 of take-control-of-another-vehicle; this article starts from the kitten''s side: chair part with IVASeat and EVADoor built in code, Enter read through ImGui.IsKeyPressed and ignored while text is wanted, nearest non-kitten craft, camera borrowed and handed back, Stop on any death or scene end.'
+  related: [pose-kitten-bones-with-an-anim-processor, add-crew-seats-and-eva-doors, reach-a-kittens-avatar-and-skeleton, take-control-of-another-vehicle, put-a-live-screen-on-a-part, borrow-the-main-camera-and-hand-it-back, keep-mod-vehicles-out-of-saves]
+  borrowed_from: [mods/ksacars/features/seated-crew-of-unflown-craft, mods/ksastructures/features/computer-flies-nearest-craft, mods/ksastructures/features/office-furniture-craft]
+  merged_from: [animate-a-seated-kitten-driver, draw-seated-crew-on-unflown-craft, fly-another-craft-from-a-seated-kitten]
+  dedupe_with: [vehicles-and-parts/add-crew-seats-and-eva-doors, vehicles-and-parts/take-control-of-another-vehicle, vehicles-and-parts/keep-mod-vehicles-out-of-saves, camera/borrow-the-main-camera-and-hand-it-back, rendering/put-a-live-screen-on-a-part]
+- slug: look-through-a-kittens-eyes
+  title: Put the camera at a walking kitten's eyes
+  summary: Take the head bone position from a pose processor, convert it to the world, borrow the main view as a fixed camera just ahead of the eyes with a world-relative yaw and pitch that does not chase the kitten's own turning, and give it back on leave.
+  game_types: [KSA.KittenEva, KSA.KittenRenderable, KSA.GameViewport, KSA.FixedController, KSA.CharacterAvatar, KSA.IAnimProcessor]
+  engine_pointers: [current/decomp/KSA/GameViewport.cs NextCameraMode, current/decomp/KSA/FixedController.cs OnCursorPos OnFrame, current/decomp/KSA/KittenRenderable.cs ModelToBodyMatrix]
+  lifecycle: ['frame:input', 'frame:viewports', 'frame:draw-ui']
+  approaches:
+  - n: 1
+    title: Head bone from an EyesPose, eye 9 cm ahead and 6 cm up, V toggle, right-drag look
+    mod: ksastructures
+    features: [mods/ksastructures/features/first-person-kitten-view]
+    technique: viewport-borrow
+    note: Look measured in an up/north/east frame from the body's spin axis, pitch clamped to 85 degrees; record and restore camera mode, follow target and FOV; re-assert CameraMode.Fixed every step.
+  - n: 2
+    title: Captured cursor look, eye built from the head bone and a tilted up vector
+    mod: ksagolf
+    features: [mods/ksagolf/features/first-person-kitten-view, mods/ksagolf/features/level-horizon-camera-controller]
+    technique: viewport-borrow
+    note: 0.08 degrees per pixel with the cursor captured, orbit rate on right drag; eye 12 cm ahead and 5 cm up; up vector tilted with pitch so looking straight down and turning spins the picture.
+  related: [steer-a-walking-kitten, hide-a-kitten-body-from-one-viewport, pose-kitten-bones-with-an-anim-processor, borrow-the-main-camera-and-hand-it-back, swallow-game-input-while-a-tool-is-active]
+  borrowed_from: [mods/ksastructures/features/first-person-kitten-view, mods/ksagolf/features/first-person-kitten-view, mods/ksagolf/features/level-horizon-camera-controller]
+  dedupe_with: [camera/first-person-camera-for-a-kitten, camera/look-around-with-the-mouse-in-a-character-view, camera/borrow-the-main-camera-and-hand-it-back, camera/drive-the-main-camera-in-fixed-mode, camera/control-camera-roll-with-an-up-vector, camera/make-a-walking-kitten-follow-the-look]
+- slug: hide-a-kitten-body-from-one-viewport
+  title: Hide a kitten's body from the main view only, keeping its shadow
+  summary: 'Mark which viewport is being drawn in a KittenEva.UpdateRenderData prefix and collapse every bone to a point in an anim processor''s UpdateSkeleton for that view alone; camera windows and crew portraits still show the whole kitten; the engine also has KittenRenderable.HideHead for the head. (Scope also covers: Give the shadow pass a different skinned pose than the colour pass.)'
+  game_types: [KSA.KittenEva, KSA.KittenRenderable, KSA.AnimatedRenderable, KSA.IAnimProcessor, KSA.Program, RenderCore.Animation.Skeleton, KSA.SuperMeshRenderSystem, KSA.ShadowRenderable, KSA.InstanceData, KSA.StaticMeshRenderable, KSA.MeshRenderTechnique]
+  engine_pointers: [current/decomp/KSA/KittenEva.cs UpdateRenderData, current/decomp/KSA/KittenRenderable.cs HideHead, current/decomp/KSA/AnimatedRenderable.cs HideMaskedMeshes UpdateAnimation, current/decomp/KSA/AnimatedRenderable.cs Draw ShadowIgnoreIndicies, current/decomp/KSA/SuperMeshRenderSystem.cs ShadowRenderablePool AllocateSkinningMatrices, current/decomp/KSA/ShadowRenderable.cs]
+  lifecycle: ['startup:all-mods-loaded', 'frame:render', 'render:prepass', 'render:shadows']
+  approaches:
+  - n: 1
+    title: Fold all bones onto the head with zero-scale matrices, then give the shadow pass the full-body pose (shadow swap is a sub-step with its own section)
+    mod: ksastructures
+    features: [mods/ksastructures/features/first-person-body-hiding-and-shadow, mods/ksagolf/features/first-person-kitten-view]
+    technique: anim-processor
+    note: 'Copy WorldTransforms to BodyWorld before overwriting; the helmet and visor collapse because their matrix comes from GetBoneTransform; a try/catch in every hook leaves an unposed kitten, never a thrown frame. Also (from draw-a-different-skinned-pose-into-the-shadow-pass approach 1): Read InverseBindPose and ShadowIgnoreIndicies by reflection (NativeList type is in an unreferenced assembly); write inverseBind[i] times BodyWorld[i]; camera windows record first so the entries the main view leaves are what the shadow cascades read.'
+  - n: 2
+    title: Fold onto the wrist and keep the club-holding paw
+    mod: ksagolf
+    features: [mods/ksagolf/features/first-person-kitten-view]
+    technique: anim-processor
+    note: Collapsing onto the chest stretched skin into sheets across the view; the wrist keeps the skin between the kept paw and the folded arm short; only the main view, only while carrying.
+  related: [look-through-a-kittens-eyes, pose-kitten-bones-with-an-anim-processor, reach-a-kittens-avatar-and-skeleton, add-invisible-shadow-casters]
+  borrowed_from: [mods/ksagolf/features/first-person-kitten-view]
+  merged_from: [draw-a-different-skinned-pose-into-the-shadow-pass]
+  dedupe_with: [camera/hide-a-kitten-from-its-own-first-person-view, camera/keep-the-shadow-of-a-hidden-body, rendering/add-invisible-shadow-casters]
+- slug: restore-kitten-customizations-after-a-load
+  title: Restore kitten colours, clips and tuning after a save load
+  summary: Native KSA saves own the kittens, so a mod's per-kitten state (cloned material sets, colours, a forced clip with its playback phase, expression latches, tuning) is captured against native vehicle ids and rebound to the restored KittenEva objects after the world is rebuilt, never by spawning replacements or trusting GPU handles.
+  game_types: [KSA.KittenEva, KSA.GpuObjectAssetRef, KSA.KittenLocomotionTuning, KSA.BoneAnimRuntime, KSA.VehicleSave]
+  engine_pointers: [current/decomp/KSA/KittenLocomotionTuning.cs Current Default, current/decomp/KSA/BoneAnimRuntime.cs TimeSinceTransition SampleCurrentAnimation]
+  lifecycle: ['event:save', 'event:load', 'frame:prepare']
+  approaches:
+  - n: 1
+    title: Rebind cloned material sets to restored kittens by vehicle id
+    mod: unscience
+    features: [mods/unscience/features/doh-runtime-gpu-materials]
+    technique: save-sidecar
+    note: Reset keeps live sets in a cache and never despawns, restore claims a set per kitten, unclaimed sets are released, validation rejects duplicate ids before the world is reset; handles and doh_NNNN names are never identities.
+  - n: 2
+    title: Identity-checked colour restore by material name
+    mod: unscience
+    features: [mods/unscience/features/humble-arteest-kitten-color]
+    technique: save-sidecar
+    note: Record original colour and the exact asset object before the first write; restore only if the AssetMap entry is still that object because slots are reused when renderer-owned materials are disposed.
+  - n: 3
+    title: Scene-save record with clip label, source and phase
+    mod: unscience
+    features: [mods/unscience/features/kitten-animations-locomotion-tuning, mods/unscience/features/kitten-animations-forced-clip-playback]
+    technique: save-sidecar
+    note: Twenty tuning fields, forced clip matched by exact source and label, playback clock restored with SampleCurrentAnimation, latched expression re-triggered, ambiguous matches become warnings and targets are never redirected.
+  related: [save-mod-state-with-the-game-save, persist-vessel-references-across-save-and-load, tint-and-restyle-kitten-appearance, play-a-specific-kitten-animation-clip, kitten-locomotion-and-servo-reference]
+  borrowed_from: []
+  dedupe_with: [persistence/save-mod-state-with-the-game-save, persistence/save-mod-state-with-the-scene, persistence/rebuild-mod-state-from-the-loaded-world, persistence/understand-which-ids-survive-a-save, persistence/detect-save-load]
+- slug: fire-an-eva-kitten-from-the-camera
+  title: Fire an EVA kitten from the camera at a target
+  summary: Pick any live EVA kitten as the projectile, click a vessel, another kitten or terrain, and at the PrepareFrame handoff teleport the kitten to the camera with a velocity relative to the target; kittens have no part mesh so they are picked with a bounding-sphere proxy, and the kitten keeps its own attitude and spin.
+  game_types: [KSA.KittenEva, KSA.Vehicle, KSA.Orbit, KSA.Cursor, KSA.Camera, KSA.Part, KSA.Ray]
+  engine_pointers: [current/decomp/KSA/Orbit.cs CreateFromStateCci, current/decomp/KSA/Vehicle.cs Teleport SetFlightPlan, current/decomp/KSA/Cursor.cs GetEgoRay]
+  lifecycle: ['frame:draw-ui', 'frame:prepare']
+  approaches:
+  - n: 1
+    title: Click snapshot in target-relative axes, launched from the BeforePhysics hook
+    mod: unscience
+    features: [mods/unscience/features/dent-wizard-vessel-launcher]
+    technique: custom-physics
+    note: 'Overlaps teleport-a-vessel-by-building-a-new-orbit; this article is the kitten-flavoured recipe: sphere-proxy picking for KittenEva, null attitude and rates so EVA conventions survive, FlightPlan identity check to detect a rejected trajectory.'
+  related: [teleport-a-vessel-by-building-a-new-orbit, pick-a-world-point-with-the-cursor, cursor-to-world-ray, run-code-after-physics-results-land, spawn-an-eva-kitten-from-code]
+  borrowed_from: [mods/unscience/features/dent-wizard-vessel-launcher]
+  dedupe_with: [physics/teleport-a-vessel-by-building-a-new-orbit, vehicles-and-parts/teleport-a-vehicle, flight-and-orbits/teleport-a-vessel-to-an-orbit-or-site, ui/cursor-to-world-ray, ui/pick-objects-under-the-cursor, physics/pick-a-world-point-with-the-cursor]
+- slug: treat-an-eva-kitten-as-a-rocket
+  title: Fly an EVA kitten as an ordinary rocket vessel, with vessel input and the flight HUD
+  summary: 'Make one chosen kitten use the vessel branches of the game: flip VehicleUpdateState.IsKitten off in a PrepareFromVehicle postfix, publish membership as a volatile snapshot for worker threads, queue every mode switch to the PrepareFrame handoff, rotate the control frame so the head is the nose, and swap the backpack''s authored RCS map for a geometric one. (Scope also covers: Give an EVA kitten vessel keyboard input and the flight-computer HUD; Call a base implementation that a derived override and patches would intercept.)'
+  game_types: [KSA.KittenEva, KSA.Vehicle, KSA.VehicleUpdateState, KSA.PhysicsBubble, KSA.FlightComputer, KSA.ThrusterController, KSA.Rocket, KSA.EngineController, KSA.GaugeCanvas, KSA.GaugeButtonFlightComputer, KSA.InputEvents, KSA.PartModelRenderer]
+  engine_pointers: [current/decomp/KSA/VehicleUpdateState.cs IsKitten PrepareFromVehicle, current/decomp/KSA/PhysicsBubble.cs AdvanceKittenLocomotion KittenWantsWake, current/decomp/KSA/Vehicle.cs Ctrl2Body, current/decomp/KSA/ThrusterController.cs RecomputeDynamicData ManualControlMap, current/decomp/KSA/KittenEva.cs OnKey ProcessInput IsFlightComputerDisabled, current/decomp/KSA/GaugeCanvas.cs IsContextVisible, current/decomp/KSA/GaugeButtonFlightComputer.cs IsDisabled PackData, current/Content/Core/Gauges.xml, current/decomp/KSA/Vehicle.cs OnKey ProcessInput UpdateRenderData IsFlightComputerDisabled, current/decomp/KSA/KittenEva.cs OnKey ProcessInput UpdateRenderData]
+  lifecycle: ['frame:draw-ui', 'frame:prepare', 'frame:dispatch-solvers', 'physics:vehicle-solver', 'frame:input', 'frame:render']
+  approaches:
+  - n: 1
+    title: IsKitten postfix, Ctrl2Body postfix and queued enable and disable, plus input and HUD transpilers (input and HUD routing is a sub-step with its own section)
+    mod: unscience
+    features: [mods/unscience/features/iron-man-kitten-rocket-flight]
+    technique: harmony-postfix
+    note: 'Membership keyed by the KittenEva object, never by id; snapshot EVA settings before stopping engines; refuse on a ladder or in the editor; workers read an array published with Volatile.Write; teardown waits on the solvers; scene saves restore the mode disarmed. Also (from route-vessel-input-and-flight-hud-to-an-eva-kitten approach 1): OnKey from the GLFW callback during PollEvents; ProcessInput from InputEvents.VehicleInputData.Apply; the AsOrdinaryEva adapter returns null for an enabled kitten; generic IsFlightComputerDisabled<Enum> reaches the base through a DynamicMethod emitting call, not callvirt.'
+  - n: 2
+    title: 'Sub-step: call the base Vehicle handlers through a Harmony reverse patch onto a static stub'
+    mod: unscience
+    features: [mods/unscience/features/iron-man-kitten-rocket-flight]
+    technique: harmony-reverse-patch
+    note: Stubs get a copy of the base body and are called statically; fine when no other mod patches the base.
+  - n: 3
+    title: 'Sub-step: call the base through a DynamicMethod non-virtual call so other mods'' patches still run'
+    mod: unscience
+    features: [mods/unscience/features/iron-man-equipment-render-ordering, mods/unscience/features/iron-man-kitten-rocket-flight]
+    technique: dynamic-method
+    note: A reverse patch would bypass I Feel Seen's replacement of Vehicle.UpdateRenderData; an IL call enters Harmony's patched replacement so every other prefix and transpiler still runs; a managed test asserts a second skip-style prefix runs exactly once in both orders.
+  related: [kitten-locomotion-and-servo-reference, mutate-vehicles-at-a-physics-safe-point, write-worker-thread-safe-solver-patches, open-the-vehicle-editor-on-a-live-eva-kitten, render-kitten-equipment-in-the-right-order, make-a-vehicle-respond-to-a-key, show-stock-gauges-for-a-custom-craft, queue-vehicle-changes-through-input-events, apply-harmony-patches-independently]
+  borrowed_from: [mods/unscience/features/iron-man-equipment-render-ordering]
+  merged_from: [route-vessel-input-and-flight-hud-to-an-eva-kitten, call-a-base-class-method-bypassing-an-override]
+  dedupe_with: [physics/write-worker-thread-safe-solver-patches, physics/mutate-vehicles-at-a-physics-safe-point, vehicles-and-parts/command-engines-throttle-and-rcs-from-code, flight-and-orbits/queue-vehicle-changes-through-input-events, ui/make-a-vehicle-respond-to-a-key, ui/work-with-stock-cockpit-gauges, patching/coexist-with-other-mods-patching-the-same-method, rendering/render-kitten-equipment-in-the-right-order]
+- slug: open-the-vehicle-editor-on-a-live-eva-kitten
+  title: Open the stock vehicle editor on a live EVA kitten, show it upright and keep its attachment nodes
+  summary: 'Set Program.EditorFlag at the physics handoff so the stock existing-vehicle editor path edits the kitten''s own PartTree in place, return to flight with the same KittenEva, and guard the root body part, new-vehicle, duplicate and blueprint paths with prefixes that only act for the configured kitten. (Scope also covers: Draw the kitten and frame the editor camera upright while editing it; Give one part instance private attachment nodes that survive saves and copies.)'
+  game_types: [KSA.Program, KSA.VehicleEditor, KSA.VehicleEditingSpace, KSA.VehicleSaveData, KSA.KittenEva, KSA.Part, KSA.PartTree, KSA.KittenRenderable, KSA.SuperMeshRenderSystem, KSA.OrbitController, KSA.Part.Connector, KSA.PartInstance, KSA.PartConnectorInstance, KSA.PartTemplate, KSA.SerializedId, KSA.ConnectorCapabilityFlags]
+  engine_pointers: [current/decomp/KSA/Program.cs EditorFlag OnFrameEditor, current/decomp/KSA/VehicleEditor.cs ExistingVehicle RequestExit FinalizeExit Dispose DeletePart SetFocusedTree, current/decomp/KSA/VehicleSaveData.cs Create, current/decomp/KSA/Program.cs RenderEditor UpdateRenderingResources, current/decomp/KSA/SuperMeshRenderSystem.cs ClearBuckets, current/decomp/KSA/OrbitController.cs GetFrame2Ecl EditorOnScroll, current/decomp/KSA/KittenRenderable.cs HideHead, 'current/decomp/KSA/Part.cs Part(string, PartTemplate, PartInstance, Part) GetReferenceWithChildren RegenerateConnectionsFromPartInstance', current/decomp/KSA/PartTree.cs Deserialize DeepCopy, current/decomp/KSA/PartConnectorInstance.cs Index, current/Content/Core/PartGameData.xml (kitten backpack frame comment)]
+  lifecycle: ['frame:prepare', 'frame:input', 'editor:on-frame', 'editor:render', 'event:save', 'event:load', 'event:part-copy', 'event:unload']
+  approaches:
+  - n: 1
+    title: EditorFlag at the handoff plus a GetKitten(editor) guard on every editor patch
+    mod: unscience
+    features: [mods/unscience/features/iron-man-kitten-vehicle-editing]
+    technique: harmony-prefix
+    note: Refuse on ladder, when not controlled or when the editor is already open; clear Highlighted, Selected and Grabbed on the body root; put Character back on blueprints saved from a live kitten; replacing the root breaks the character simulation built around the backpack collider.
+  - n: 2
+    title: 'Sub-step: draw the avatar from a ClearBuckets postfix and re-base the editor camera frame upright'
+    mod: unscience
+    features: [mods/unscience/features/iron-man-kitten-vehicle-editing]
+    technique: harmony-postfix
+    note: 'RenderEditor clears buckets then records the prepass, so the avatar must be submitted right after the clear; pass EditingSpace.GetMatrixAsmb2Ego unmodified because KittenEva.UpdateRenderData subtracts the centre of mass itself; force HideHead off for the call. Also (from show-an-eva-kitten-in-the-vehicle-editor approach 2): Postfix GetFrame2Ecl with AngleAxis(UnitX, pi) for the configured space; transpile EditorOnScroll so the two UnitX calls become -UnitZ and the CameraOffset.X pairs go through PanCoordinate; throw unless exactly two of each.'
+  - n: 3
+    title: 'Sub-step: private per-instance attachment nodes that survive saves, blueprints and copies'
+    mod: unscience
+    features: [mods/unscience/features/iron-man-connector-serialization]
+    technique: save-payload-embedding
+    note: 'Marker is iron-man:v1: plus base64 JSON round-tripped through Decode before saving; prefix on the Part constructor restores the original runtime name and carries data in __state; owned nodes always form a suffix after the stock connectors; on unload reconnect owned endpoints to their parent Part and roll back on failure.'
+  related: [access-parts-in-the-vehicle-editor, add-a-panel-to-the-vehicle-editor, mutate-vehicles-at-a-physics-safe-point, reach-a-kittens-avatar-and-skeleton, treat-an-eva-kitten-as-a-rocket, evolve-a-shipped-part-without-breaking-saves, define-a-part-with-game-data, save-mod-state-with-the-game-save]
+  borrowed_from: [mods/unscience/features/iron-man-connector-serialization]
+  merged_from: [show-an-eva-kitten-in-the-vehicle-editor, add-per-instance-attachment-nodes-that-survive-saves]
+  dedupe_with: [vehicles-and-parts/add-parts-to-a-live-vessel, vehicles-and-parts/evolve-a-shipped-part-without-breaking-saves, ui/inject-ui-into-a-stock-window]

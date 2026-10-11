@@ -1,0 +1,5 @@
+# Mutate vehicles at a physics-safe point history
+
+## 2026-10-10
+* **Creation**: Added [overview](overview.md) and 4 article(s): [Write inside a Vehicle.PrepareWorker prefix](mutate-vehicles-at-a-physics-safe-point-1.md); [Drain a command queue in a Priority.First prefix on Universe.ExecuteNextVehicleSolvers](mutate-vehicles-at-a-physics-safe-point-2.md); [Run a callback at the PrepareFrame handoff with a GetJobSimStep transpiler](mutate-vehicles-at-a-physics-safe-point-3.md); [Join JobSystems.VehicleSolver before mutating from a frame hook](mutate-vehicles-at-a-physics-safe-point-4.md). Verified against the decompiled game build 2026.10.10.5554 and the pinned mod repositories.
+* **Update**: Review: the nearest-orbit job is still running at the handoff and at dispatch, so teleports in window 2 race it unless joined (inferred from the decomp); article 4 gained the same caveat for `VehicleSolver.Wait()`; shapes-registry wording corrected; added `group` to frontmatter. Reviewed against decompiled build 2026.10.10.5554 and the pinned mod repositories.

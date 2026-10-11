@@ -1,0 +1,4 @@
+# Making a vehicle survive crashes and g-loads, and damaging parts against crash tolerance history
+
+## 2026-10-10
+* **Creation**: Added [Making a vehicle survive crashes and g-loads, and damaging parts against crash tolerance](overview.md) and 4 approaches: [Make one kind of craft indestructible with CrashTolerance and a destruction veto](make-a-vehicle-indestructible-1.md); [Protect chosen vessels with a tolerance getter prefix and a detector pair](make-a-vehicle-indestructible-2.md); [Filter only the g-load read with a guarded transpiler and persist it by vessel identity](make-a-vehicle-indestructible-3.md); [Damage parts against their crash tolerance with a weak-keyed health ledger](make-a-vehicle-indestructible-4.md). Written against game build 2026.10.10.5554 from the mod features cited in each article.

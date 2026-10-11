@@ -1,0 +1,280 @@
+mod: ksa-aircrafthud
+repo: KSA_AircraftHUD
+ref: 4e4c71719a8355afb1fc608f54d531676bec4ef3
+summary: >-
+  KSA_AircraftHUD (UriahGnu, manifest id AircraftHUD) is a small StarMap mod that draws a fighter-style
+  HUD (pitch ladder, horizon, flight path marker, heading tape, speed and altitude tapes, orbit and air
+  data readouts) as ImGui draw-list geometry in an input-less fullscreen window from a Harmony postfix on
+  Program.OnFrameEditor, so it survives F2. In IVA it tags that window with a ShaderExtensions ImGuiShader
+  marker callback (UI_PP_HUD.frag barrel-curves it and adds chromatic aberration) and toggles, via
+  per-pass push constants, a three-pass PostProcessingShader chain that gives the scene a refracting,
+  dirt-streaked, edge-blurred canopy-glass look with spatiotemporal blue-noise grain. No flight data goes
+  to the GPU. Supporting pieces: duck-typed ShaderExtensions attribute shims, a custom TTF loaded into the
+  ImGui atlas, a hand-parsed hud.ini with an ImGui settings window, a ModMenu entry compiled against a
+  vendored ModMenu.Attributes.dll, and a props-based build that outputs straight into the mods folder.
+  The three post-process passes in the asset XML use SubpassId/RequiresUniqueRenderpass, which the
+  pinned ShaderExtensions rejects when it builds the chain; the ImGuiShader is unaffected.
+features:
+  - id: mods/ksa-aircrafthud/features/fullscreen-drawlist-hud
+    title: Fullscreen draw-list HUD
+    category: ui
+    submod: null
+    summary: >-
+      Draws the whole HUD as shadowed ImGui draw-list primitives in a NoInputs/NoBackground fullscreen
+      window, laid out from viewport height, with clip rects for tapes and a rotated pitch ladder, from a
+      Harmony postfix on Program.OnFrameEditor that runs outside the DrawUI check.
+    novelty: medium
+    techniques: [imgui-drawlist, imgui-window, harmony-postfix, starmap-lifecycle]
+    lifecycle: [startup:immediate-load, frame:viewports]
+    hooks: ["starmap StarMapImmediateLoad", "harmony-postfix KSA.Program.OnFrameEditor"]
+    game_types: [KSA.Program, KSA.CameraMode, KSA.Vehicle, Brutal.ImGuiApi.ImGui, Brutal.ImGuiApi.ImDrawListExtensions]
+    key_paths: [AircraftHUDMain.cs]
+    howto_topics:
+      - slug: fullscreen-imgui-overlay-window
+        title: Draw a fullscreen, click-through ImGui overlay
+        note: window flags, main viewport sizing, draw behind other windows
+      - slug: hud-visible-when-ui-hidden
+        title: Keep an overlay visible when the player hides the UI (F2)
+        note: hook Program.OnFrameEditor or another call outside the DrawUI blocks instead of StarMapAfterGui
+      - slug: imgui-clip-rect-tapes
+        title: Build scrolling tapes and ladders with draw-list clip rects
+        note: PushClipRect per region, draw twice around a readout box
+      - slug: rotate-drawlist-geometry
+        title: Rotate ImGui draw-list geometry around a pivot
+        note: precomputed sin/cos, rotate endpoints before AddLine
+  - id: mods/ksa-aircrafthud/features/always-on-onframeeditor-hook
+    title: Always-on ImGui hook from a Program.OnFrameEditor postfix
+    category: patching
+    submod: null
+    summary: >-
+      Harmony postfix on the private Program.OnFrameEditor, registered by PatchAll at
+      StarMapImmediateLoad: the earliest point inside each frame's ImGui frame, after PrepareFrame has
+      applied and re-dispatched physics, outside the DrawUI checks (survives a hidden UI), before
+      OnFrameViewports moves cameras, and skipped on PrepareFrame's Exit frames.
+    novelty: medium
+    techniques: [harmony-postfix, imgui-window, starmap-lifecycle]
+    lifecycle: [startup:immediate-load, frame:viewports]
+    hooks: ["starmap StarMapImmediateLoad", "harmony-postfix KSA.Program.OnFrameEditor"]
+    game_types: [KSA.Program, KSA.CameraMode]
+    key_paths: [AircraftHUDMain.cs]
+    howto_topics:
+      - slug: hud-visible-when-ui-hidden
+        title: Keep an overlay visible when the player hides the UI
+        note: OnFrameEditor or OnFrameViewports postfix (before game windows) vs OnDrawUiConsole (after); StarMap GUI hooks are skipped
+      - slug: choose-imgui-hook-point
+        title: Choose where in the frame to issue ImGui calls
+        note: compare OnFrameEditor, OnFrameViewports, StarMapBeforeGui/AfterGui, OnDrawUiConsole and StarMapAfterOnFrame by DrawUI, camera freshness and z-order
+      - slug: patch-private-game-method-by-name
+        title: Patch a private game method by name with Harmony
+        note: string target, parameter names must match, a missing target throws from PatchAll at startup
+  - id: mods/ksa-aircrafthud/features/flight-data-from-vehicle
+    title: Surface attitude and air data from the controlled vehicle
+    category: flight-and-orbits
+    submod: null
+    summary: >-
+      Roll/pitch/heading by removing VehicleReferenceFrameEx.GetEnuBody2Cci from GetBody2Cci, alpha/beta
+      from body-frame velocity, vertical speed, g-load, Mach from PhysicalAtmosphereReference, and radar or
+      barometric altitude, read on the main thread after the vehicle solver results are applied and the
+      next step is dispatched. Known bugs: g-load subtracts gravity from an already gravity-free
+      AccelerationBody, and the (Celestial) parent cast throws every frame in solar orbit.
+    novelty: medium
+    techniques: [custom-physics, harmony-postfix]
+    lifecycle: [frame:viewports]
+    hooks: ["harmony-postfix KSA.Program.OnFrameEditor"]
+    game_types: [KSA.Vehicle, KSA.VehicleReferenceFrameEx, KSA.QuaternionEx, KSA.Orbit, KSA.Celestial, KSA.AtmosphereReference, KSA.PhysicalAtmosphereReference, KSA.KinematicMeasurements, KSA.StellarBody]
+    key_paths: [AircraftHUDMain.cs]
+    howto_topics:
+      - slug: vehicle-attitude-in-local-horizon-frame
+        title: Get roll, pitch and heading relative to the local horizon
+        note: concatenate GetBody2Cci with the inverse of GetEnuBody2Cci, ToRollPitchYawRadians
+      - slug: angle-of-attack-and-sideslip
+        title: Compute angle of attack and sideslip for a vehicle
+        note: rotate velocity into body axes; use surface velocity for air-relative angles
+      - slug: read-vehicle-flight-data
+        title: Read altitude, speeds, g-load and Mach from the controlled vehicle
+        note: GetBarometricAltitude vs GetRadarAltitude, GetSurfaceSpeed, AccelerationBody is proper acceleration (g-load = length / 9.80665), Orbit.ApoapsisAltitude, Inclination in radians
+      - slug: handle-star-parent-bodies
+        title: Handle vehicles whose orbit parent is a star
+        note: Orbit.Parent is IParentBody; StellarBody is not a Celestial, so cast with as and handle null
+  - id: mods/ksa-aircrafthud/features/imgui-window-hud-shader
+    title: Curved, chromatic HUD window via an ImGuiShader
+    category: shaders
+    submod: null
+    summary: >-
+      Declares an ImGuiShader asset and adds a ShaderExtensions marker draw callback to the HUD window so
+      the window is rendered offscreen and composited through UI_PP_HUD.frag (barrel curvature within
+      UvRect, luminance-masked chromatic aberration); a 1/255-alpha full-window rect pins the quad bounds.
+    novelty: high
+    techniques: [glsl-shader, xml-asset, imgui-drawlist, post-processing]
+    lifecycle: [frame:viewports, render:imgui]
+    hooks: ["harmony-postfix KSA.Program.OnFrameEditor"]
+    game_types: [Brutal.ImGuiApi.ImDrawListExtensions, KSA.KeyHash, KSA.Program]
+    key_paths: [HudAssests.xml, ShaderExtensionsHelpers.cs, Shaders/UI_PP_HUD.frag, Shaders/UI_Functions.glsl, AircraftHUDMain.cs]
+    howto_topics:
+      - slug: shader-on-one-imgui-window
+        title: Run a custom fragment shader over one ImGui window
+        note: ShaderExtensions ImGuiShader asset plus SxImGui.CustomShader marker callback
+      - slug: imgui-draw-callback-marker
+        title: Tag an ImGui draw list with data for a renderer hook
+        note: AddCallback with copied user data and an empty callback
+      - slug: crt-curvature-and-chromatic-aberration
+        title: Barrel distortion and chromatic aberration in GLSL
+        note: remap UV inside a rect, luminance-masked channel offsets
+  - id: mods/ksa-aircrafthud/features/glass-post-process-chain
+    title: Canopy-glass post-process chain
+    category: shaders
+    submod: null
+    summary: >-
+      Three PostProcessingShader passes ordered by RenderPassId (refracted horizontal Gaussian, vertical
+      Gaussian, composite with chromatic aberration, radial edge blur and glowing dirt from a packed
+      normal/dirt mask) reading the pre-blur scene through PostProcessingInputReference, gated by an
+      enabled push constant; written for ShaderExtensions v0.4.0 and rejected by the pinned version.
+    novelty: high
+    techniques: [post-processing, glsl-shader, xml-asset, vulkan-texture]
+    lifecycle: [startup:asset-load, frame:viewports, render:post-process]
+    hooks: ["harmony-postfix KSA.Program.OnFrameEditor"]
+    game_types: [KSA.Mod, KSA.Program]
+    key_paths: [HudAssests.xml, Shaders/GaussianBlurH.frag, Shaders/GaussianBlurV.frag, Shaders/PostProcess.frag, Shaders/Functions.glsl, Textures/DirtMask.PNG]
+    howto_topics:
+      - slug: multi-pass-post-processing-chain
+        title: Build a multi-pass post-processing chain with ShaderExtensions
+        note: RenderPassId ordering, PostProcessingInputReference to an earlier pass, XML binding order
+      - slug: separable-gaussian-blur
+        title: Separable Gaussian blur as two post-process passes
+        note: H then V pass, non-linear tap distribution
+      - slug: refraction-and-dirt-mask
+        title: Fake refraction and lens dirt with a packed mask texture
+        note: rg normal offsets UVs, b dirt amount gated by luminance
+      - slug: toggle-post-process-shader
+        title: Turn a ShaderExtensions post-process effect on and off at runtime
+        note: shaders cannot be disabled; branch on a push constant and pass the input through
+      - slug: port-shaderextensions-subpass-shaders
+        title: Port pre-dynamic-rendering ShaderExtensions shaders
+        note: drop SubpassId/RequiresUniqueRenderpass, shift bindings past the time buffer at binding 1
+      - slug: post-processing-and-anti-aliasing
+        title: Make a pre-composite post-process pass work with every anti-aliasing mode
+        note: CMAA2 composites the HDR image in RenderAaPreparePasses before the main pass, so later edits to the offscreen image are not shown
+  - id: mods/ksa-aircrafthud/features/blue-noise-dithering
+    title: Spatiotemporal blue-noise dithering
+    category: shaders
+    submod: null
+    summary: >-
+      Tiles a 128x128x64 STBN texture (64 slices stacked in a 128x8192 PNG) over the screen with integer
+      pixel coordinates and picks the slice from accumulated time, adding multiplicative grain that hides
+      banding after heavy blur.
+    novelty: medium
+    techniques: [glsl-shader, post-processing, vulkan-texture]
+    lifecycle: [frame:viewports, render:post-process]
+    hooks: ["harmony-postfix KSA.Program.OnFrameEditor"]
+    game_types: [KSA.Program]
+    key_paths: [Shaders/Functions.glsl, Shaders/PostProcess.frag, Textures/stbn_vec3_128x128x64.png]
+    howto_topics:
+      - slug: blue-noise-dithering-in-shaders
+        title: Dither and add film grain with a blue-noise texture
+        note: stacked slice layout, texel-center UVs, per-frame slice from time or FrameNumber
+  - id: mods/ksa-aircrafthud/features/sx-push-constants-and-buffers
+    title: ShaderExtensions push constants and uniform buffers from C#
+    category: shaders
+    submod: null
+    summary: >-
+      Copies ShaderExtensions' marker attributes into the mod under the ShaderExtensions namespace so
+      AssetEx discovers the structs by name, registers XML elements for them and injects Span lookup
+      delegates into static fields; the mod writes enabled and time into three per-pass push constants
+      each frame and uses no type from ShaderExtensions.dll.
+    novelty: high
+    techniques: [inter-mod-api, reflection, post-processing, xml-asset]
+    lifecycle: [startup:starmap-before-main, frame:viewports, render:post-process]
+    hooks: ["harmony-postfix KSA.Program.OnFrameEditor"]
+    game_types: [KSA.KeyHash, Brutal.VulkanApi.Abstractions.BufferEx, Brutal.VulkanApi.Abstractions.MappedMemory]
+    key_paths: [ShaderExtensionsHelpers.cs, AircraftHUDMain.cs, HudAssests.xml]
+    howto_topics:
+      - slug: shaderextensions-push-constants
+        title: Send per-frame values to a ShaderExtensions shader with push constants
+        note: SxPushConstant struct, lookup delegate field, KeyHash of the XML Id
+      - slug: shaderextensions-uniform-buffers
+        title: Feed a uniform buffer to a ShaderExtensions shader from C#
+        note: SxUniformBuffer struct, std140 padding, Span/ptr/BufferEx lookups
+      - slug: duck-typed-attribute-contracts
+        title: Integrate with another mod through name-matched attributes
+        note: declare the attribute in the provider's namespace; no assembly reference needed
+  - id: mods/ksa-aircrafthud/features/custom-hud-font
+    title: Custom TTF font in the ImGui atlas
+    category: ui
+    submod: null
+    summary: >-
+      Adds a TTF from the mod folder to ImGui.GetIO().Fonts with AddFontFromFileTTF at
+      StarMapImmediateLoad and draws at several sizes with ImGui 1.92 PushFont(font, size); mod.toml fonts
+      only registers names for the settings list, and FontManager.RegenerateFonts clears the atlas.
+    novelty: medium
+    techniques: [imgui-font, starmap-lifecycle]
+    lifecycle: [startup:immediate-load, frame:viewports]
+    hooks: ["starmap StarMapImmediateLoad", "harmony-postfix KSA.Program.OnFrameEditor"]
+    game_types: [Brutal.ImGuiApi.ImFontAtlasExtensions, Brutal.ImGuiApi.ImGui, KSA.FontManager, KSA.Mod, KSA.Program]
+    key_paths: [AircraftHUDMain.cs, Fonts/HornetDisplay-Bold.ttf]
+    howto_topics:
+      - slug: load-custom-imgui-font
+        title: Load a custom font into ImGui from a mod
+        note: AddFontFromFileTTF after ImGui init, PushFont with size, survive FontManager rebuilds
+  - id: mods/ksa-aircrafthud/features/ini-settings-and-settings-window
+    title: INI settings file and settings window
+    category: persistence
+    submod: null
+    summary: >-
+      Hand-parsed hud.ini next to the DLL (invariant-culture floats and RGBA colors) loaded at
+      StarMapImmediateLoad and saved by a button in an ImGui settings window drawn from StarMapBeforeGui
+      with unit menus, color pickers and scale sliders.
+    novelty: low
+    techniques: [imgui-window, imgui-menu, starmap-lifecycle, ini-config]
+    lifecycle: [startup:immediate-load, frame:draw-ui]
+    hooks: ["starmap StarMapImmediateLoad", "starmap StarMapBeforeGui"]
+    game_types: [Brutal.ImGuiApi.ImGui]
+    key_paths: [AircraftHUDMain.cs, hud.ini]
+    howto_topics:
+      - slug: mod-settings-file
+        title: Persist mod settings in a file next to the mod
+        note: path from Assembly.Location, invariant culture, do not overwrite on update
+      - slug: imgui-settings-window
+        title: Build a settings window with color pickers and sliders
+        note: ColorButton + popup ColorPicker4, recompute derived values on slider change
+  - id: mods/ksa-aircrafthud/features/modmenu-entry-vendored-attributes
+    title: ModMenu entry with a vendored attributes DLL
+    category: ui
+    submod: null
+    summary: >-
+      Static [ModMenuEntry("Aircraft HUD")] method compiled against a ModMenu.Attributes.dll committed in
+      the repo (HintPath reference, copied to output) and resolved at runtime from the mod folder by
+      StarMap's per-mod AssemblyDependencyResolver; no mod.toml dependency and no fallback menu.
+    novelty: low
+    techniques: [imgui-menu, inter-mod-api, assembly-load-context]
+    lifecycle: [frame:draw-ui]
+    hooks: ["modmenu ModMenuEntry Aircraft HUD"]
+    game_types: [Brutal.ImGuiApi.ImGui]
+    key_paths: [AircraftHUDMain.cs, AircraftHUD.props, AircraftHUD.csproj, ModMenu.Attributes.dll]
+    howto_topics:
+      - slug: register-with-modmenu
+        title: List a mod in ModMenu
+        note: ModMenuEntry attribute via NuGet or a vendored DLL; add a fallback menu when ModMenu is absent
+      - slug: ship-third-party-dll-with-mod
+        title: Ship a third-party DLL with a StarMap mod
+        note: copy-local next to the mod DLL; StarMap resolves it after default and game contexts
+  - id: mods/ksa-aircrafthud/features/props-based-build
+    title: Props-based build straight into the mods folder
+    category: getting-started
+    submod: null
+    summary: >-
+      AircraftHUD.props holds KSADir, NuGet StarMap.API/Harmony, wildcard game references built with an
+      item transform and Private=False, and an OutputPath pointing at the user's mods folder so each build
+      deploys; the csproj only marks content files CopyToOutputDirectory.
+    novelty: low
+    techniques: [msbuild-props]
+    lifecycle: []
+    hooks: []
+    game_types: []
+    key_paths: [AircraftHUD.props, AircraftHUD.csproj]
+    howto_topics:
+      - slug: mod-project-setup
+        title: Set up a KSA mod project that references the game
+        note: wildcard Reference with HintPath metadata and Private=False
+      - slug: build-directly-to-mods-folder
+        title: Build a mod straight into the KSA mods folder
+        note: OutputPath to Documents/My Games/Kitten Space Agency/mods, flat output, content copy

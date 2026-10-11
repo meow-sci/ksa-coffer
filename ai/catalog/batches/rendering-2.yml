@@ -1,0 +1,534 @@
+batch: rendering-2
+game_loop_reference: getting-started/game-loop-and-lifecycle
+category: rendering
+category_description: Drawing things the game does not draw by itself - ImGui overlays on the sky and world, custom Vulkan
+  passes, textures, meshes, lights, particles, plumes and decals - plus the Vulkan resource discipline that keeps those additions
+  alive across frames, resizes and shutdown.
+groups:
+  meshes: 'Drawing and hiding geometry through the engine''s own renderers: mod meshes, GPU buffer headroom, shadow casters,
+    hidden parts and distance culling.'
+  lights-and-particles: Lights, particles, explosions and exhaust plumes submitted through the engine's own systems.
+topics:
+- slug: draw-mod-meshes-with-the-engine-renderers
+  title: Draw your own meshes through the engine's mesh renderers
+  kind: howto
+  group: meshes
+  batch: rendering-2
+  summary: Instead of a bespoke pipeline, hand the game your meshes as StaticMeshRenderables, extra part-model instances or
+    private buffers inside the static-object pipeline so lighting, shadows and culling come for free.
+  game_types:
+  - KSA.StaticMeshRenderable
+  - KSA.SuperMeshRenderSystem
+  - KSA.PartModel
+  - KSA.StaticObjectRenderer
+  - KSA.PartModelRenderer
+  engine_pointers:
+  - current/decomp/KSA/SuperMeshRenderSystem.cs ClearBuckets
+  - current/decomp/KSA/StaticMeshRenderable.cs
+  - current/decomp/KSA/StaticObjectRenderer.cs UpdateRenderData
+  - current/decomp/KSA/PartModelRenderer.cs UpdateRenderData
+  - current/decomp/KSA/PartModel.cs AddInstance
+  lifecycle:
+  - startup:all-mods-loaded
+  - frame:render
+  - render:scene-opaque
+  - render:shadows
+  - render:prepass
+  approaches:
+  - n: 1
+    title: Submit StaticMeshRenderables after ClearBuckets for every viewport
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/mod-mesh-draw-hook
+    technique: runtime-mesh-draw
+    note: Postfix SuperMeshRenderSystem.ClearBuckets(IViewport); earlier draws are discarded; per-viewport ego transforms;
+      secondary views first and only the main view casts cascade shadows.
+  - n: 2
+    title: Own vertex/index/material buffers drawn by the static-object pipeline
+    mod: unscience
+    features:
+    - mods/unscience/features/sphinx-static-object-render-hooks
+    technique: vulkan-buffer
+    note: Postfixes on StaticObjectRenderer.UpdateRenderData and the private WriteCommandsColor/WriteCommandsPrePass; per-viewport,
+      per-frame matrix slices.
+  - n: 3
+    title: Extra part-model instances at any matrix, per viewport
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/round-body-draw-hooks
+    technique: part-model-instancing
+    note: Prefix on PartModelRenderer.UpdateRenderData adds shells and rounds as extra instances of the engine's own part
+      meshes; also covers drawing a launcher past the pixel cull.
+  - n: 4
+    title: Clone interleaved part meshes into private SimpleVkMeshes
+    mod: unscience
+    features:
+    - mods/unscience/features/rocky-mcrock-face-interleaved-mesh-clone
+    technique: vulkan-buffer
+    note: Reuse part geometry in another renderer (ring pipeline) by sharing HostPrimitives and uploading a standalone mesh.
+  related:
+  - add-invisible-shadow-casters
+  - grow-game-gpu-buffers-for-runtime-content
+  - choose-a-render-frame-and-anchor-effects
+  - add-or-restyle-planetary-rings
+- slug: grow-game-gpu-buffers-for-runtime-content
+  title: Reserve or grow game GPU buffers for content added at runtime
+  kind: howto
+  group: meshes
+  batch: rendering-2
+  summary: The game sizes its shared mesh buffer and star instance buffer at load. Runtime meshes or more stars need headroom
+    reserved before the buffer is created, or reflective re-creation while frames are in flight. Also covers rewriting the
+    background star instances to change star size and colour.
+  game_types:
+  - KSA.DeviceMeshInterleaved
+  - KSA.ModLibrary
+  - KSA.InstancedStarTechnique
+  - KSA.Program
+  engine_pointers:
+  - current/decomp/KSA/DeviceMeshInterleaved.cs Shared
+  - current/decomp/KSA/InstancedStarTechnique.cs CreateInstanceBuffer
+  - current/decomp/KSA/InstancedStarTechnique.cs AddInstance
+  lifecycle:
+  - startup:starmap-before-main
+  - startup:all-mods-loaded
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: Inflate DeviceMeshInterleaved.Shared before ModLibrary.Bind sizes the buffer
+    mod: unscience
+    features:
+    - mods/unscience/features/parts-now-mesh-headroom-reservation
+    technique: vulkan-buffer
+    note: Size counters inflated at AllModsLoaded and the bump cursor rewound on the first frame so runtime meshes get valid
+      ranges; includes runtime mesh loading constraints.
+  - n: 2
+    title: Reflective re-creation of an instance buffer with a constructor argument prefix
+    mod: ohmystars
+    features:
+    - mods/ohmystars/features/star-instance-restyle-patch
+    technique: harmony-prefix
+    note: 'ref int __4 on a manually patched constructor grows capacity; readonly fields and protected CreateInstanceBuffer
+      reached by reflection, mindful of frames in flight. Also: [Folded from restyle-background-stars: background-star sub-step
+      (own section): rewrite star sprite instances as the technique is built to resize, recolour or thin the sky.] Skip adds
+      when the buffer is full; pair with buffer growth for more stars.'
+  related:
+  - draw-mod-meshes-with-the-engine-renderers
+  - free-vulkan-resources-safely
+  - draw-lines-on-the-sky
+  merged_from:
+  - restyle-background-stars
+- slug: add-invisible-shadow-casters
+  title: Make static objects cast sun and lamp shadows with invisible casters
+  kind: howto
+  group: meshes
+  batch: rendering-2
+  summary: Static objects never enter a shadow pass; add depth-only caster meshes to the SuperMesh shadow pool so a building,
+    roof or pillar blocks sunlight and lamp light without drawing a second mesh.
+  game_types:
+  - KSA.SuperMeshRenderSystem
+  - KSA.StaticMeshRenderable
+  - KSA.ShadowRenderable
+  - KSA.SuperMeshShadowCasterProvider
+  engine_pointers:
+  - current/decomp/KSA/SuperMeshShadowCasterProvider.cs
+  - current/decomp/KSA/StaticMeshRenderable.cs ShadowRenderablePool
+  - current/decomp/KSA/ShadowRenderable.cs
+  lifecycle:
+  - startup:all-mods-loaded
+  - frame:render
+  - render:shadows
+  approaches:
+  - n: 1
+    title: Append ShadowRenderables from a prefix on PrepareShadowCasters or AddShadowRenderables
+    mod: ksastructures
+    features:
+    - mods/ksastructures/features/invisible-shadow-casters
+    technique: harmony-prefix
+    note: Casters come from a GLB loaded as GltfFile, built as StaticMeshRenderables that are never drawn; must run before
+      the first shadow consumer each frame; includes lamp atlas versus sun cascades.
+  related:
+  - add-dynamic-lights-to-the-world
+  - draw-mod-meshes-with-the-engine-renderers
+- slug: hide-parts-or-subparts-from-rendering
+  title: Hide part meshes or subparts without removing them
+  kind: howto
+  group: meshes
+  batch: rendering-2
+  summary: Remove a window pane, a model or a missile from the picture while the part stays in the vessel, either by filtering
+    instance lists, by scaling a subpart to nothing or by moving it out of the way. Also covers showing IVA interiors from
+    the exterior camera and rendering kitten-attached equipment parts in the right order.
+  game_types:
+  - KSA.PartTreeRenderData
+  - KSA.Part
+  - KSA.PartModelModule
+  - KSA.PartModelRenderer
+  - KSA.Vehicle
+  - KSA.KittenRenderable
+  engine_pointers:
+  - current/decomp/KSA/PartTreeRenderData.cs Compose, ComposeDynamic, ComposeGlass
+  - current/decomp/KSA/Part.cs ResetCachedPosMatrixValues
+  - current/decomp/KSA/PartModelModule.cs Template.Internal
+  - current/decomp/KSA/PartModelRenderer.cs UpdateRenderData
+  - current/decomp/KSA/KittenRenderable.cs
+  lifecycle:
+  - frame:render
+  - frame:draw-ui
+  - editor:render
+  approaches:
+  - n: 1
+    title: Shared prefix/postfix pair on Compose records instance ranges and removes hidden models
+    mod: unscience
+    features:
+    - mods/unscience/features/lib-part-render-filter
+    - mods/unscience/features/kitchen-sink-capsule-glass
+    technique: harmony-prefix
+    note: Several owners share one patch; the filter edits the appended range before upload.
+  - n: 2
+    title: Scale a subpart to nothing until it is fired or needed
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/rounds-as-hidden-launcher-subparts
+    technique: scale-to-hide
+    note: Pre-declared subpart seated or shrunk each frame; transform written from the mod simulation.
+  - n: 3
+    title: Pose or hide subparts from StarMapAfterGui
+    mod: ksacars
+    features:
+    - mods/ksacars/features/pose-subparts-at-runtime
+    technique: starmap-lifecycle
+    note: Write Part.PositionParentAsmb/Asmb2ParentAsmb/Scale and reset cached matrices; latch the work so it runs when the
+      HUD is hidden.
+  - n: 4
+    title: Owner-counted Template.Internal requirement with Compose prefix and finalizer
+    mod: unscience
+    features:
+    - mods/unscience/features/lib-iva-force-render
+    - mods/unscience/features/kitchen-sink-capsule-glass
+    technique: harmony-finalizer
+    note: '[Folded from show-iva-interiors-from-outside: IVA interior sub-step (own section): flip the template Internal flag
+      with an owner-counted requirement so cabins show from outside.] Flips the shared flag on loaded and newly constructed
+      models; kitchen sink combines it with hiding the window meshes.'
+  - n: 5
+    title: Flip Template.Internal from a lazily installed dedicated Harmony instance
+    mod: gatos
+    features:
+    - mods/gatos/features/scale-and-force-render-cheats
+    technique: harmony-prefix
+    note: '[Folded from show-iva-interiors-from-outside: IVA interior sub-step (own section): flip the template Internal flag
+      with an owner-counted requirement so cabins show from outside.] Dedicated Harmony id, unpatch on last use.'
+  - n: 6
+    title: Prefix on PartModelRenderer.UpdateRenderData calls the patched Vehicle.UpdateRenderData nonvirtually
+    mod: unscience
+    features:
+    - mods/unscience/features/iron-man-equipment-render-ordering
+    technique: harmony-prefix
+    note: '[Folded from render-kitten-equipment-in-the-right-order: kitten equipment sub-step (own section): run backpack-tree
+      parts through the vehicle render path before instance lists upload.] Priority.First prefix skips the duplicate call;
+      dynamic method for the nonvirtual call.'
+  related:
+  - define-and-animate-subparts
+  - draw-a-fullscreen-click-through-overlay
+  - keep-vessels-rendered-at-any-distance
+  merged_from:
+  - show-iva-interiors-from-outside
+  - render-kitten-equipment-in-the-right-order
+- slug: keep-vessels-rendered-at-any-distance
+  title: Keep a vessel or kitten rendered at any distance
+  kind: howto
+  group: meshes
+  batch: rendering-2
+  summary: KSA culls vehicles that project below one pixel or past a render radius. Override the cull so a distant ship, a
+    projectile launcher or a scaled-up vessel still draws.
+  game_types:
+  - KSA.Vehicle
+  - KSA.PartModelRenderer
+  - KSA.PartTreeRenderData
+  engine_pointers:
+  - current/decomp/KSA/Vehicle.cs GetWorldMatrix, UpdateRenderData, IsLargeEnoughToRender
+  lifecycle:
+  - frame:render
+  - frame:draw-ui
+  - frame:pre-render
+  approaches:
+  - n: 1
+    title: Skip-original prefixes on GetWorldMatrix and UpdateRenderData
+    mod: unscience
+    features:
+    - mods/unscience/features/i-feel-seen-render-distance-override
+    technique: harmony-prefix
+    note: Rebuilds the native result without the distance gate, resolved by name for resilience.
+  - n: 2
+    title: Replace the sub-pixel cull with a prefix that reproduces the body
+    mod: gatos
+    features:
+    - mods/gatos/features/scale-and-force-render-cheats
+    technique: harmony-prefix
+    note: Installed lazily so the cost is only paid while enabled.
+  - n: 3
+    title: Postfix UpdateRenderData asks the pixel test again for a launcher
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/round-body-draw-hooks
+    technique: harmony-postfix
+    note: Draw only what is needed while rounds fly.
+  - n: 4
+    title: Call-site transpilers enlarge the cull radius
+    mod: unscience
+    features:
+    - mods/unscience/features/godzilla-visual-scaling
+    technique: harmony-transpiler
+    note: Guarded rewrites of the IsLargeEnoughToRender call so a scaled vessel is still culled sanely.
+  related:
+  - scale-a-vessel-or-its-parts-at-runtime
+  - hide-parts-or-subparts-from-rendering
+- slug: add-dynamic-lights-to-the-world
+  title: Add dynamic spot and point lights to the world from a mod
+  kind: howto
+  group: lights-and-particles
+  batch: rendering-2
+  summary: KSA clears its light list every frame; a mod submits its own Light instances at the right moment (after ClearLights,
+    before sorting and shadow assignment) for headlights, lamps, flashes and fireballs, and budgets which ones cast shadows.
+  game_types:
+  - KSA.Rendering.Lighting.Light
+  - KSA.Rendering.Lighting.ILightSystem
+  - KSA.Rendering.Lighting.ClusteredLightSystem
+  - KSA.Program
+  - KSA.PartTree
+  engine_pointers:
+  - current/decomp/KSA.Rendering.Lighting/ILightSystem.cs CreateLightInstance, ClearLights
+  - current/decomp/KSA.Rendering.Lighting/Light.cs CreateSpotLight
+  - current/decomp/KSA.Rendering.Lighting/LightDebug.cs
+  lifecycle:
+  - frame:lights
+  - frame:pre-render
+  - frame:render
+  approaches:
+  - n: 1
+    title: Postfix PartTree.UpdateRenderData per craft with CreateSpotLight
+    mod: ksacars
+    features:
+    - mods/ksacars/features/headlights-as-spotlights
+    technique: harmony-postfix
+    note: Runs after ClearLights and before the light upload, once per craft; toggled by Part.LightSwitch / Vehicle.ToggleLights.
+  - n: 2
+    title: Per-viewport CreateLightInstance from an UpdateStaticObjectRenderData postfix, with a shadow-caster budget
+    mod: ksastructures
+    features:
+    - mods/ksastructures/features/garage-spot-lights
+    technique: dynamic-lights
+    note: Flag the nearest lamps up to MaxShadowCasters, leave slots for parts and exhaust.
+  - n: 3
+    title: Push a point light through the public LightDebug list
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/fireball-light-injection
+    technique: dynamic-lights
+    note: The only list the engine re-reads after clearing; plus a compute dispatch for pixels the light pre-pass dropped
+      beyond 3.16 km.
+  related:
+  - add-invisible-shadow-casters
+  - control-part-light-color-and-state
+  - modify-the-hdr-scene-with-a-compute-pass
+- slug: control-part-light-color-and-state
+  title: 'Control part lights from code: state, colour, intensity and beam angles'
+  kind: howto
+  group: lights-and-particles
+  batch: rendering-2
+  summary: Switch the lights on stock light parts and vehicle lamps, recolour them, set intensity and narrow or widen spotlight
+    cones, for one instance without affecting the shared template, and build grids of such lights as pixels. Also covers animating
+    part light colour, intensity and spread over time.
+  game_types:
+  - KSA.LightModule
+  - KSA.PowerConsumer
+  - KSA.PartTemplate
+  - KSA.Vehicle
+  - KSA.EasingHelper
+  engine_pointers:
+  - current/decomp/KSA/LightModule.cs
+  - current/decomp/KSA/PowerConsumer.cs LightIsActive
+  - current/decomp/KSA/Vehicle.cs ToggleLights
+  lifecycle:
+  - frame:viewports
+  - frame:draw-ui
+  - frame:pre-render
+  - physics:vehicle-solver
+  - frame:render
+  - event:save
+  - event:load
+  approaches:
+  - n: 1
+    title: Reflection write to the shared PartTemplate light components plus LightIsActive
+    mod: unscience
+    features:
+    - mods/unscience/features/zippo-light-control
+    technique: reflection
+    note: Template-level write versus per-instance Template swap; switching on takes effect after the next vehicle step and
+      needs power; origin ledger for restore.
+  - n: 2
+    title: Clone the shared template per instance and set cone angles
+    mod: gatos
+    features:
+    - mods/gatos/features/light-cone-control
+    technique: template-unsharing
+    note: Lower the inner angle too, CreateSpotLight swaps inner/outer, plus clamp and falloff floor findings.
+  - n: 3
+    title: Runtime light-part grids powered through battery connections
+    mod: unscience
+    features:
+    - mods/unscience/features/its-so-shiny-light-part-grids
+    technique: runtime-part-creation
+    note: Toggle pixels via PowerConsumer.LightIsActive; one template write per PartTemplate recolours the grid.
+  - n: 4
+    title: Bounded queue of eased single-step transitions per light instance
+    mod: unscience
+    features:
+    - mods/unscience/features/zippo-light-animation-queue
+    technique: inter-mod-api
+    note: '[Folded from animate-part-lights: animation sub-step (own section): eased colour cycles, intensity fades and spotlight
+      sweeps without fighting stock keyframe actuators.] Uses UI-frame delta time; re-captures live start values when the
+      template changes; exposed through a static API instance.'
+  - n: 5
+    title: Disco channels via private Template copies and actuator claiming
+    mod: unscience
+    features:
+    - mods/unscience/features/zippo-disco-party-lights
+    technique: runtime-template-swap
+    note: '[Folded from animate-part-lights: animation sub-step (own section): eased colour cycles, intensity fades and spotlight
+      sweeps without fighting stock keyframe actuators.] Colour, assembly-actuation and spread channels; owner-guarded restore
+      and per-instance module template override.'
+  related:
+  - add-dynamic-lights-to-the-world
+  merged_from:
+  - animate-part-lights
+- slug: spawn-particle-effects
+  title: Spawn particle effects and explosions from a mod
+  kind: howto
+  group: lights-and-particles
+  batch: rendering-2
+  summary: Take emitters from the engine's fixed pool, either from XML-declared ParticleEmitter assets or built in C#, anchor
+    them, return them correctly, and fire the game's own explosion presets where no vehicle hosts the burst.
+  game_types:
+  - KSA.Rendering.Particles.ParticleEmitter
+  - KSA.Rendering.Particles.ParticleEmitterReference
+  - KSA.ExplosionSystem
+  - KSA.Rendering.Particles.EmitterSpawnPresets
+  engine_pointers:
+  - current/decomp/KSA.Rendering.Particles/ParticleEmitter.cs
+  - current/decomp/KSA.Rendering.Particles/ParticleEmitterReference.cs
+  - current/decomp/KSA.Rendering.Particles/EmitterSpawnPresets.cs
+  - current/decomp/KSA/ExplosionSystem.cs SpawnPreset
+  lifecycle:
+  - startup:asset-load
+  - frame:viewports
+  - frame:pre-render
+  - render:particles
+  approaches:
+  - n: 1
+    title: XML ParticleEmitter assets taken by id from the engine pool
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/pooled-particle-emitters
+    technique: pooled-resource
+    note: Kill() before handing an emitter back, bounded acquire, re-anchor each frame while following.
+  - n: 2
+    title: ParticleEmitterReference built in C# with SpawnMode.Burst
+    mod: gatos
+    features:
+    - mods/gatos/features/face-particle-bursts
+    technique: particle-emitter
+    note: EmitterPool.Get + InitializeEmitter + AddEmitter, pool of 1024, update in OnPreRender.
+  - n: 3
+    title: ExplosionSystem presets with a body-fixed origin
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/ksa-explosions-from-a-point
+    technique: engine-explosion-preset
+    note: Preset chosen by fireball size, real ambient pressure for pressure-gated stages.
+  related:
+  - choose-a-render-frame-and-anchor-effects
+  - draw-exhaust-plumes-without-an-engine
+- slug: draw-exhaust-plumes-without-an-engine
+  title: Draw volumetric exhaust plumes and smoke trails without a real engine
+  kind: howto
+  group: lights-and-particles
+  batch: rendering-2
+  summary: Reuse the game's volumetric exhaust renderer for flames from a mod-owned thrust source (a car exhaust, a prop flame,
+    a pyrotechnic) by building VolumetricExhaustInstances and plume data yourself, including the plume physics so it reacts
+    to altitude. Also covers editing plume and cloud templates live and laying volumetric smoke trails behind projectiles
+    and flares.
+  game_types:
+  - KSA.VolumetricExhaustInstance
+  - KSA.VolumetricExhaustRenderer
+  - KSA.PlumeData
+  - KSA.RocketNozzle
+  - KSA.Vehicle
+  - KSA.VolumetricExhaustTemplate
+  - KSA.PlanetRenderer
+  - KSA.PlumeTrailEmitterState
+  - KSA.VolumetricTrailRenderer
+  engine_pointers:
+  - current/decomp/KSA/VolumetricExhaustInstance.cs
+  - current/decomp/KSA/VolumetricExhaustRenderer.cs AddInstance
+  - current/decomp/KSA/PlumeData.cs Compute
+  - current/decomp/KSA/RocketNozzle.cs UpdatePlumeData
+  - current/decomp/KSA/Vehicle.cs AddVolumetricExhaustInstances
+  - current/decomp/KSA/VolumetricExhaustRenderer.cs
+  - current/decomp/KSA/PlumeTrailEmitterState.cs
+  - current/decomp/KSA/VolumetricTrailRenderer.cs
+  lifecycle:
+  - frame:pre-render
+  - render:exhaust
+  - frame:draw-ui
+  - frame:celestials
+  - render:atmosphere
+  approaches:
+  - n: 1
+    title: Template-based instances with RocketNozzle.ComputePlumeData and mod gas numbers
+    mod: ksacars
+    features:
+    - mods/ksacars/features/exhaust-plumes-without-engine
+    technique: harmony-postfix
+    note: Camera-relative float positions; must be submitted between UpdateFrameData and the render; UpdateState transients
+      for ignite and shutdown.
+  - n: 2
+    title: Postfix AddVolumetricExhaustInstances with an isentropic nozzle model
+    mod: unscience
+    features:
+    - mods/unscience/features/pyro-volumetric-exhaust-plumes
+    - mods/unscience/features/pyro-isentropic-nozzle-model
+    technique: harmony-postfix
+    note: Exit Mach from area ratio, isentropic expansion, PlumeData.Compute, so the plume reacts to ambient pressure and
+      throttle.
+  - n: 3
+    title: Template editor with propagation to instances and nozzles
+    mod: unscience
+    features:
+    - mods/unscience/features/pyro-exhaust-template-editor
+    technique: reflection
+    note: '[Folded from edit-exhaust-and-cloud-templates-live: live template editing sub-step (own section): edit plume and
+      cloud templates and propagate to live instances.] Absorption, emission, noise, length and quality values written and
+      pushed to every instance and engine nozzle, with save sidecar.'
+  - n: 4
+    title: Reflect into private editor fields and replay each editor's apply sequence
+    mod: gatos
+    features:
+    - mods/gatos/features/fx-editor-reflection
+    technique: reflection
+    note: '[Folded from edit-exhaust-and-cloud-templates-live: live template editing sub-step (own section): edit plume and
+      cloud templates and propagate to live instances.] OnSettingsChanged + RecomputeVolumetricExhaustLimits; clouds via UpdateStaticData
+      + PopulatePlanets; capture pristine value on first write for reset.'
+  - n: 5
+    title: One PlumeTrailEmitterState cursor per source via a reflected renderer field
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/trail-renderer-smoke
+    technique: volumetric-trail-emitter
+    note: '[Folded from lay-volumetric-smoke-trails: smoke-trail sub-step (own section): submit trail emitter states each
+      frame for projectiles and flares, fixed in the body frame.] Reflect once, warn once, degrade; isFlowing passed by the
+      caller bypasses the nozzle gate.'
+  related:
+  - spawn-particle-effects
+  - choose-a-render-frame-and-anchor-effects
+  merged_from:
+  - edit-exhaust-and-cloud-templates-live
+  - lay-volumetric-smoke-trails

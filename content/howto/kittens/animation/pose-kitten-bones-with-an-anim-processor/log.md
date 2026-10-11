@@ -1,0 +1,5 @@
+# Pose a kitten's bones and aim its limbs with an IAnimProcessor history
+
+## 2026-10-10
+* **Update**: Review: approach 2 frontmatter and overview row now list the UI-pass and after-on-frame hooks that attach the processor.
+* **Creation**: Added [Pose a kitten's bones and aim its limbs with an IAnimProcessor](overview.md) and 6 How-To articles ([pose-kitten-bones-with-an-anim-processor-1](pose-kitten-bones-with-an-anim-processor-1.md), [pose-kitten-bones-with-an-anim-processor-2](pose-kitten-bones-with-an-anim-processor-2.md), [pose-kitten-bones-with-an-anim-processor-3](pose-kitten-bones-with-an-anim-processor-3.md), [pose-kitten-bones-with-an-anim-processor-4](pose-kitten-bones-with-an-anim-processor-4.md), [pose-kitten-bones-with-an-anim-processor-5](pose-kitten-bones-with-an-anim-processor-5.md), [pose-kitten-bones-with-an-anim-processor-6](pose-kitten-bones-with-an-anim-processor-6.md)) against game build 2026.10.10.5554 from the kittens-1 batch plan; every game member named was grepped in the decompile and every code snippet was checked line by line against the pinned checkouts.

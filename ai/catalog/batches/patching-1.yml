@@ -1,0 +1,1308 @@
+batch: patching-1
+game_loop_reference: getting-started/game-loop-and-lifecycle
+category: patching
+category_description: Generic Harmony technique for KSA mods - skipping prefixes, finalizers and scoped overrides, coexisting
+  with other mods, worker-thread patches, writing and anchoring transpilers, swapping single calls, reaching private members
+  and patching around AggressiveInlining, and fault-contained, refusing, validated and removable patch sets.
+groups:
+  harmony: 'Everyday Harmony technique against KSA: skipping prefixes, finalizers, sharing a method with other mods and patching
+    code that runs off the main thread.'
+  safety: 'Keeping patches survivable across game updates and other mods: refusing and rolling back, isolating failures, validating
+    targets and removing patches cleanly.'
+  transpilers: 'Changing a game method''s IL: the transpiler recipe, swapping one call, finding the right call among several
+    and inserting at an anchor.'
+  internals: 'Reaching what the game does not expose: private members through reflection and delegates, private or overloaded
+    patch targets, and methods the JIT inlines.'
+topics:
+- slug: skip-the-original-method-with-a-prefix
+  title: Replace, veto or consume with a skipping Harmony prefix
+  kind: howto
+  group: harmony
+  batch: patching-1
+  summary: 'Return false from a prefix to skip the original: write __result and return, veto an action for selected objects,
+    rewrite by-ref arguments, guard a call that would throw, or take keyboard and mouse input away from the game while a mod
+    tool owns it. A skipped original also skips its finally block, so consumed presses and releases must be paired and private
+    latches repaired. Includes how to keep a replacement faithful to the original body, how skipping interacts with other
+    mods'' patches, and when a postfix that edits __result is the safer choice.'
+  game_types:
+  - KSA.Vehicle
+  - KSA.InstancedStarTechnique
+  - KSA.Camera
+  - KSA.GameSettings
+  - KSA.Program
+  - KSA.Input
+  - KSA.BurnContextMenu
+  - KSA.MapController
+  - KSA.VehicleEditor
+  engine_pointers:
+  - current/decomp/KSA/Vehicle.cs UpdateRenderData, GetWorldMatrix, IsLargeEnoughToRender
+  - current/decomp/KSA/InstancedStarTechnique.cs AddInstance ("Instance buffer full")
+  - current/decomp/KSA/Camera.cs UpdateProjection and _fovRadians
+  - current/decomp/KSA/Program.cs OnMouseButton (_heldMouseButtons, _inputViewport latches)
+  - current/decomp/KSA/Program.cs OnKey and private DispatchKeyEvent
+  - current/decomp/KSA/GameSettings.cs OnKeyAll
+  - current/decomp/KSA/BurnContextMenu.cs _rightClickValid
+  lifecycle:
+  - frame:render
+  - startup:starmap-before-main
+  - frame:viewports
+  - frame:input
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: Reproduce the original body for marked objects and return false
+    mod: gatos
+    features:
+    - mods/gatos/features/scale-and-force-render-cheats
+    technique: harmony-prefix
+    note: Prefixes on GetWorldMatrix and UpdateRenderData reproduce the stock body minus the sub-pixel size test for marked
+      vessels and let everyone else fall through to the original.
+  - n: 2
+    title: Rewrite by-ref arguments and skip when a limit would throw
+    mod: ohmystars
+    features:
+    - mods/ohmystars/features/star-instance-restyle-patch
+    technique: harmony-prefix
+    note: 'ref byte scale and ref byte4 color are transformed per star; when the instance array is full the prefix returns
+      false instead of letting the original throw; counters bumped with Interlocked. [Absorbed topic patch-private-method-with-field-injection
+      approach 4] Also the positional __N form: a manual patch of the InstancedStarTechnique constructor found by its fifth
+      int parameter, with prefix ref int __4 replacing the capacity.'
+  - n: 3
+    title: Re-inject a private field before a rebuild so nothing can change it back
+    mod: unscience
+    features:
+    - mods/unscience/features/glass-fov-override
+    technique: harmony-prefix
+    note: A prefix on Camera.UpdateProjection writes the override into the private _fovRadians before any rebuild of the main
+      camera's projection, covering window resize, settings apply and the stock FOV keys.
+  - n: 4
+    title: Mouse prefix that pairs presses with releases and repairs private latches
+    mod: ksa-measuretools
+    features:
+    - mods/ksa-measuretools/features/click-capture-mouse-prefix
+    technique: harmony-prefix
+    note: Order of gates mirrors the stock handler (pairing first, popups, ImGui WantCaptureMouse, Input.MouseBound plus Input.Contains
+      over EnumCollections.InputActions, editor drags), right-release repair via cached AccessTools handles, and the rule
+      to decline consumption when a latch field is missing or changed type.
+  - n: 5
+    title: Keyboard and mouse-binding gates with a held-key model
+    mod: purrtty
+    features:
+    - mods/purrtty/features/gate-game-input-while-terminal-focused
+    technique: harmony-prefix
+    note: Prefixes on Program.OnKey, GameSettings.OnKeyAll and private DispatchKeyEvent (mouse events) stop hotkeys while
+      a mod UI has focus, tracking pressed keys and swallowed buttons so releases are never stranded or leaked.
+  related:
+  - patch-a-private-game-method-by-name
+  - override-the-camera-field-of-view
+  - keep-vessels-rendered-at-any-distance
+  - grow-game-gpu-buffers-for-runtime-content
+  - coexist-with-other-mods-patching-the-same-method
+  - block-game-hotkeys-while-typing
+  - coordinate-imgui-focus-with-game-input
+  - rebindable-hotkeys
+  - game-loop-and-lifecycle
+  merged_from:
+  - replace-a-game-method-with-a-prefix
+  - consume-game-input-with-a-skipping-prefix
+- slug: run-cleanup-or-recover-from-exceptions-with-a-finalizer
+  title: Use a Harmony finalizer for cleanup, recovery and scoped overrides
+  kind: howto
+  group: harmony
+  batch: patching-1
+  summary: 'A postfix does not run when the original throws; a finalizer always does. Uses: restore state a prefix changed,
+    even if the game call fails; finish a method that throws on data it was never meant to see (swallow the exception and
+    replay the missing tail); put back an edited input struct using __state; and bracket load or save transactions so failures
+    are reported. Also scoped overrides: make a patch on a shared method conditional on a context only the mod''s own call
+    sets (ThreadStatic flag in try/finally, construction context, asker marker set by a prefix and cleared by a finalizer).'
+  game_types:
+  - KSA.ConstraintSim
+  - KSA.PartTreeRenderData
+  - KSA.TransferPlanner
+  - KSA.FlightComputer
+  - KSA.UncompressedSave
+  - KSA.Universe
+  - KSA.VolumetricExhaustRenderer
+  - KSA.Vehicle
+  - KSA.Celestial
+  - KSA.ClutterCubeCellGrid
+  engine_pointers:
+  - current/decomp/KSA/ConstraintSim.cs DetectCollisions and Simulate
+  - current/decomp/KSA/PartTreeRenderData.cs Compose
+  - current/decomp/KSA/TransferPlanner.cs SetTransferInfo (subtracts a NaN Period from a UniverseTime and throws)
+  - current/decomp/KSA/FlightComputer.cs ComputeControl
+  - current/decomp/KSA/UncompressedSave.cs Load
+  - current/decomp/KSA/VolumetricExhaustRenderer.cs AddInstance(ExhaustInstance, int)
+  - current/decomp/KSA/Vehicle.cs PrepareWorker, TeleportToLocation
+  - current/decomp/KSA/Celestial.cs GetTerrainHeightFromDirCce
+  lifecycle:
+  - physics:bepu
+  - frame:render
+  - frame:draw-ui
+  - physics:vehicle-solver
+  - event:save
+  - frame:pre-render
+  - frame:dispatch-solvers
+  approaches:
+  - n: 1
+    title: Restore what a prefix changed around one game call
+    mod: unscience
+    features:
+    - mods/unscience/features/garrys-torch-scoped-collision-suppression
+    - mods/unscience/features/lib-iva-force-render
+    technique: harmony-finalizer
+    note: Prefix sets collidable shapes to default for the duration of DetectCollisions or Simulate and passes the (handle,
+      shape) list as __state; the finalizer restores the exact shape through Bodies.SetShape, logging but not throwing. Same
+      shape for the editor-only IVA reveal around PartTreeRenderData.Compose. A void finalizer does not swallow the original
+      exception.
+  - n: 2
+    title: Swallow an exception and finish the method's remaining work
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/hyperbolic-transfer-targets
+    technique: harmony-finalizer
+    note: 'static Exception Finalizer(Exception __exception) for SetTransferInfo with a NaN Period: stock already stored the
+      new TransferInfo, the finalizer replays only the lines after the throw (window, selection, alerts) and returns null
+      to swallow. Explains why a postfix would never run.'
+  - n: 3
+    title: Prefix with __state and a finalizer that restores an edited input
+    mod: compendium
+    features:
+    - mods/compendium/features/flight-computer-root-attitude-tracking
+    technique: harmony-finalizer
+    note: 'Inject the side target into the by-ref navigation struct for exactly one ComputeControl call on the solver worker
+      and put it back afterwards, keyed by the shared BurnPlan object. [Absorbed from patch-private-method-with-field-injection
+      approach 3] Also the general __state rule: out/ref __state carries data from prefix to postfix or finalizer, here recording
+      whether the prefix injected so the finalizer puts the struct back.'
+  - n: 4
+    title: Prefix, postfix and finalizer as a transaction around loads
+    mod: unscience
+    features:
+    - mods/unscience/features/lib-native-save-hooks
+    technique: harmony-finalizer
+    note: UncompressedSave.Load gets a prefix (defer, open a transaction) and a finalizer (close it, turning a silent native
+      read failure into an exception); Universe.DeserializeSave and LoadSystem likewise. World replacements are deferred to
+      the PrepareFrame handoff.
+  - n: 5
+    title: ThreadStatic override set in try/finally around the mod's own submission
+    mod: unscience
+    features:
+    - mods/unscience/features/pyro-scoped-exhaust-look-override
+    technique: harmony-prefix
+    note: Prefix on VolumetricExhaustRenderer.AddInstance applies per-plume absorption and refraction only while the ThreadStatic
+      override is set inside Pyro's own call, so stock engines and shared templates never see it.
+  - n: 6
+    title: Thread-static construction context scoping a transpiler and a prefix
+    mod: unscience
+    features:
+    - mods/unscience/features/pebbles-private-clutter-materials
+    technique: harmony-transpiler
+    note: Redirects ground clutter material buffer lookups to a private per-body buffer and swaps a fragment variant, only
+      while an owned-construction context is active on the current thread.
+  - n: 7
+    title: Mark the asker in a Priority.First prefix, clear it in a Priority.Last finalizer
+    mod: ksastructures
+    features:
+    - mods/ksastructures/features/terrain-height-roof-override
+    technique: harmony-finalizer
+    note: '[ThreadStatic] Vehicle _stepping set around Vehicle.PrepareWorker so a postfix on the terrain height getter answers
+      roof height for the vehicle being prepared and ground height for the camera; the same pairing lends height across TeleportToLocation.'
+  related:
+  - patch-a-private-game-method-by-name
+  - patch-around-aggressive-inlining
+  - patch-methods-that-run-on-background-threads
+  - suppress-collisions-for-one-vessel
+  - synthesize-a-navigation-target-for-the-flight-computer
+  - save-mod-state-with-the-game-save
+  - write-worker-thread-safe-solver-patches
+  - coexist-with-other-mods-patching-the-same-method
+  - override-terrain-height-for-roofs-and-platforms
+  merged_from:
+  - scope-a-patch-to-your-own-calls
+- slug: coexist-with-other-mods-patching-the-same-method
+  title: Coexist with other mods and share one patch between several features
+  kind: howto
+  group: harmony
+  batch: patching-1
+  summary: 'Harmony re-runs every registered transpiler against the original IL whenever any mod patches a method, so a later
+    mod can see your result or remove its anchor. How mods cope: order prefixes and finalizers with Priority, design anchors
+    that tolerate earlier transpilers, make shared installs idempotent so several features can ask for the same seam, and
+    quieten once-only logs that re-fire on re-runs. Also the inward-facing side: install a seam once (post-solver tick, physics
+    frame hook, command sink, hotkey guard, render filter) and let each feature subscribe, with enable flags set from each
+    feature''s own patch result.'
+  game_types:
+  - KSA.Universe
+  - KSA.Program
+  - KSA.PhysicsStates
+  - KSA.PartTreeRenderData
+  - KSA.Vehicle
+  - KSA.FlightComputer
+  engine_pointers:
+  - current/decomp/KSA/Universe.cs ExecuteNextVehicleSolvers
+  - current/decomp/KSA/Program.cs RenderGame
+  - current/decomp/KSA/Vehicle.cs PrepareWorker
+  - current/decomp/KSA/Universe.cs ApplyVehicleSolvers
+  - current/decomp/KSA/FlightComputer.cs ComputeControl
+  - current/decomp/KSA/Program.cs PrepareFrame (GetJobSimStep)
+  lifecycle:
+  - startup:all-mods-loaded
+  - frame:dispatch-solvers
+  - frame:apply-solvers
+  - physics:vehicle-solver
+  - frame:prepare
+  - frame:render
+  approaches:
+  - n: 1
+    title: Priority.First prefixes and Priority.Last finalizers around shared seams
+    mod: gatos
+    features:
+    - mods/gatos/features/solver-phase-command-drain
+    - mods/ksastructures/features/terrain-height-roof-override
+    technique: harmony-prefix
+    note: Command drain prefix at Priority.First on ExecuteNextVehicleSolvers so writes land before other mods' prefixes snapshot;
+      cleanup finalizer at Priority.Last.
+  - n: 2
+    title: Anchors that one mod can consume (and what the next transpiler then sees)
+    mod: shaderextensions
+    features:
+    - mods/shaderextensions/features/rendergame-render-pass-transpiler
+    - mods/ksaero/features/computedrag-call-site-transpiler
+    technique: harmony-transpiler
+    note: After ShaderExtensions moves BeginRenderPass into ImGuiPreRender a second mod searching backwards from RenderDrawData
+      finds nothing; a transpiler that rewrites the same call before KSAero leaves it zero matches. Choose anchors that survive
+      earlier rewriting, and fail by name.
+  - n: 3
+    title: Idempotent shared installs with a registration API
+    mod: unscience
+    features:
+    - mods/unscience/features/lib-part-render-filter
+    - mods/unscience/features/unscience-consolidated-patcher
+    - mods/unscience/features/lib-physics-frame-hook
+    - mods/unscience/features/lib-hotkey-guard
+    technique: harmony-prefix
+    note: PhysicsFrameHook.Apply returns early when applied; the first PartRenderFilter.Register installs and later owners
+      only add predicates, so features applying the same seam again are harmless. [Absorbed from share-one-patch-between-several-features
+      approach 3] The same register-and-forward shape serves a PrepareFrame transpiler dispatching queued callbacks for several
+      features, PartRenderFilter and HotkeyGuard.
+  - n: 4
+    title: One shared tick with per-feature enable flags set from TryApply results
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/post-solver-vehicle-tick
+    - mods/ksa-advancedflightcomputer/features/feature-gated-patch-sets
+    technique: harmony-postfix
+    note: SharedVehicleHooks.*Enabled flags plus a prefix/postfix pair on ApplyVehicleSolvers that drives each feature's state
+      machine once per frame.
+  - n: 5
+    title: One worker-side postfix merging every writer
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/flight-computer-command-sink
+    technique: harmony-postfix
+    note: A single postfix on FlightComputer.ComputeControl runs all mod actuator writers in order and merges wake and off-rails
+      requests into the stock output.
+  related:
+  - write-a-harmony-transpiler
+  - identify-a-call-by-its-argument-il
+  - mutate-vehicles-at-a-physics-safe-point
+  - run-cleanup-or-recover-from-exceptions-with-a-finalizer
+  - isolate-patch-failures-and-fault-proof-patch-bodies
+  - drive-the-flight-computer-and-attitude-modes-from-a-mod
+  - create-a-minimal-starmap-mod
+  merged_from:
+  - share-one-patch-between-several-features
+- slug: patch-methods-that-run-on-background-threads
+  title: Patch game methods that run on workers and the thread pool, and pass data to them
+  kind: howto
+  group: harmony
+  batch: patching-1
+  summary: 'Patch bodies run on whatever thread the game called the method from: vehicle workers per substep, Bepu fan-out
+    threads, thread-pool tasks for planner searches and parallel shader compilation. State which thread each target uses,
+    what the patch may touch there (no ImGui, no Vulkan, no main-thread-only collections), and how results reach the main
+    thread. Includes the flight computer worker copy: the vehicle worker flies a copy taken in Vehicle.PrepareWorker, so worker-side
+    tables must be keyed by objects the copy shares by reference (BurnPlan, VehicleConfigInfo) and settings written only between
+    apply and snapshot.'
+  game_types:
+  - KSA.TransferPlanner
+  - KSA.OrbitalTransfers
+  - KSA.RefineBurnTask
+  - KSA.PatchedConic
+  - KSA.VehicleUpdateTask
+  - KSA.PhysicsStates
+  - KSA.FlightComputer
+  - KSA.Vehicle
+  - KSA.BurnPlan
+  - KSA.VehicleConfigInfo
+  - KSA.VehicleUpdateState
+  - KSA.Universe
+  engine_pointers:
+  - current/decomp/KSA/RefineBurnTask.cs TryFindIntercept
+  - current/decomp/KSA/OrbitalTransfers.cs HohmannFlight, AlignmentTime
+  - current/decomp/KSA/PatchedConic.cs FindClosestApproaches
+  - current/decomp/KSA/VehicleUpdateTask.cs ApplyResultsToMainThread, RunIsland
+  - current/decomp/KSA/Vehicle.cs PrepareWorker, PrepareFromVehicle
+  - current/decomp/KSA/FlightComputer.cs CopyFrom, ComputeControl, UpdateAttitudeTarget
+  - current/decomp/KSA/Universe.cs ApplyVehicleSolvers, ExecuteNextVehicleSolvers
+  lifecycle:
+  - thread:background
+  - physics:vehicle-solver
+  - startup:starmap-before-main
+  - frame:apply-solvers
+  - frame:dispatch-solvers
+  approaches:
+  - n: 1
+    title: Patches on planner tasks that run on pooled threads
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/hyperbolic-transfer-targets
+    technique: harmony-prefix
+    note: Prefixes on HohmannFlight, AlignmentTime, TryFindIntercept and FindClosestApproaches run on background tasks; results
+      are stored and the UI alert is raised only from the finalizer on the draw thread.
+  - n: 2
+    title: Preload in StarMapBeforeMain because shaders compile in parallel on pool threads
+    mod: realatmospheres
+    features:
+    - mods/realatmospheres/features/shader-file-redirect
+    technique: harmony-prefix
+    note: StarMapBeforeMain is the only hook before shader loading; the redirect patch runs on thread-pool threads, so it
+      must be allocation-light, thread-safe, and the target assembly must be preloaded into the game's context.
+  - n: 3
+    title: Worker-side postfix merging commands from the main thread
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/flight-computer-command-sink
+    - mods/ksacars/features/keep-thrusting-craft-off-rails
+    technique: harmony-postfix
+    note: Wake and off-rails requests answered from a concurrent dictionary inside patches on vehicle worker threads (PhysicsBubble.KittenWantsWake,
+      ComputeControl), written by main-thread code before dispatch.
+  - n: 4
+    title: ConditionalWeakTable keyed by objects the copy shares by reference
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/flight-computer-worker-copy-channels
+    technique: conditional-weak-table
+    note: Worker-side command tables keyed by the BurnPlan and VehicleConfigInfo the copy shares; flight-computer writes confined
+      to the window between apply and snapshot; UI requests queued.
+  - n: 5
+    title: Look the state up through __instance.BurnPlan in a ComputeControl prefix
+    mod: compendium
+    features:
+    - mods/compendium/features/flight-computer-root-attitude-tracking
+    technique: harmony-prefix
+    note: ApplyControlTarget finds the vehicle's side target by the BurnPlan object the solver copy shares with the live flight
+      computer and injects it for exactly one call.
+  related:
+  - write-worker-thread-safe-solver-patches
+  - run-an-expensive-solve-without-stalling-the-frame
+  - how-starmap-launches-ksa
+  - game-loop-and-lifecycle
+  - drive-the-flight-computer-and-attitude-modes-from-a-mod
+  - mutate-vehicles-at-a-physics-safe-point
+  merged_from:
+  - pass-data-to-patches-on-the-flight-computer-worker-copy
+- slug: refuse-a-patch-and-roll-back-when-the-game-changes
+  title: Make a patch refuse and roll back when the game method has changed
+  kind: howto
+  group: safety
+  batch: patching-1
+  summary: 'Treat a changed game method as a normal outcome: validate lookups, throw from the transpiler unless the shape
+    is exactly what was expected, catch around Patch, remove only your own patches by Harmony id, log once, and publish the
+    instance or feature flag only on success so dependent UI and code stay honest. Also covers dependent-feature gates and
+    what a thrown anchor check does when it runs in StarMapBeforeMain.'
+  game_types:
+  - KSA.PhysicsStates
+  - KSA.TransferPlanner
+  - KSA.Program
+  - HarmonyLib.Harmony
+  engine_pointers:
+  - current/decomp/KSA/PhysicsStates.cs ComputeDerivatives
+  - StarMap.Core/StarMapCore.cs DeInit (id-less UnpatchAll before StarMapUnload)
+  - StarMap.Core/ModRepository/RuntimeMod.cs (StarMapBeforeMain invoked without try/catch)
+  lifecycle:
+  - startup:all-mods-loaded
+  - startup:starmap-before-main
+  - event:starmap-unload
+  approaches:
+  - n: 1
+    title: Throw on a bad match, UnpatchAll(own id), publish the instance on success
+    mod: ksaero
+    features:
+    - mods/ksaero/features/patch-refusal-and-rollback
+    - mods/ksaero/features/computedrag-call-site-transpiler
+    technique: harmony-transpiler
+    note: 'Layers: member lookup throws MissingMemberException, transpiler throws unless exactly one call matched, entry catches
+      and unpatches by id, _harmony stays null so the readout window never shows. Warn that UnpatchAll() without an id removes
+      every mod''s patches.'
+  - n: 2
+    title: One Harmony owner per feature with TryApply, validated handles and runtime flags
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/feature-gated-patch-sets
+    technique: harmony-prefix
+    note: 'FeaturePatchSet creates a Harmony per feature, rolls back by id on exception, dependent features gate on booleans,
+      and the enable flags read by shared hooks come from the TryApply result so a still-installed shared hook never drives
+      a failed feature. Also (merged from getting-started/apply-harmony-patches-independently approach 2, "One Harmony instance
+      per feature, rolled back on failure"): Borrowed from patching. Validated before patching, rolled back on failure, features
+      gated on patch success.'
+  - n: 3
+    title: Let an anchor failure stop the launch (and why that can be right)
+    mod: shaderextensions
+    features:
+    - mods/shaderextensions/features/rendergame-render-pass-transpiler
+    technique: harmony-transpiler
+    note: ThrowIfInvalid inside PatchAll in StarMapBeforeMain aborts startup because StarMap does not catch; the mod chooses
+      this over running half-patched since pre- and post-ImGui passes depend on the transpiler. Compare with approaches 1
+      and 2 and state that a shifted local index is not detected at all.
+  related:
+  - isolate-patch-failures-and-fault-proof-patch-bodies
+  - validate-patch-targets-and-detect-game-update-breakage
+  - remove-your-patches-safely-at-runtime-and-at-exit
+  - check-the-game-version
+  - game-loop-and-lifecycle
+- slug: isolate-patch-failures-and-fault-proof-patch-bodies
+  title: Isolate patch failures and keep patch bodies from throwing
+  kind: howto
+  group: safety
+  batch: patching-1
+  summary: 'Harmony PatchAll stops at the first failure and a prefix that throws every frame breaks the method it decorates.
+    Structures mods use to localise damage (CreateClassProcessor per patch class, one consolidated patcher with TryApply,
+    static patch classes that look up their own target and stand down, reflection-only builds with pre-checks) and patterns
+    for the patch bodies themselves: catch everything, log once per failure kind, null the delegate, degrade with a recorded
+    reason, and remove all patches after a fault limit. Also covers applying Harmony patches per class or per feature so one
+    broken target costs one feature rather than the whole mod.'
+  game_types:
+  - KSA.Program
+  - KSA.GameSettings
+  - HarmonyLib.Harmony
+  - KSA.Universe
+  - KSA.SuperMeshRenderSystem
+  engine_pointers:
+  - current/decomp/KSA/Program.cs OnKey, DispatchKeyEvent, DrawProgramMenusHook
+  - StarMap.Core/StarMapCore.cs Init and DeInit
+  - current/decomp/KSA/Program.cs OnFrameCelestials (private)
+  - current/decomp/KSA/Universe.cs GetLastSimStep, ExecuteNextVehicleSolvers
+  - HarmonyLib Harmony.CreateClassProcessor
+  - PatchClassProcessor
+  lifecycle:
+  - startup:all-mods-loaded
+  - event:starmap-unload
+  - frame:draw-ui
+  - frame:celestials
+  - frame:after-on-frame
+  approaches:
+  - n: 1
+    title: CreateClassProcessor per patch class, required versus optional
+    mod: purrtty
+    features:
+    - mods/purrtty/features/failure-isolated-harmony-patching
+    - mods/ksa-measuretools/features/resilient-patching-and-diagnostics
+    technique: harmony-prefix
+    note: 'Separate classes per target so a drift in the private DispatchKeyEvent disables only that gate; log messages state
+      the consequence for the player; lazily recreated Harmony instance and static resets on unload (defensive, StarMap never
+      reloads in-process). [Absorbed from make-patch-bodies-fault-proof approach 4] Also exception-type-keyed once-only logging
+      in every hook: log the first occurrence of each exception type and count the rest; DEBUG stopwatch scopes reported on
+      an interval. Also (merged from getting-started/apply-harmony-patches-independently approach 1, "CreateClassProcessor
+      per patch class inside try/catch" [ksa-measuretools]): Typed reflection handles with a load-time drift warning.'
+  - n: 2
+    title: Consolidated patcher with TryApply and ordered shared seams
+    mod: unscience
+    features:
+    - mods/unscience/features/unscience-consolidated-patcher
+    - mods/unscience/features/lib-isubmod-contract
+    technique: harmony-prefix
+    note: 'One Harmony id for thirty-odd features, each lib''s Apply wrapped in TryApply/TryRemove, order only where seams
+      are shared, idempotent shared helpers, and unpatching by patch method on the shared instance rather than by id. Also
+      (merged from getting-started/apply-harmony-patches-independently approach 4, "Static Apply/Remove patch classes"): Symmetric
+      Apply and Remove make a feature cleanly removable and hostable by a supermod.'
+  - n: 3
+    title: Static patch classes that look up the target, log once and stand down
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/degrading-harmony-patches
+    - mods/ksagolf/features/dual-hook-frame-stepping
+    technique: harmony-postfix
+    note: Six classes with their own id, Installed property, per-class consequence table (what a missing patch costs), delegates
+      handed in from the mod. See also the compile-time pins topic. [Absorbed from make-patch-bodies-fault-proof approach
+      1] try/catch in every patch body; a failure that would repeat each frame nulls the delegate the patch calls and logs
+      once; worker-thread prefixes follow the same rule; Remove() nulls the delegate first so a stale patch cannot reach a
+      dead mod.
+  - n: 4
+    title: Reflection-only mod with parameter-name and field-type pre-checks
+    mod: realatmospheres
+    features:
+    - mods/realatmospheres/features/reflection-only-mod-build
+    technique: reflection
+    note: 'Compile against StarMap.API and 0Harmony only; reach every game member by name; verify parameter names and field
+      types before each patch and wrap each subsystem in its own try/log. Also (merged from getting-started/apply-harmony-patches-independently
+      approach 3, "Pre-check parameter names and field types, one try per subsystem"): Harmony binds injected arguments by
+      name and throws at patch time; check first, log one consequence sentence per failure.'
+  - n: 5
+    title: Fault counter that pulls every patch after a limit
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/dual-hook-frame-stepping
+    - mods/ksagolf/features/degrading-harmony-patches
+    technique: harmony-prefix
+    note: Ten consecutive exceptions in the frame wrapper set a disabled flag, release the mod's grabs and call Remove() on
+      all patch classes; every later hook returns at its first line.
+  related:
+  - refuse-a-patch-and-roll-back-when-the-game-changes
+  - validate-patch-targets-and-detect-game-update-breakage
+  - contain-exceptions-in-starmap-hooks
+  - coexist-with-other-mods-patching-the-same-method
+  - write-a-per-mod-log-file
+  - draw-ui-while-the-hud-is-hidden
+  - check-the-game-version
+  - build-a-mod-without-game-references
+  merged_from:
+  - isolate-patch-failures-per-class-or-feature
+  - make-patch-bodies-fault-proof
+  - apply-harmony-patches-independently
+  note: 'Approaches merged into other topics: "One Harmony instance per feature, rolled back on failure" -> refuse-a-patch-and-roll-back-when-the-game-changes.'
+- slug: validate-patch-targets-and-detect-game-update-breakage
+  title: Validate patch and reflection targets at load and detect game-update breakage
+  kind: howto
+  group: safety
+  batch: patching-1
+  summary: Resolve all private fields and methods in one place at startup, tag each with the features that need it, and let
+    each feature refuse to load or the mod report a degraded state when one is gone. Then make signature drift visible in
+    code before a player hits it by pinning public patch targets with never-called members. Build-level drift detection (hashed
+    assembly lock, external member surface, coupling catalog) lives in testing-and-tooling.
+  game_types:
+  - KSA.TransferPlanner
+  - KSA.Vehicle
+  - KSA.FlightComputer
+  - KSA.GameSettings
+  - KSA.ModLibrary
+  - KSA.SerializedCollection
+  - KSA.VehicleEditor
+  - KSA.Program
+  - KSA.Universe
+  engine_pointers:
+  - current/decomp/KSA/TransferPlanner.cs private static planner fields and SetTransferInfo
+  - current/decomp/KSA/ModLibrary.cs internal static readonly registries (AllParts, AllMeshes, AllFiles, AllMaterials)
+  - current/decomp/KSA/SerializedCollection.cs _collection
+  - current/dll/KSA.dll (member references read from metadata tables)
+  - current/decomp/ (diff two builds against the recorded surface)
+  lifecycle:
+  - startup:immediate-load
+  - startup:all-mods-loaded
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: Feature-tagged handle registry with a Validate per feature
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/validated-reflection-handles
+    technique: reflection
+    note: '[UsedBy(Feature.A | Feature.B)] on each static readonly handle, Validate enumerates the class''s own fields, handles
+      with no UsedBy fail every validation, soft anchors for optional patches, readable DisplayName in the warning, and a
+      headless drift test that runs every validator and anchor probe. Also (merged from testing-and-tooling/upgrade-a-mod-to-a-new-ksa-build
+      approach 4, "A validated reflection-handle class that lets each feature refuse to load"): Folded from degrade-one-feature-on-api-drift
+      (sub-step: give it its own section (design for drift)). Borrowed from patching. One class resolves every private member,
+      tagged by feature; a missing handle disables only the features that need it.'
+  - n: 2
+    title: Non-throwing static constructor with fatal and degraded lists
+    mod: unscience
+    features:
+    - mods/unscience/features/parts-now-reflection-self-test
+    technique: reflection
+    note: GameRegistry is the only file that calls GetField; each lookup in its own try/catch appends a readable sentence;
+      accessors throw InvalidOperationException naming the member; SelfTest at AllModsLoaded and a red banner with disabled
+      Load buttons when unhealthy.
+  - n: 3
+    title: Pin patched members with a never-called method that really calls them
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/degrading-harmony-patches
+    technique: reflection
+    note: A never-called method that really calls the target emits a MemberRef; nameof does not. PinTheSignature, PinTheStep
+      and friends; private targets cannot be pinned this way; the pin only helps public members and one class forgot it.
+  related:
+  - call-private-game-members-through-reflection-and-delegates
+  - refuse-a-patch-and-roll-back-when-the-game-changes
+  - check-the-game-version
+  - test-harmony-patches-without-the-game
+  - load-and-unload-part-mods-at-runtime
+  - pin-the-game-build-with-a-hashed-lock
+  - upgrade-a-mod-to-a-new-ksa-build
+  merged_from:
+  - validate-game-reflection-targets-at-load
+  - detect-game-update-breakage-in-patches
+  note: 'Approaches merged into other topics: "SHA-256 assembly lock and a generated external member surface" -> pin-the-game-build-with-a-hashed-lock;
+    "Coupling catalog and an upgrade-review skill" -> upgrade-a-mod-to-a-new-ksa-build.'
+- slug: remove-your-patches-safely-at-runtime-and-at-exit
+  title: Remove your Harmony patches safely, during play and at exit
+  kind: howto
+  group: safety
+  batch: patching-1
+  summary: 'UnpatchAll() with no id removes every mod''s patches; remove only yours by id or by patch method, from a main-thread
+    hook, after nulling the delegates the patches call. Also the shutdown fact: StarMapCore.DeInit runs an id-less UnpatchAll
+    before StarMapUnload methods, so unload code usually finds nothing to remove.'
+  game_types:
+  - HarmonyLib.Harmony
+  - KSA.Program
+  engine_pointers:
+  - StarMap.Core/StarMapCore.cs DeInit (UnpatchAll before ModLoader.Dispose)
+  - StarMap/GameSurveyer.cs Dispose and StarMap/Program.cs Main
+  lifecycle:
+  - event:starmap-unload
+  - frame:after-on-frame
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: UnpatchAll(ownId) from a main-thread hook after nulling delegates
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/degrading-harmony-patches
+    - mods/ksaero/features/patch-refusal-and-rollback
+    technique: harmony-prefix
+    note: Each class has its own id; Remove() nulls the handed-in delegate first, then UnpatchAll(HarmonyId). StarMapUnload
+      unpatching is a no-op because StarMap's id-less UnpatchAll has already run; purrTTY and AFC reach the same conclusion.
+  - n: 2
+    title: Lazy install and removal of one patch while it is in use
+    mod: gatos
+    features:
+    - mods/gatos/features/scale-and-force-render-cheats
+    technique: dynamic-harmony-install
+    note: 'Patch only while a vessel is marked; unpatch when the set empties; both happen on the main thread in the frame
+      drain so no render code is mid-call. [Absorbed from patch-a-private-game-method-by-name approach 3] Also the install
+      half: each cheat creates its own Harmony instance when the first object is marked; prefixes read a volatile immutable
+      set so they are thread-agnostic.'
+  - n: 3
+    title: Unpatch by patch method on a shared Harmony instance
+    mod: unscience
+    features:
+    - mods/unscience/features/sphinx-static-colliders
+    - mods/unscience/features/unscience-consolidated-patcher
+    technique: harmony-prefix
+    note: SphinxPhysicsPatches.Remove walks Harmony.GetAllPatchedMethods and unpatches only methods declared on its own class,
+      so it never strips other features' patches; contrast with CameraControllerOverridePatches.Remove which calls UnpatchAll(harmony.Id)
+      and removes every feature on the shared instance.
+  related:
+  - refuse-a-patch-and-roll-back-when-the-game-changes
+  - isolate-patch-failures-and-fault-proof-patch-bodies
+  - clean-up-on-game-exit
+  - patch-a-private-game-method-by-name
+  - game-loop-and-lifecycle
+- slug: write-a-harmony-transpiler
+  title: Write a Harmony transpiler for a game method
+  kind: howto
+  group: transpilers
+  batch: patching-1
+  summary: 'Start-to-finish recipe for changing the IL of a KSA method: read the real IL from KSA.dll, pick exact overloads,
+    build the instruction list, mutate it, prove the match count, and know that Harmony rebuilds the method from original
+    IL every time any mod patches it. Four common shapes (retarget a call, insert at an anchor, replace an instruction run
+    with a helper, filter a read) each get a worked example. Also covers rewriting a decision the game makes inline (a compare-and-branch
+    sequence or one getter read) rather than a call.'
+  game_types:
+  - KSA.PhysicsStates
+  - KSA.TransferPlanner
+  - KSA.CelestialSystem
+  - KSA.PhysicsBubble
+  - KSA.StructuralLoad
+  - KSA.Program
+  engine_pointers:
+  - current/decomp/KSA/PhysicsStates.cs ComputeDerivatives and ComputeDrag
+  - current/decomp/KSA/TransferPlanner.cs DrawPlanWindow
+  - current/decomp/KSA/CelestialSystem.cs GetNearbyAstronomical
+  - current/decomp/KSA/PhysicsBubble.cs DetectStructuralFailure
+  - current/dll/KSA.dll (read IL with ilspycmd; the shipped assembly is debug-compiled and contains nops)
+  - current/decomp/KSA/PhysicsBubble.cs DetectStructuralFailure and current/decomp/KSA/StructuralLoad.cs GLoadFraction
+  lifecycle:
+  - startup:all-mods-loaded
+  - startup:starmap-before-main
+  - frame:celestials
+  - physics:vehicle-solver
+  approaches:
+  - n: 1
+    title: Retarget the operand of one call (same signature)
+    mod: ksaero
+    features:
+    - mods/ksaero/features/computedrag-call-site-transpiler
+    technique: harmony-transpiler
+    note: Smallest useful transpiler. Resolve the target with an explicit parameter array, copy instructions to a list, test
+      each with CodeInstruction.Calls, change only operand, count and throw unless exactly one. Establish the vocabulary (opcode,
+      operand, labels, blocks, evaluation stack) the other approaches build on, and the Harmony caveat that transpilers re-run
+      whenever another patch touches the method.
+  - n: 2
+    title: Insert a call before a validated anchor
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/plan-window-transpiler-injection
+    technique: harmony-transpiler
+    note: Pipeline of small passes over the same list, each returning the list unchanged and warning once when its anchor
+      is missing; headless test that runs the transpiler over PatchProcessor.GetOriginalInstructions. Shows how to unit test
+      IL rewrites.
+  - n: 3
+    title: Replace an instruction run with a helper that takes a local by reference
+    mod: realatmospheres
+    features:
+    - mods/realatmospheres/features/nearby-body-transpiler
+    technique: harmony-transpiler
+    note: 'Multi-instruction rewrite (sub, ldloc, clt becomes ldloca.s plus argument loads plus call) with the original store
+      nopped. Emphasise reading local slots from the matched instructions, finding an argument slot by parameter name and
+      type plus one for this, and returning the original IL when the shape check fails. [Absorbed topic rewrite-a-comparison-or-value-read-with-a-transpiler,
+      comparison half] Give the compare-and-branch rewrite its own section: verify the exact IL sequence, read local slots
+      from it, ldloca.s the best-so-far local, nop the redundant store, bail out returning original IL when labels or exception
+      blocks fall inside the range, and record Patched so the log states the result.'
+  - n: 4
+    title: Filter one value read through a registry check
+    mod: unscience
+    features:
+    - mods/unscience/features/kitchen-sink-g-load-protection
+    technique: harmony-transpiler
+    note: 'Scan for the typed property getter call and insert a filter call that returns a replacement value for registered
+      vessels, in a private static method resolved by exact signature that runs on vehicle worker threads. [Absorbed topic
+      rewrite-a-comparison-or-value-read-with-a-transpiler, getter-read half] Give the single-getter-read filter its own section:
+      insert the filter after StructuralLoad.GLoadFraction so registered vessels read 0.0 while the structural-failure detector
+      keeps its other checks; the filter is backed by a concurrent registry because DetectStructuralFailure runs on vehicle
+      workers.'
+  related:
+  - swap-one-call-inside-a-game-method-with-a-transpiler
+  - identify-a-call-by-its-argument-il
+  - insert-calls-into-a-game-method-at-an-il-anchor
+  - refuse-a-patch-and-roll-back-when-the-game-changes
+  - patch-around-aggressive-inlining
+  - test-harmony-patches-without-the-game
+  - game-loop-and-lifecycle
+  - choose-which-body-the-game-renders-in-detail
+  - make-a-vehicle-indestructible
+  - write-worker-thread-safe-solver-patches
+  merged_from:
+  - rewrite-a-comparison-or-value-read-with-a-transpiler
+- slug: swap-one-call-inside-a-game-method-with-a-transpiler
+  title: Swap one call inside a game method with a transpiler
+  kind: howto
+  group: transpilers
+  batch: patching-1
+  summary: Make a big game method call your code instead of one helper without copying the method. Covers same-signature replacement
+    (stack untouched), wider signature with an extra ldarg.0, replacements that run work then call the original, gate helpers
+    that skip a call, and replacements that adapt an argument or result.
+  game_types:
+  - KSA.PhysicsStates
+  - KSA.Vehicle
+  - KSA.NavigationTarget
+  - KSA.Program
+  - KSA.KittenRenderable
+  - KSA.TransferPlanner
+  engine_pointers:
+  - current/decomp/KSA/PhysicsStates.cs ComputeDerivatives (atmospheric ComputeDrag call)
+  - current/decomp/KSA/NavigationTarget.cs Create and current/decomp/KSA/Vehicle.cs UpdateNavBallMarkers, UpdateNavballData
+  - current/decomp/KSA/Program.cs RenderGame (BeginRenderPass call)
+  - current/decomp/KSA/Vehicle.cs UpdateRenderData (IsLargeEnoughToRender), GetWorldMatrix (MeanRadius)
+  - current/decomp/KSA/Vehicle.cs TeleportToLocation
+  lifecycle:
+  - startup:all-mods-loaded
+  - startup:immediate-load
+  - startup:starmap-before-main
+  - physics:vehicle-solver
+  - frame:render
+  approaches:
+  - n: 1
+    title: Same-signature static replacement, operand-only edit
+    mod: ksaero
+    features:
+    - mods/ksaero/features/computedrag-call-site-transpiler
+    - mods/ksa-advancedflightcomputer/features/plan-window-transpiler-injection
+    technique: harmony-transpiler
+    note: Replacement mirrors the parameter list and return type including by-ref modifiers, so only instruction.operand changes.
+      AFC applies the same move to Burn.Create inside the plan window, moving labels and exception blocks to the new instruction.
+      Emphasise the signature-equality rule and that the replacement may call the original through a delegate.
+  - n: 2
+    title: Wider signature with an extra ldarg.0 appended
+    mod: compendium
+    features:
+    - mods/compendium/features/navball-target-marker-and-tgt-frame
+    technique: harmony-transpiler
+    note: The replacement takes the original arguments plus the instance, so the transpiler inserts ldarg.0 before the call
+      and uses MoveLabelsFrom/MoveBlocksFrom so branches into the call site still land. Replacement forwards to the original
+      when the mod has nothing to add.
+  - n: 3
+    title: Replacement that does mod work, then calls the original
+    mod: shaderextensions
+    features:
+    - mods/shaderextensions/features/rendergame-render-pass-transpiler
+    technique: harmony-transpiler
+    note: BeginRenderPass is a generic static extension; the swap keeps ldloc.1, ldloca.s, ldloc.3 on the stack, the new method
+      records mod passes then issues the original BeginRenderPass itself. Explains why this cannot be a prefix (no method
+      boundary exists at that point).
+  - n: 4
+    title: Gate helper that skips the call for the mod's own condition
+    mod: unscience
+    features:
+    - mods/unscience/features/humble-arteest-kitten-visor-toggle
+    - mods/unscience/features/godzilla-visual-scaling
+    technique: harmony-transpiler
+    note: Exactly-one rewrites of a Draw call (skip while a flag is set) and of IsLargeEnoughToRender and MeanRadius reads
+      in Vehicle.UpdateRenderData and GetWorldMatrix. Show why a getter patch would be wrong (shared by other callers) and
+      the guarded count check.
+  - n: 5
+    title: Adapter that fixes up arguments and converts the result back
+    mod: unscience
+    features:
+    - mods/unscience/features/iron-man-surface-teleport-correction
+    technique: harmony-transpiler
+    note: One GetInitialKinematicStateForLocation call in Vehicle.TeleportToLocation becomes an adapter that substitutes head-up
+      proxy bounds for active Iron Man kittens and converts attitude and rates back. Pattern for any call whose inputs or
+      outputs need translation.
+  related:
+  - write-a-harmony-transpiler
+  - identify-a-call-by-its-argument-il
+  - insert-calls-into-a-game-method-at-an-il-anchor
+  - patch-around-aggressive-inlining
+  - replace-the-stock-aerodynamic-force-model
+  - insert-a-custom-pass-into-render-game
+  - synthesize-a-navigation-target-for-the-flight-computer
+  - refuse-a-patch-and-roll-back-when-the-game-changes
+- slug: identify-a-call-by-its-argument-il
+  title: Identify the right call in a method that makes several similar calls
+  kind: howto
+  group: transpilers
+  batch: patching-1
+  summary: 'When a method calls the same helper more than once (ocean versus air drag, one Burn.Create among many, one BeginRenderPass
+    among several), pick the right instruction by what surrounds it: the loads that feed its arguments, a unique neighbouring
+    call, or the instruction that consumes its result. Includes window sizes, stopping at the previous call boundary, and
+    what to do when a later build adds a second match.'
+  game_types:
+  - KSA.PhysicsStates
+  - KSA.PhysicsEnvironment
+  - KSA.Program
+  - KSA.TransferPlanner
+  - KSA.BurnContextMenu
+  - KSA.Vehicle
+  - KSA.GaugeCanvas
+  - KSA.GaugeButtonNavBallMode
+  - KSA.NavigationTarget
+  engine_pointers:
+  - current/decomp/KSA/PhysicsStates.cs ComputeDerivatives (two ComputeDrag calls, AtmosphericDensity versus OceanDensity)
+  - current/decomp/KSA/Program.cs RenderGame (RenderDrawData then the preceding BeginRenderPass)
+  - current/decomp/KSA/TransferPlanner.cs DrawPlanWindow (PrimaryButton before Burn.Create)
+  - current/decomp/KSA/GaugeCanvas.cs IsContextVisible
+  - current/decomp/KSA/GaugeButtonNavBallMode.cs IsDisabled and OnReleased
+  - current/decomp/KSA/Vehicle.cs UpdateNavballData and IsDisabled(VehicleReferenceFrame)
+  lifecycle:
+  - startup:all-mods-loaded
+  - startup:starmap-before-main
+  - startup:immediate-load
+  - frame:draw-ui
+  - frame:apply-solvers
+  approaches:
+  - n: 1
+    title: Scan backwards through the argument loads to the previous call
+    mod: ksaero
+    features:
+    - mods/ksaero/features/computedrag-call-site-transpiler
+    technique: harmony-transpiler
+    note: Walk back at most N instructions from the call, succeed on LoadsField of the discriminating field, fail on the first
+      call or callvirt. Include the IL table of the two ComputeDrag calls in build 5554 and why matching a field load beats
+      a fixed offset.
+  - n: 2
+    title: Anchor on a unique neighbouring call, then walk to the target
+    mod: shaderextensions
+    features:
+    - mods/shaderextensions/features/rendergame-render-pass-transpiler
+    - mods/ksa-advancedflightcomputer/features/plan-window-transpiler-injection
+    technique: harmony-transpiler
+    note: Find the single RenderDrawData call and walk back to the nearest BeginRenderPass; find the last EndRenderPass from
+      the end; from Burn.Create walk back up to 160 instructions to the PrimaryButton call. Discuss the fragility of last-occurrence
+      anchors and requiring each anchor exactly once.
+  - n: 3
+    title: Anchor on a UTF-8 label literal in the method
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/orbit-context-menu-shortcuts
+    technique: harmony-transpiler
+    note: Locate a menu or window section by the string literal the game draws, then insert before the final EndPopup. Useful
+      when no distinctive call exists but the UI text does.
+  - n: 4
+    title: Match the instruction that consumes the result
+    mod: compendium
+    features:
+    - mods/compendium/features/navball-target-marker-and-tgt-frame
+    technique: harmony-transpiler
+    note: 'A getter call is only the target when immediately followed by brtrue/brfalse or ldnull plus ceq/cgt.un; other uses
+      of the same getter (passing it on) are left alone. [Absorbed topic make-game-null-checks-see-mod-state - Make the game''s
+      null checks see mod-supplied state] Give the multi-method null-check rewrite its own section: TargetMethods over GaugeCanvas.IsContextVisible,
+      GaugeButtonNavBallMode.IsDisabled and OnReleased, Vehicle.UpdateNavballData; match call get_Target followed by brtrue/brfalse
+      or ldnull then ceq/cgt.un, replace with a static call returning vehicle.Target ?? mod value, throw unless exactly one
+      test per method; pairs with a postfix on the private IsDisabled overload.'
+  related:
+  - write-a-harmony-transpiler
+  - swap-one-call-inside-a-game-method-with-a-transpiler
+  - insert-calls-into-a-game-method-at-an-il-anchor
+  - coexist-with-other-mods-patching-the-same-method
+  - set-and-clear-the-vehicle-target
+  - synthesize-a-navigation-target-for-the-flight-computer
+  - patch-a-private-game-method-by-name
+  merged_from:
+  - make-game-null-checks-see-mod-state
+- slug: insert-calls-into-a-game-method-at-an-il-anchor
+  title: Insert a call into a game method at an IL anchor without breaking branches
+  kind: howto
+  group: transpilers
+  batch: patching-1
+  summary: Add draw or filter calls inside a stock method by inserting instructions before or after an anchor. Covers moving
+    labels and begin-exception markers so jumps still reach the inserted call and it stays in the same try region, the deliberate
+    opposite (leave labels so a jump skips the addition), filtering a value left on the stack, and recording slots outside
+    a render pass.
+  game_types:
+  - KSA.TransferPlanner
+  - KSA.GameSettings
+  - KSA.Program
+  - KSA.ConsoleWidgets
+  engine_pointers:
+  - current/decomp/KSA/TransferPlanner.cs DrawPlanWindow (DrawCorrectionTransfer, PopWidgetStyle, Burn.Create)
+  - current/decomp/KSA/Program.cs DrawMenuBar, RenderGame
+  lifecycle:
+  - startup:all-mods-loaded
+  - frame:draw-ui
+  - frame:render
+  approaches:
+  - n: 1
+    title: Move labels and begin-exception markers onto the inserted instruction
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/plan-window-transpiler-injection
+    technique: harmony-transpiler
+    note: 'TranspilerInsertion.MoveEntryMarkers: labels and begin-try blocks go to the new first instruction, end markers
+      stay. Also the click gate that filters the bool left by PrimaryButton, and the once-per-frame guard for a fallback anchor.'
+  - n: 2
+    title: Leave labels on the anchor so a jump skips the addition
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/mods-settings-page-sections
+    technique: harmony-transpiler
+    note: Single call inserted before PopWidgetStyle on the Mods settings page; chosen so that when stock jumps over the page
+      the added sections are skipped too. Contrast with approach 1 and say how to decide.
+  - n: 3
+    title: Snapshot state before a stock call, restore it in a paired prefix
+    mod: unscience
+    features:
+    - mods/unscience/features/jplrepo-menu-bar-animation
+    technique: harmony-transpiler
+    note: Transpiler injects a cursor snapshot just before the version-string SetCursorPosY call; a prefix on DrawProgramMenusHook
+      restores it and draws the animated words. A split between IL insertion and ordinary prefix.
+  - n: 4
+    title: Insert before the first and after the last instance of a pass boundary
+    mod: shaderextensions
+    features:
+    - mods/shaderextensions/features/rendergame-render-pass-transpiler
+    technique: harmony-transpiler
+    note: Append ldloc.1, ldloc.0, ldc.i4.0, call after the last EndRenderPass; hard-coded local indices are only right while
+      the compiler keeps the first two locals, so capture operands from matched instructions where possible.
+  related:
+  - write-a-harmony-transpiler
+  - identify-a-call-by-its-argument-il
+  - inject-ui-into-a-stock-window
+  - add-plan-type-to-the-transfer-planner
+  - add-items-to-the-game-menu-bar
+  - insert-a-custom-pass-into-render-game
+- slug: call-private-game-members-through-reflection-and-delegates
+  title: Read, write and call private game members with reflection, ref accessors and delegates
+  kind: howto
+  group: internals
+  batch: patching-1
+  summary: 'Reach KSA internals that have no API: private static fields, internal static registries, a private nested enum,
+    instance fields of generic collections, private helper methods and get-only statics. Bind a typed ref accessor or a method
+    delegate once instead of reflecting per call, replay the writes stock performs in the order it does them, overwrite a
+    compiler-generated backing field with UnsafeAccessor, and fail gracefully when a member is missing or has changed type.'
+  game_types:
+  - KSA.TransferPlanner
+  - KSA.ModLibrary
+  - KSA.SerializedCollection
+  - KSA.GameSettings
+  - KSA.Vehicle
+  - KSA.PhysicsStates
+  - KSA.VehicleEditor
+  - KSA.GameSaves
+  - KSA.VehicleSaves
+  - KSA.XmlHelper
+  engine_pointers:
+  - current/decomp/KSA/TransferPlanner.cs _sourceBody, _transferType, _transferCalculated, cts, SetTransferInfo
+  - current/decomp/KSA/ModLibrary.cs AllParts and the other registries
+  - current/decomp/KSA/SerializedCollection.cs _collection
+  - current/decomp/KSA/GameSettings.cs _openTab and the private SettingsTab enum
+  - current/decomp/KSA/PhysicsStates.cs ComputeDrag
+  - current/decomp/KSA/VehicleEditor.cs QuantizeScale, ForEachPartWithSymmetry, UpdateSelectedScale
+  - current/decomp/KSA/GameSaves.cs UniverseSerializer (get-only static)
+  - current/decomp/KSA/VehicleSaves.cs VehicleSerializer (get-only static)
+  - current/decomp/KSA/XmlHelper.cs Serializers, AttributeOverrides
+  lifecycle:
+  - startup:all-mods-loaded
+  - frame:draw-ui
+  - physics:vehicle-solver
+  - editor:frame
+  - startup:starmap-before-main
+  - startup:immediate-load
+  approaches:
+  - n: 1
+    title: AccessTools static field refs bound once, replay stock's writes
+    mod: ksa-deltavmap
+    features:
+    - mods/ksa-deltavmap/features/stock-transfer-planner-bridge
+    technique: accesstools-fieldref
+    note: Bind<T>(name) requires static and exact type, returns a ref T getter with no per-call reflection, collects missing
+      keys into a list declared before the bindings, then performs the same writes and side effects as one stock frame of
+      combo changes. No Harmony patch at all.
+  - n: 2
+    title: Plain GetField on internal registries and a generic holder for instance fields
+    mod: unscience
+    features:
+    - mods/unscience/features/parts-now-reflection-self-test
+    - mods/unscience/features/parts-now-runtime-unload-purge
+    technique: reflection
+    note: typeof(ModLibrary).GetField(name, Static|NonPublic|Public).GetValue(null) as SerializedCollection<T>, plus a per-T
+      holder that probes the private _collection dictionary once to unregister entries.
+  - n: 3
+    title: Typed FieldRefAccess, boxed private enum members and by-ref lookups
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/validated-reflection-handles
+    technique: accesstools-fieldref
+    note: StaticFieldRefAccess versus FieldRefAccess<T,F> (T must be a reference type), a private nested enum compared as
+      a boxed value resolved once from the field's FieldType, and MakeByRefType in parameter lists.
+  - n: 4
+    title: AccessTools.MethodDelegate with a delegate type that mirrors in and ref modifiers
+    mod: ksaero
+    features:
+    - mods/ksaero/features/stock-drag-delegate-fallback
+    technique: method-delegate
+    note: Declare ComputeDragFn with four in structs and a ref Disturbances, resolve with an explicit parameter array, bind
+      in Apply before the transpiler is installed, invoke from worker threads as an immutable delegate. Because only a call
+      site is rewritten the delegate runs the unmodified stock body.
+  - n: 5
+    title: Delegates over private editor helpers reused in a replacement drag
+    mod: unscience
+    features:
+    - mods/unscience/features/dont-stifle-me-editor-free-scaling
+    technique: method-delegate
+    note: Per-axis drag replaces UpdateSelectedScale but reuses the game's private QuantizeScale and ForEachPartWithSymmetry
+      through delegates; shows binding instance methods to delegates and the null-check on bind.
+  - n: 6
+    title: UnsafeAccessor StaticField on the k__BackingField with UnsafeAccessorType
+    mod: kittenextensions
+    features:
+    - mods/kittenextensions/features/custom-xml-asset-types
+    technique: unsafe-accessor
+    note: 'extern static ref XmlSerializer UniverseSerializer([UnsafeAccessorType("KSA.GameSaves, KSA")] object instance =
+      null) with Name = "<UniverseSerializer>k__BackingField"; assignment through the ref return after rebuilding all cached
+      serializers with the merged attribute overrides. [Absorbed topic write-readonly-game-statics-with-unsafeaccessor - Overwrite
+      a get-only static in the game with UnsafeAccessor] Give this a section: get-only static auto-properties assigned in
+      static constructors cannot be set with FieldInfo.SetValue cleanly.'
+  - n: 7
+    title: Copied injector in a consumer mod with the same accessor
+    mod: shaderextensions
+    features:
+    - mods/shaderextensions/features/xml-asset-types-and-element-injection
+    technique: unsafe-accessor
+    note: A consumer that cannot reference KittenExtensions copies the injector; it appends child element types to existing
+      XML list members via XmlHelper.AttributeOverrides (keyed by declaring type), rebuilds serializers, and swaps the save
+      serializers the same way.
+  related:
+  - validate-patch-targets-and-detect-game-update-breakage
+  - add-plan-type-to-the-transfer-planner
+  - load-and-unload-part-mods-at-runtime
+  - patch-a-private-game-method-by-name
+  - replace-the-stock-aerodynamic-force-model
+  - scale-a-vessel-or-its-parts-at-runtime
+  - redirect-game-xml-loading
+  - register-custom-xml-asset-type
+  - feed-uniform-buffers-to-a-shaderextensions-shader
+  merged_from:
+  - access-private-members-with-reflection
+  - call-a-private-game-method-through-a-delegate
+  - write-readonly-game-statics-with-unsafeaccessor
+- slug: patch-a-private-game-method-by-name
+  title: Patch a private or overloaded game method by name and read its private state
+  kind: howto
+  group: internals
+  batch: patching-1
+  summary: 'Private targets cannot be named with typeof and nameof. Ways to attach: a string in the HarmonyPatch attribute,
+    a manual AccessTools lookup with a degrade path, explicit parameter arrays with MakeByRefType, attribute argument types
+    that bind by assignability, and TargetMethods with __args. Then read private fields and arguments with Harmony''s injected
+    parameters (___field, __instance, __N) instead of reflection, and know that a name that matches nothing makes Harmony
+    throw at patch time. The __state and positional ref __N parameter forms are covered in the finalizer and skipping-prefix
+    topics.'
+  game_types:
+  - KSA.Program
+  - KSA.Universe
+  - KSA.PhysicsStates
+  - KSA.Astronomical
+  - KSA.IViewport
+  - KSA.IGameViewport
+  - KSA.PhysicsBubble
+  - KSA.KittenEva
+  - KSA.ClutterCubeCellGrid
+  - KSA.GroundClutterPlacementData
+  - KSA.FlightComputer
+  - KSA.InstancedStarTechnique
+  - KSA.Camera
+  engine_pointers:
+  - current/decomp/KSA/Program.cs OnFrameEditor (private, called right after ImGui.NewFrame)
+  - current/decomp/KSA/Program.cs OnFrameCelestials (private)
+  - current/decomp/KSA/Program.cs DrawFps (private static)
+  - current/decomp/KSA/PhysicsStates.cs ComputeDerivatives (static plus two instance forwarders)
+  - current/decomp/KSA/Astronomical.cs ShouldDrawLines overloads
+  - current/decomp/KSA/IGameViewport.cs (extends IViewport)
+  - current/decomp/KSA/PhysicsBubble.cs ApplyMmuAttitudeTarget, ResetMmuAttitudeTarget
+  - current/decomp/KSA/GroundClutterPlacementData.cs PopulateLaunchPadExclusionZones (private, _celestial field)
+  - current/decomp/KSA/FlightComputer.cs ComputeControl (ref readonly FlightComputerNavigation nav)
+  - current/decomp/KSA/InstancedStarTechnique.cs constructor and AddInstance
+  lifecycle:
+  - startup:immediate-load
+  - startup:all-mods-loaded
+  - frame:viewports
+  - frame:celestials
+  - startup:starmap-before-main
+  - physics:vehicle-solver
+  approaches:
+  - n: 1
+    title: HarmonyPatch attribute with a string method name, applied by PatchAll
+    mod: ksa-aircrafthud
+    features:
+    - mods/ksa-aircrafthud/features/always-on-onframeeditor-hook
+    technique: harmony-postfix
+    note: '[HarmonyPatch("OnFrameEditor")] on a postfix whose parameter is named dtPlayer like the target''s so Harmony passes
+      it through; installed from StarMapImmediateLoad; skipped on PrepareFrame Exit frames. Link to the lifecycle reference
+      for the hidden-HUD rationale instead of repeating it.'
+  - n: 2
+    title: Manual AccessTools lookup with a degrade path when the method is gone
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/dual-hook-simulation-step
+    - mods/ksagolf/features/dual-hook-frame-stepping
+    - mods/ksagolf/features/degrading-harmony-patches
+    technique: harmony-prefix
+    note: Look up OnFrameCelestials(double) by name, null means record Trouble and fall back to the other hook; the patch
+      class stays installable even if the target is absent. [Absorbed sub-step from make-patch-bodies-fault-proof approach
+      3] The degrade path records a Trouble string and logs the consequence (stepping after the render on no-UI frames) while
+      the other hook keeps working.
+  - n: 3
+    title: Explicit parameter arrays with MakeByRefType
+    mod: ksaero
+    features:
+    - mods/ksaero/features/computedrag-call-site-transpiler
+    - mods/ksa-advancedflightcomputer/features/validated-reflection-handles
+    technique: reflection
+    note: ComputeDerivatives exists three times (static 10-parameter body and two instance forwarders); by-ref parameters
+      in IL are all by-reference. An explicit list also stops a later overload with the same name from being picked.
+  - n: 4
+    title: Attribute argument types bind by assignability
+    mod: compendium
+    features:
+    - mods/compendium/features/orbit-line-visibility-and-color
+    technique: harmony-postfix
+    note: 'HarmonyPatch lists (Astronomical, IGameViewport, Orbit) but build 5554 has ShouldDrawLines(Astronomical, IViewport,
+      Orbit?); Type.GetMethod''s default binder accepts the assignable type, so it binds. Risk: a future overload accepting
+      IGameViewport changes the binding, so list the exact parameter type.'
+  - n: 5
+    title: TargetMethods with per-name AccessTools lookups and __args
+    mod: ohmystars
+    features:
+    - mods/ohmystars/features/attitude-mode-handoff-patches
+    technique: harmony-target-methods
+    note: Private static ApplyMmuAttitudeTarget and ResetMmuAttitudeTarget resolved in TargetMethods, state read from __args[0];
+      string-named targets yield nothing if renamed and the attribute form throws at patch time.
+  - n: 6
+    title: Inject a private instance field as a triple-underscore parameter
+    mod: ksastructures
+    features:
+    - mods/ksastructures/features/ground-clutter-exclusion-zones
+    technique: harmony-postfix
+    note: Postfix on a private method installed by name with AccessTools.Method takes the ref zones array plus Celestial ____celestial
+      (the field is _celestial); missing method is logged once and clutter stays as the engine places it.
+  - n: 7
+    title: Prefer __instance and a property over a field injector that matches nothing
+    mod: unscience
+    features:
+    - mods/unscience/features/camera-controller-override-camera-animations
+    technique: harmony-prefix
+    note: 'History: a prefix with Transform3D ___Transform matched no field, Harmony threw at patch time and aborted the supermod''s
+      remaining patch chain; fixed by reading __instance.Camera. Lesson for per-feature TryApply.'
+  related:
+  - draw-ui-while-the-hud-is-hidden
+  - remove-your-patches-safely-at-runtime-and-at-exit
+  - game-loop-and-lifecycle
+  - call-private-game-members-through-reflection-and-delegates
+  - write-a-harmony-transpiler
+  - draw-a-predicted-trajectory-and-map-markers
+  - run-cleanup-or-recover-from-exceptions-with-a-finalizer
+  - exclude-or-replace-ground-clutter
+  - skip-the-original-method-with-a-prefix
+  merged_from:
+  - resolve-overloaded-and-byref-game-methods
+  - patch-private-method-with-field-injection
+- slug: patch-around-aggressive-inlining
+  title: Change behaviour of a game method marked AggressiveInlining
+  kind: howto
+  group: internals
+  batch: patching-1
+  summary: 'A Harmony detour only changes a method''s own entry point, so callers that inlined the body never reach a prefix
+    or postfix. Four ways out that mods use: rewrite the caller''s call site, patch the non-inlined entry points that reach
+    the target, patch the one outer method that always runs, or bracket the enclosing non-inlined methods. Includes how to
+    find which of a method''s callees are marked and how to detect a silent no-op.'
+  game_types:
+  - KSA.PhysicsStates
+  - KSA.FlightComputer
+  - KSA.Vehicle
+  - KSA.ConstraintSim
+  - KSA.Universe
+  - KSA.VehicleUpdateTask
+  engine_pointers:
+  - current/decomp/KSA/PhysicsStates.cs ComputeDrag (private static, AggressiveInlining)
+  - current/decomp/KSA/FlightComputer.cs SetNullRot, SetInertialNullRot, LoadBurn, UpdateBurn, UnloadBurn
+  - current/decomp/KSA/Vehicle.cs UpdateFromTaskResultsSynchronized
+  - current/decomp/KSA/ConstraintSim.cs DetectCollisions, Simulate and the NarrowPhaseCallbacks struct
+  lifecycle:
+  - startup:all-mods-loaded
+  - physics:vehicle-solver
+  - frame:apply-solvers
+  - physics:bepu
+  approaches:
+  - n: 1
+    title: Rewrite the one caller's call site instead of the callee
+    mod: ksaero
+    features:
+    - mods/ksaero/features/computedrag-call-site-transpiler
+    technique: harmony-transpiler
+    note: ComputeDerivatives gets a transpiler that retargets the atmospheric ComputeDrag call; works whether or not the JIT
+      inlined. Note that KSA.dll is debug-compiled in this build so inlining behaviour is not verified at run time and the
+      rewrite is correct either way.
+  - n: 2
+    title: Patch the non-inlined entry points that reach the target too
+    mod: ohmystars
+    features:
+    - mods/ohmystars/features/attitude-mode-handoff-patches
+    technique: harmony-prefix
+    note: TrackTarget, RateHold and SetNullRot are AggressiveInlining so prefixes may be bypassed; SetEnum, ToggleEnum, SetStabilization
+      and HandleKittenAction are patched as well to cover the usual UI paths. List which paths remain exposed and how to confirm
+      with a behavioural test.
+  - n: 3
+    title: Postfix the single non-inlined outer method instead of a per-vehicle callee
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/post-solver-vehicle-tick
+    - mods/ksa-advancedflightcomputer/features/validated-reflection-handles
+    technique: harmony-postfix
+    note: Universe.ApplyVehicleSolvers is static, runs once on the main thread after the pooled per-bubble work; Vehicle.UpdateFromTaskResultsSynchronized
+      is AggressiveInlining so a callee detour could not be relied on. Also AFC's note that a private method later marked
+      AggressiveInlining still resolves by reflection but its patch goes silent.
+  - n: 4
+    title: Bracket the non-inlined methods that enclose an inlined struct callback
+    mod: unscience
+    features:
+    - mods/unscience/features/garrys-torch-scoped-collision-suppression
+    - mods/unscience/features/sphinx-static-colliders
+    technique: harmony-finalizer
+    note: Bepu's NarrowPhaseCallbacks.AllowContactGeneration is AggressiveInlining on a value-type generic parameter; suppression
+      is done by prefix and finalizer around ConstraintSim.DetectCollisions and Simulate. Sphinx keeps live acceptance open
+      and relies on a one-call transpiler tripwire.
+  related:
+  - swap-one-call-inside-a-game-method-with-a-transpiler
+  - replace-the-stock-aerodynamic-force-model
+  - drive-the-flight-computer-and-attitude-modes-from-a-mod
+  - run-cleanup-or-recover-from-exceptions-with-a-finalizer
+  - suppress-collisions-for-one-vessel
+  - test-harmony-patches-without-the-game
+  - game-loop-and-lifecycle

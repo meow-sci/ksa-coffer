@@ -1,0 +1,5 @@
+# Bend the picture with CRT curvature and chromatic aberration history
+
+## 2026-10-10
+* **Creation**: Added [Bend the picture with CRT curvature and chromatic aberration](overview.md) (3 approaches): [Bend the picture: barrel curve within UvRect and channel offsets in an ImGuiShader](bend-the-picture-with-crt-curvature-and-chromatic-aberration-1.md), [Bend the picture: chromatic aberration and radial edge blur in a glass composite pass](bend-the-picture-with-crt-curvature-and-chromatic-aberration-2.md), [Bend the picture: how the host replays a tagged ImGui window offscreen and rewrites it to one image](bend-the-picture-with-crt-curvature-and-chromatic-aberration-3.md). Written from the pinned mod checkouts and verified against the decompiled game build 2026.10.10.5554.
+* **Update**: Independent review (claude-code/sonnet-5.5): overview row for the glass composite now says the pinned ShaderExtensions skips the chain; article 3 now links the `imgui-window-hud-shader` feature named in the plan.

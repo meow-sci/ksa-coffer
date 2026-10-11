@@ -1,0 +1,5 @@
+# Persist user-created palettes, presets and content files history
+
+## 2026-10-10
+* **Creation**: Added [Persist user-created palettes, presets and content files](overview.md) (engine background, approach comparison) and 6 how-to articles: [Named, editable color palettes with a ColorEdit4 round trip](persist-user-created-presets-and-content-1.md), [Bundled and user theme TOML files](persist-user-created-presets-and-content-2.md), [Override-only color table in the main config](persist-user-created-presets-and-content-3.md), [Export effect presets as trimmed XML](persist-user-created-presets-and-content-4.md), [Versioned snake_case JSON layout anchored by latitude and longitude](persist-user-created-presets-and-content-5.md), [Import user files into a catalog folder](persist-user-created-presets-and-content-6.md). Verified against the decompiled game build 2026.10.10.5554 and the pinned reference repositories.
+* **Update**: Review pass. Decompiled references (`GetDirCcfFromLatLon`, `ImInputString`, `ImGuiColorEditFlags`, `SerializedId.OnDataLoad`) re-checked; backticked topic names turned into links.

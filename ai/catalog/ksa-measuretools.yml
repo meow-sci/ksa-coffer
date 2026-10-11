@@ -1,0 +1,364 @@
+mod: ksa-measuretools
+repo: KSA-MeasureTools
+ref: aed7f874f1c925c10c733b1dee72bd04b9b1985c
+summary: >-
+  MeasureTools is a StarMap mod by Maximilian-Nesslauer that adds click-to-measure tools (Ruler,
+  Protractor, Surface great-circle, Circle, Face angle) to the map view, the default flight view and
+  the vehicle editor. A guarded Harmony prefix on Program.OnMouseButton owns left clicks while the tool
+  is armed; points are unprojected with the viewport camera and snap to part geometry (stock
+  Part.RayCastEgo over MeshViewModule triangle lists, attach nodes, mesh vertices, runtime-extracted
+  feature edges and fitted rim circles, a mirror point across the stack axis), to body centers and
+  disc edges, and to orbit lines via the stock Orbit.GetNearestPosition machinery. Endpoints are
+  frame-relative anchors resolved every frame and re-homed by Part object identity across staging,
+  docking and the editor boundary. Everything is drawn on the ImGui background draw list from
+  StarMapAfterGui; the window is a KSA.ImGuiWindow subclass opened from a DrawProgramMenusHook menu,
+  with click-to-copy rows and named color palettes persisted to colors.cfg.
+features:
+  - id: mods/ksa-measuretools/features/click-capture-mouse-prefix
+    title: Own placement clicks with a guarded Program.OnMouseButton prefix
+    category: patching
+    submod: null
+    summary: Harmony prefix that consumes unmodified left clicks only while armed, pairs consumed presses with their releases, defers to popups, ImGui, bound inputs and editor drags, and repairs Program._heldMouseButtons, _inputViewport and BurnContextMenu._rightClickValid via reflection when it eats a right release.
+    novelty: high
+    techniques: [harmony-prefix, reflection]
+    lifecycle: [frame:input]
+    hooks: ["harmony-prefix KSA.Program.OnMouseButton", "reflection KSA.Program._heldMouseButtons", "reflection KSA.Program._inputViewport", "reflection KSA.BurnContextMenu._rightClickValid"]
+    game_types: [KSA.Program, KSA.BurnContextMenu, KSA.MapController, KSA.Controller, KSA.VehicleEditor, KSA.Input, KSA.Popup, KSA.Cursor, KSA.ViewportPartPicker, KSA.CameraMode]
+    key_paths: [MeasureTools/Patches/Patch_MouseButton.cs, MeasureTools/Core/GameReflection.cs, MeasureTools/Features/Measure/MeasureState.cs]
+    howto_topics:
+      - slug: capture-world-clicks-without-breaking-stock-input
+        title: Capture map and flight-view clicks without breaking stock input
+        note: prefix OnMouseButton; consume presses and releases in pairs; pass popups, ImGui, bindings, editor drags
+      - slug: consume-mouse-release-and-restore-latches
+        title: Consume a mouse release and restore the game's private mouse latches
+        note: a skipped original skips its finally; clear _heldMouseButtons bit, _inputViewport, RotateMouseDragging, burn-menu latch
+      - slug: respect-user-input-bindings
+        title: Leave user-bound mouse buttons to the game
+        note: Input.MouseBound plus Input.Contains over EnumCollections.InputActions
+      - slug: input-callback-frame-state
+        title: Know which camera and cursor state a mouse callback sees
+        note: inside Glfw.PollEvents the view matrices and Cursor position are last frame's, a following camera's position is live, solvers are settled
+  - id: mods/ksa-measuretools/features/cursor-unprojection-and-construction-plane
+    title: Unproject the cursor through the view camera onto a construction plane
+    category: camera
+    submod: null
+    summary: Camera.ScreenToEgoRay plus the fact that ego axes are ECL axes gives a world ray; it is intersected with a camera-facing or ecliptic plane through the previous point or a reference body, and the hit is stored as a CCE offset of that body.
+    novelty: medium
+    techniques: [screen-to-world-ray, imgui-drawlist]
+    lifecycle: [frame:input, frame:draw-ui]
+    hooks: ["harmony-prefix KSA.Program.OnMouseButton", "starmap StarMapAfterGui"]
+    game_types: [KSA.Camera, KSA.GameViewport, KSA.MathEx, KSA.Astronomical, KSA.VehicleEditingSpace, KSA.Cursor]
+    key_paths: [MeasureTools/Features/Measure/MapPicker.cs, MeasureTools/Features/Measure/MeasureState.cs, MeasureTools/Features/Measure/MeasureOverlay.cs]
+    howto_topics:
+      - slug: screen-point-to-world-ray
+        title: Turn a screen point into a world-space ray with the game camera
+        note: ScreenToEgoRay, EgoToEcl is a pure translation, take the origin from the ray for orthographic views
+      - slug: project-world-points-to-screen
+        title: Project world points to the screen and cull points behind the camera
+        note: EclToScreen returns NaN behind the camera; add viewport.Position
+      - slug: place-points-on-a-world-plane
+        title: Place a point on a camera-facing or ecliptic plane under the cursor
+        note: MathEx.RayPlaneIntersection; ecliptic normal is ECL +Z, not Camera.UpView
+  - id: mods/ksa-measuretools/features/body-and-limb-snapping
+    title: Snap to bodies and to the edge of their projected disc in the map view
+    category: flight-and-orbits
+    submod: null
+    summary: One pass projects every body's center and disc radius (GetObjectDiameterPixels), prefers the smallest disc under the cursor, snaps a 10 px band to the limb via the ray's closest point, and gates dot-sized bodies on Astronomical.CursorHoverEligible, which the click sees from the previous frame but the AfterGui preview sees already cleared.
+    novelty: medium
+    techniques: [screen-space-picking]
+    lifecycle: [frame:input, frame:draw-ui]
+    hooks: ["harmony-prefix KSA.Program.OnMouseButton", "starmap StarMapAfterGui"]
+    game_types: [KSA.Astronomical, KSA.Camera, KSA.CelestialSystem, KSA.IOrbiter, KSA.StellarBody, KSA.Vehicle, KSA.Program]
+    key_paths: [MeasureTools/Features/Measure/MapPicker.cs, MeasureTools/Features/Measure/MeasureOverlay.cs]
+    howto_topics:
+      - slug: pick-celestial-bodies-under-cursor
+        title: Pick the celestial body under the cursor in the map view
+        note: projected center plus pixel radius; smallest disc wins; use CursorHoverEligible as a visibility gate
+      - slug: cursor-hover-eligible-timing
+        title: Read stock hover flags at the right point in the frame
+        note: reset in OnFrameViewports, set in Universe.OnDrawUi after StarMapAfterGui
+  - id: mods/ksa-measuretools/features/orbit-line-snapping
+    title: Snap to any visible orbit line with the stock nearest-orbit-point machinery
+    category: flight-and-orbits
+    submod: null
+    summary: Calls Orbit.GetNearestPosition on flight-plan patches, burn branches and celestial orbits with the stock visibility gates, ranks with OrbitHoverCandidate.Wins, re-validates on screen to close the behind-camera NaN hole, and stores parent plus CCE offset.
+    novelty: high
+    techniques: [reuse-stock-picker, screen-space-picking]
+    lifecycle: [frame:input, frame:draw-ui]
+    hooks: ["harmony-prefix KSA.Program.OnMouseButton", "starmap StarMapAfterGui"]
+    game_types: [KSA.Orbit, KSA.OrbitHoverCandidate, KSA.CelestialPosition, KSA.OrbitPointCce, KSA.FlightPlan, KSA.BurnPlan, KSA.Burn, KSA.PatchedConic, KSA.Astronomical, KSA.BurnContextMenu, KSA.CelestialSystem, KSA.IParentBody]
+    key_paths: [MeasureTools/Features/Measure/MapPicker.cs, MeasureTools/Features/Measure/Anchor.cs]
+    howto_topics:
+      - slug: pick-point-on-orbit-line
+        title: Find the point on a drawn orbit line nearest the cursor
+        note: Orbit.GetNearestPosition walks the same cached points DrawLines uses; elliptic orbits use a closed form
+      - slug: stock-orbit-pick-quirks
+        title: Work around the stock orbit-pick acceptance quirks
+        note: NaN distance for behind-camera points passes the test; integer width/height aspect
+  - id: mods/ksa-measuretools/features/live-body-relative-anchors
+    title: Live anchors in body, orbit, surface and part frames
+    category: flight-and-orbits
+    submod: null
+    summary: Immutable anchors store points in their owner's frame (CCE offset, orbit-parent offset, body-fixed lat/lon, part-local asmb) and resolve to ECL on use; a per-frame prune drops dead anchors by identity and a DeserializeSave postfix clears state the system-change check misses.
+    novelty: medium
+    techniques: [harmony-postfix, starmap-lifecycle, frame-relative-anchors]
+    lifecycle: [frame:input, frame:draw-ui, event:save-load]
+    hooks: ["starmap StarMapAfterGui", "harmony-postfix KSA.Universe.DeserializeSave"]
+    game_types: [KSA.Astronomical, KSA.IParentBody, KSA.Celestial, KSA.Vehicle, KSA.Part, KSA.VehicleEditor, KSA.VehicleEditingSpace, KSA.CelestialSystem, KSA.Universe]
+    key_paths: [MeasureTools/Features/Measure/Anchor.cs, MeasureTools/Features/Measure/Measurement.cs, MeasureTools/Features/Measure/MeasureState.cs, MeasureTools/Patches/Patch_LoadSave.cs]
+    howto_topics:
+      - slug: game-coordinate-frames-ecl-cce-ego
+        title: Understand ECL, CCE, CCF, ego and asmb frames
+        note: CCE shares ECL axes; ego is a translation of ECL; lat/lon go through the body-fixed frame
+      - slug: track-world-points-attached-to-bodies
+        title: Keep a world point attached to a moving or rotating body
+        note: store an offset in the owner's frame and resolve every frame
+      - slug: detect-save-load
+        title: Detect a save load and reset per-session mod state
+        note: Universe.DeserializeSave keeps the CelestialSystem object; postfix it
+  - id: mods/ksa-measuretools/features/part-mesh-raycast-picking
+    title: Pick hull points, attach nodes and part centers on vehicles under the cursor
+    category: vehicles-and-parts
+    submod: null
+    summary: Gates vehicles by projected size and bounding sphere, raycasts parts with the stock Part.RayCastEgo (MeshViewModule.MeshView.PositionCompare, glTF primitive 0 only, watertight triangle loop, vertex normal), scans connectors and bounding-box centers in screen space, and lets the preview reuse the stock ViewportPartPicker hover, which is one frame stale at StarMapAfterGui.
+    novelty: high
+    techniques: [mesh-raycast, screen-space-picking]
+    lifecycle: [frame:input, frame:draw-ui]
+    hooks: ["harmony-prefix KSA.Program.OnMouseButton", "starmap StarMapAfterGui"]
+    game_types: [KSA.Part, KSA.Part.Connector, KSA.MeshViewModule, KSA.MeshReference, KSA.Ray, KSA.Vehicle, KSA.PartTree, KSA.ViewportPartPicker, KSA.CursorTarget, KSA.Camera, KSA.VehicleEditor, KSA.VehicleEditingSpace]
+    key_paths: [MeasureTools/Features/Measure/MapPicker.cs, MeasureTools/Features/Measure/Anchor.cs]
+    howto_topics:
+      - slug: raycast-vehicle-parts
+        title: Raycast the parts of a vehicle under the cursor
+        note: Vehicle.GetMatrixAsmb2Ego plus Part.RayCastEgo; returns subpart, local hit point and vertex normal
+      - slug: read-part-mesh-geometry
+        title: Read a part's mesh geometry at runtime
+        note: MeshViewModule.MeshView.PositionCompare is index-unrolled positions of primitive 0; not PartModel or PartInstance
+      - slug: attach-node-positions
+        title: Get attach node positions in world and screen space
+        note: Part.Connector.PositionEgo / PositionVehicleAsmb (no part scale)
+      - slug: reuse-stock-part-hover
+        title: Reuse the stock part hover picker
+        note: ViewportPartPicker is filled in Universe.OnDrawUi, after StarMapAfterGui
+  - id: mods/ksa-measuretools/features/mesh-feature-edges-and-circle-fitting
+    title: Extract feature edges and fit rim circles from a part's triangle list
+    category: vehicles-and-parts
+    submod: null
+    summary: Exact-position welding of PositionCompare, boundary/non-manifold/sharp edge detection at 30 degrees, loop chaining and Newell plus Kasa circle fitting with residual checks, cached per shared MeshReference.
+    novelty: high
+    techniques: [mesh-analysis, per-asset-cache]
+    lifecycle: [frame:input, frame:draw-ui]
+    hooks: ["harmony-prefix KSA.Program.OnMouseButton", "starmap StarMapAfterGui"]
+    game_types: [KSA.MeshReference, KSA.MeshViewModule, KSA.Part]
+    key_paths: [MeasureTools/Features/Measure/MeshFeatureCache.cs]
+    howto_topics:
+      - slug: derive-geometry-features-from-part-meshes
+        title: Derive edges and circles from a part mesh at runtime
+        note: weld, dihedral test, loop walk, Kasa fit; cache by the shared MeshReference
+      - slug: cache-per-mesh-asset
+        title: Cache derived data per mesh asset rather than per part
+        note: MeshReference.Get returns the ModLibrary instance shared by all parts of a type
+  - id: mods/ksa-measuretools/features/cad-style-snap-tiers
+    title: "CAD-style snapping: nodes, rim centers, mirror point, vertices, edges and axial/radial components"
+    category: vehicles-and-parts
+    submod: null
+    summary: Ordered snap tiers (point features, vertices and edge midpoints, edge slide, raw hull hit), the mirror of the previous point across the stack axis from opposed stack connectors, and axial/radial decomposition in the vehicle's asmb frame.
+    novelty: high
+    techniques: [screen-space-picking, mesh-analysis]
+    lifecycle: [frame:input, frame:draw-ui]
+    hooks: ["harmony-prefix KSA.Program.OnMouseButton", "starmap StarMapAfterGui"]
+    game_types: [KSA.Part, KSA.Part.Connector, KSA.Vehicle, KSA.VehicleEditingSpace, KSA.Camera]
+    key_paths: [MeasureTools/Features/Measure/MapPicker.cs, MeasureTools/Features/Measure/Measurement.cs]
+    howto_topics:
+      - slug: find-part-stack-axis
+        title: Find a part's stack axis from its connectors
+        note: stack connectors face part-frame +X rotated by Asmb2ParentAsmb; skip ToSurface/FromSurface
+      - slug: tiered-snapping-in-screen-space
+        title: Build tiered screen-space snapping for world features
+        note: most intentional first, separate pixel radii, raw hit as fallback
+      - slug: vehicle-axis-components
+        title: Split a vector into components along and across a vehicle's stack axis
+        note: rotate by the inverse of Vehicle.Asmb2Ego; asmb X is up
+  - id: mods/ksa-measuretools/features/part-anchor-rehoming
+    title: Part-local anchors that survive staging, docking and the editor boundary
+    category: vehicles-and-parts
+    submod: null
+    summary: Points stored in the part's own asmb frame, resolved with a camera-free mirror of Vehicle.GetMatrixAsmb2Ego or the editing space, and re-homed by finding the same Part object in editor trees or any vehicle after splits, merges and editor transitions.
+    novelty: high
+    techniques: [frame-relative-anchors, object-identity-tracking]
+    lifecycle: [frame:draw-ui]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: [KSA.Part, KSA.PartTree, KSA.Vehicle, KSA.VehicleEditor, KSA.VehicleEditingSpace, KSA.CelestialSystem, KSA.Camera]
+    key_paths: [MeasureTools/Features/Measure/Anchor.cs, MeasureTools/Features/Measure/MeasureState.cs]
+    howto_topics:
+      - slug: part-local-to-world-transform
+        title: Convert a part-local point to world coordinates without the render camera
+        note: (posVehicleAsmb - CenterOfMassAsmb) rotated by Asmb2Ego about GetPositionEcl
+      - slug: track-parts-across-staging-and-docking
+        title: Track a part across staging, docking and editor transitions
+        note: Part objects move between vehicles (Split, MergeFrom, editor Dispose); find by identity and InstanceId
+  - id: mods/ksa-measuretools/features/circle-and-face-angle-tools
+    title: Circle and face-angle tools on part geometry
+    category: vehicles-and-parts
+    submod: null
+    summary: One-click circle measurement from a fitted rim (center plus rim anchors, 3D ring overlay) and a face-angle tool comparing two hit normals rotated through the live part and vehicle frames, with constant-screen-length normal arrows.
+    novelty: medium
+    techniques: [mesh-analysis, imgui-drawlist]
+    lifecycle: [frame:input, frame:draw-ui]
+    hooks: ["harmony-prefix KSA.Program.OnMouseButton", "starmap StarMapAfterGui"]
+    game_types: [KSA.Part, KSA.Vehicle, KSA.VehicleEditingSpace, KSA.Camera, KSA.MeshReference]
+    key_paths: [MeasureTools/Features/Measure/MapPicker.cs, MeasureTools/Features/Measure/Measurement.cs, MeasureTools/Features/Measure/MeasureOverlay.cs]
+    howto_topics:
+      - slug: draw-3d-circle-overlay
+        title: Draw a 3D circle or arc as an ImGui overlay
+        note: sample in the plane, project each point, break the polyline at NaN
+      - slug: constant-screen-size-world-markers
+        title: Draw world-anchored markers with a constant on-screen size
+        note: length = pixels / GetObjectDiameterPixels(1, distance)
+  - id: mods/ksa-measuretools/features/surface-great-circle-tool
+    title: Surface tool with body-fixed pins, great-circle distance and an occlusion-aware arc
+    category: celestials
+    submod: null
+    summary: Ray versus mean-radius spheres for surface pins stored as body-fixed lat/lon, haversine distance, chord and initial bearing, and a Rodrigues-sampled great-circle arc that hides far-hemisphere samples.
+    novelty: medium
+    techniques: [screen-to-world-ray, imgui-drawlist]
+    lifecycle: [frame:input, frame:draw-ui]
+    hooks: ["harmony-prefix KSA.Program.OnMouseButton", "starmap StarMapAfterGui"]
+    game_types: [KSA.Celestial, KSA.Camera, KSA.Ray, KSA.CelestialSystem, KSA.Astronomical]
+    key_paths: [MeasureTools/Features/Measure/MapPicker.cs, MeasureTools/Features/Measure/Measurement.cs, MeasureTools/Features/Measure/MeasureOverlay.cs]
+    howto_topics:
+      - slug: click-to-lat-lon
+        title: Convert a click on a planet to latitude and longitude
+        note: ray vs BoundingSphere3D, GetPositionCceFromEcl, GetLatitudeFromCce / GetLongitudeFromCce
+      - slug: draw-great-circle-on-planet
+        title: Draw a great-circle arc over a planet without drawing through it
+        note: Rodrigues rotation; skip samples whose normal faces away from the camera
+  - id: mods/ksa-measuretools/features/editor-measuring
+    title: Measuring inside the vehicle editor, including parts held in the hand
+    category: vehicles-and-parts
+    submod: null
+    summary: Editor mode scans EditingSpace.AllParts and UnattachedPartTrees with the editing space matrix, skips system vehicles, passes editor drags their left release, anchors to the editing space, and re-homes part anchors at editor entry and exit.
+    novelty: high
+    techniques: [harmony-postfix, harmony-prefix, imgui-menu]
+    lifecycle: [frame:input, frame:draw-ui]
+    hooks: ["harmony-postfix KSA.Program.DrawProgramMenusHook", "harmony-prefix KSA.Program.OnMouseButton", "starmap StarMapAfterGui"]
+    game_types: [KSA.VehicleEditor, KSA.VehicleEditingSpace, KSA.PartTree, KSA.Part, KSA.Program, KSA.Camera, KSA.CameraMode]
+    key_paths: [MeasureTools/Patches/Patch_MenuBar.cs, MeasureTools/Patches/Patch_MouseButton.cs, MeasureTools/Features/Measure/MapPicker.cs, MeasureTools/Features/Measure/Anchor.cs]
+    howto_topics:
+      - slug: vehicle-editor-lifecycle
+        title: Vehicle editor lifecycle for mods
+        note: created from the menu or OnFrameEditor, OnFrame before StarMapAfterGui, OnDrawUi after, disposed in PrepareFrame
+      - slug: access-parts-in-the-editor
+        title: Access the craft and in-hand parts in the vehicle editor
+        note: EditingSpace.Parts/AllParts and UnattachedPartTrees; part transforms are uncached while the editor is open
+      - slug: add-editor-menu-entry
+        title: Add a menu to the vehicle editor's menu bar
+        note: the DrawProgramMenusHook postfix also runs in the editor branch of DrawMenuBar
+  - id: mods/ksa-measuretools/features/measure-menu-and-tool-window
+    title: Measure menu and a stock-styled tool window with hover sync and click-to-copy
+    category: ui
+    submod: null
+    summary: DrawProgramMenusHook postfix menu, lazily created KSA.ImGuiWindow subclass drawn from StarMapAfterGui, rows built with ConsoleWidgets, a measurement table whose hovered row highlights the overlay and whose clicked row copies a full data line via ImGui.SetClipboardText.
+    novelty: medium
+    techniques: [harmony-postfix, starmap-lifecycle, imgui-window, imgui-menu]
+    lifecycle: [frame:draw-ui, startup:all-mods-loaded, event:starmap-unload]
+    hooks: ["harmony-postfix KSA.Program.DrawProgramMenusHook", "starmap StarMapAfterGui", "starmap StarMapAllModsLoaded", "starmap StarMapUnload"]
+    game_types: [KSA.Program, KSA.ImGuiWindow, KSA.ConsoleWidgets, KSA.ConsoleStyle, KSA.ImGuiHelper, KSA.DistanceReference, KSA.RadianReference, KSA.IGameViewport]
+    key_paths: [MeasureTools/Patches/Patch_MenuBar.cs, MeasureTools/Features/Measure/MeasureWindow.cs, MeasureTools/Core/ConsoleUi.cs, MeasureTools/Mod.cs]
+    howto_topics:
+      - slug: add-top-level-menu-bar-entry
+        title: Add a top-level menu to the main menu bar
+        note: postfix the empty Program.DrawProgramMenusHook; works in flight and editor
+      - slug: subclass-stock-imguiwindow
+        title: Build a mod window on the stock KSA.ImGuiWindow base
+        note: construct lazily inside an ImGui frame; guard DrawContent; detect title-bar close
+      - slug: stock-console-widgets
+        title: Lay out mod UI with the game's ConsoleWidgets rows
+        note: BeginRow, Checkbox(id, ref value, pending), RowHovered, Tooltip, EndRow, PrimaryButton
+      - slug: copy-to-clipboard-from-imgui
+        title: Copy values to the clipboard from an ImGui list
+        note: Selectable rows, build text only on click, ImGui.SetClipboardText, stock unit formatters
+  - id: mods/ksa-measuretools/features/overlay-drawlist-rendering
+    title: World-space measurement overlay on the ImGui background draw list
+    category: ui
+    submod: null
+    summary: All lines, curves, markers and plated labels go into ImGuiHelper.GetOverlayDrawList for the main viewport from StarMapAfterGui; behind-camera NaN projections cull and break polylines; the hover pick is throttled on wall-clock time with a state-version invalidation.
+    novelty: medium
+    techniques: [imgui-drawlist, starmap-lifecycle]
+    lifecycle: [frame:draw-ui, render:imgui]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: [KSA.ImGuiHelper, KSA.Camera, KSA.IGameViewport, KSA.ViewportRegistry, KSA.DistanceReference, KSA.RadianReference, KSA.Cursor]
+    key_paths: [MeasureTools/Features/Measure/MeasureOverlay.cs, MeasureTools/Features/Measure/MeasureViewport.cs, MeasureTools/Mod.cs]
+    howto_topics:
+      - slug: draw-world-overlays-with-imgui
+        title: Draw world-anchored overlays with the ImGui background draw list
+        note: GetOverlayDrawList for the main viewport; viewport-local projection plus viewport.Position
+      - slug: throttle-expensive-hover-picks
+        title: Throttle expensive per-frame hover picking
+        note: wall-clock interval plus a state-version counter; picks on click stay fresh
+      - slug: zero-allocation-imgui-labels
+        title: Format ImGui labels without per-frame allocations
+        note: stackalloc buffers, DistanceReference.ToNearest, Core.SpanBuilder, ImString from spans
+  - id: mods/ksa-measuretools/features/color-palettes-persistence
+    title: Named color palettes persisted to a cfg file next to the mod assembly
+    category: persistence
+    submod: null
+    summary: Seven overlay colors per named palette, four shipped plus user palettes, ColorEdit4 rows and a Palette menu, an INI-like colors.cfg next to the DLL saved with a dirty flag on close and unload, with flat-format migration.
+    novelty: low
+    techniques: [cfg-file, imgui-window, starmap-lifecycle]
+    lifecycle: [startup:all-mods-loaded, frame:draw-ui, event:starmap-unload]
+    hooks: ["starmap StarMapAllModsLoaded", "starmap StarMapAfterGui", "starmap StarMapUnload"]
+    game_types: [KSA.ImGuiWindow, KSA.ImGuiHelper]
+    key_paths: [MeasureTools/Features/Measure/MeasureColors.cs, MeasureTools/Features/Measure/MeasureWindow.cs]
+    howto_topics:
+      - slug: persist-mod-settings-next-to-dll
+        title: Persist mod settings in a file next to the mod assembly
+        note: Assembly.Location directory; load at AllModsLoaded, save on close and unload; dirty flag discipline
+      - slug: user-editable-color-schemes
+        title: Offer user-editable color schemes in an ImGui settings UI
+        note: byte4 to float4 round trip for ColorEdit4; derived alpha shades
+  - id: mods/ksa-measuretools/features/resilient-patching-and-diagnostics
+    title: Per-patch Harmony application, drift checks, once-only logging and debug perf scopes
+    category: getting-started
+    submod: null
+    summary: CreateClassProcessor per patch class so one broken target does not block others, typed reflection handles with a load-time drift warning, exception-type-keyed once-only logging in every hook, DEBUG Stopwatch scopes reported every 5 s, and a full static reset on unload.
+    novelty: medium
+    techniques: [starmap-lifecycle, harmony-prefix, harmony-postfix, reflection]
+    lifecycle: [startup:all-mods-loaded, frame:draw-ui, frame:input, event:starmap-unload]
+    hooks: ["starmap StarMapAllModsLoaded", "starmap StarMapAfterGui", "starmap StarMapUnload"]
+    game_types: [KSA.VersionInfo, KSA.Program, KSA.BurnContextMenu]
+    key_paths: [MeasureTools/Mod.cs, MeasureTools/Core/GameReflection.cs, MeasureTools/Core/LogHelper.cs, MeasureTools/Core/PerfTracker.cs, MeasureTools/Core/DebugConfig.cs]
+    howto_topics:
+      - slug: apply-harmony-patches-independently
+        title: Apply Harmony patches so one broken target does not disable the rest
+        note: Harmony.CreateClassProcessor(type).Patch() per class in try/catch
+      - slug: once-only-logging
+        title: Log per-frame failures once instead of every frame
+        note: HashSet-keyed WarnOnce/ErrorOnce with the exception type in the key
+      - slug: game-version-guard
+        title: Warn when the running game build differs from the tested one
+        note: VersionInfo.Current.VersionString vs a constant also read by CI
+      - slug: lightweight-perf-scopes
+        title: Time hot paths in debug builds
+        note: readonly ref struct Stopwatch scope with periodic avg/min/max reports
+      - slug: starmap-unload-cleanup
+        title: Clean up mod state in StarMapUnload
+        note: runs once at process exit after the game loop and after StarMap's id-less UnpatchAll; no ImGui, flush files only
+  - id: mods/ksa-measuretools/features/mod-deploy-targets-and-release
+    title: Shared MSBuild deploy targets, release zip and SpaceDock publishing
+    category: getting-started
+    submod: null
+    summary: Imported ModDeploy.targets (identical to KSA-DeltaVMap's) deploys DLL and mod.toml with a one-try locked-file check naming the running game, generates a StarMap launch profile for worktrees, stamps the deploying checkout; Release zips and a workflow uploads to SpaceDock.
+    novelty: low
+    techniques: [msbuild-targets, github-actions]
+    lifecycle: []
+    hooks: []
+    game_types: []
+    key_paths: [build/ModDeploy.targets, MeasureTools/MeasureTools.csproj, .github/workflows/spacedock-publish.yml]
+    howto_topics:
+      - slug: deploy-mod-on-build
+        title: Deploy a mod into the game's mods folder on every build
+        note: AfterTargets=Build copy; detect a running game holding the DLL
+      - slug: package-and-publish-release
+        title: Package a release zip and publish it to SpaceDock from CI
+        note: PackageRelease target; workflow reads TestedGameVersion from Mod.cs

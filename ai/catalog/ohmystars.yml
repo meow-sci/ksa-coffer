@@ -1,0 +1,399 @@
+mod: ohmystars
+repo: OhMyStars
+ref: 4bb602e3bfe36bcd3670b71b88bf644fe95fa407
+summary: >-
+  Oh My Stars (nanonestor; a continuation of DavidK0's StellariumCatalog) is a StarMap mod that draws
+  constellations on KSA's sky: asterism lines and names from 53 legacy Stellarium sky cultures, IAU
+  boundaries from Pierre Barbier's boundary data, star names and an RA/Dec grid. Catalog RA/Dec is
+  rotated by the J2000 obliquity into the game's ecliptic axes, placed on the same 19.5-unit
+  camera-centred sphere the game uses for star sprites, projected with Camera.EgoToScreen and drawn in
+  a transparent input-less full-screen ImGui window from StarMapAfterGui, with a CPU ray-sphere
+  occlusion test against bodies and vehicles. It adds an AT-HYG star browser, a window-to-star
+  pointer, a custom navball marker that mirrors the stock marker shader, an orient-to-star mode that
+  writes a Custom EclBody flight-computer target from a Vehicle.PrepareWorker prefix (with prefixes on
+  every stock attitude path to hand control back), and a Star Editor that prefixes
+  InstancedStarTechnique.AddInstance to restyle stars and swaps star binaries at runtime via
+  reflection. Settings persist in settings.ini beside the DLL; ModMenu provides the menu entry.
+features:
+  - id: mods/ohmystars/features/sky-overlay-lines-and-labels
+    title: Constellation lines and labels on the sky
+    category: rendering
+    submod: null
+    summary: >-
+      RA/Dec to J2000 equatorial to ecliptic (same rotation as GalacticPlane.EquatorialToEcliptic),
+      times 19.5 on the camera-centred star sphere, Camera.EgoToScreen plus the ImGui main viewport
+      origin, drawn into a NoInputs full-screen window's draw list; straight screen lines are exact
+      great circles under the perspective (gnomonic) projection.
+    novelty: high
+    techniques: [imgui-drawlist, starmap-lifecycle, sky-projection, gnomonic-projection]
+    lifecycle: [startup:all-mods-loaded, frame:draw-ui]
+    hooks: ["starmap StarMapAllModsLoaded", "starmap StarMapAfterGui"]
+    game_types: [KSA.Camera, KSA.Program, KSA.GalacticPlane, KSA.InstancedStarTechnique, KSA.Universe, Brutal.ImGuiApi.ImGui, Brutal.ImGuiApi.ImDrawListExtensions]
+    key_paths: [src/Math.cs, src/StellariumRenderer.cs, src/SkyCulturesRenderer.cs, src/IAUConstellationsRenderer.cs]
+    howto_topics:
+      - slug: draw-lines-on-the-sky
+        title: Draw lines and labels on the sky with ImGui
+        note: ego-space directions on the 19.5 star sphere, EgoToScreen, viewport offset, skip NaN like Universe.DrawGalacticGrid
+      - slug: celestial-coordinates-to-game-frame
+        title: Convert RA/Dec and galactic coordinates to KSA's ecliptic frame
+        note: J2000 obliquity rotation about X matches GalacticPlane.EquatorialToEcliptic
+      - slug: world-to-screen-projection
+        title: Project world and sky positions to screen pixels
+        note: Camera.EgoToScreen returns NaN behind the camera; add the viewport position
+      - slug: fullscreen-overlay-window
+        title: Draw a full-screen HUD overlay that does not steal input
+        note: NoInputs/NoBackground window vs background or foreground draw lists
+      - slug: great-circles-on-screen
+        title: Draw great-circle arcs and small circles on the sky
+        note: gnomonic projection keeps great circles straight; subdivide small circles
+  - id: mods/ohmystars/features/overlay-occlusion-by-bodies
+    title: Occlusion by bodies
+    category: rendering
+    submod: null
+    summary: >-
+      Walks from the camera-followed object up to the system root, then rebuilds a per-frame list of
+      ego-space spheres for every body (MeanRadius) and every vehicle orbiting a body
+      (BoundingSphereRadiusBody) in that system, and hides any overlay point whose view ray hits one,
+      skipping spheres that contain the camera.
+    novelty: medium
+    techniques: [imgui-drawlist, cpu-occlusion]
+    lifecycle: [frame:draw-ui]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: [KSA.Camera, KSA.IParentBody, KSA.IOrbiter, KSA.IRadius, KSA.Vehicle, KSA.StellarBody]
+    key_paths: [src/StellariumRenderer.cs]
+    howto_topics:
+      - slug: occlude-imgui-overlays-behind-planets
+        title: Hide ImGui overlays behind planets and vessels
+        note: ray-sphere test in ego space via Camera.GetPositionEgo
+      - slug: walk-the-celestial-hierarchy
+        title: Walk the celestial body and vehicle hierarchy
+        note: IOrbiter.Parent up to the root StellarBody, IParentBody.Children down
+  - id: mods/ohmystars/features/ra-dec-grid
+    title: RA/Dec grid
+    category: rendering
+    submod: null
+    summary: >-
+      Celestial grid built lazily as 1-degree arcs, culled with a clip-space frustum test inflated by
+      15%, occluded per segment, with centred chart labels and first-come overlap rejection.
+    novelty: medium
+    techniques: [imgui-drawlist, sky-projection, label-collision-avoidance]
+    lifecycle: [frame:draw-ui]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: [KSA.Camera, Brutal.ImGuiApi.ImGui]
+    key_paths: [src/SkyMarkingsRenderer.cs]
+    howto_topics:
+      - slug: draw-a-celestial-coordinate-grid
+        title: Draw a celestial or galactic coordinate grid on the sky
+        note: compare with the stock skygrid command (Universe.DrawGalacticGrid)
+      - slug: screen-label-declutter
+        title: Avoid overlapping screen labels in ImGui overlays
+        note: CalcTextSize rectangles and a per-frame drawn list
+  - id: mods/ohmystars/features/stellarium-sky-cultures
+    title: Stellarium sky cultures
+    category: celestials
+    submod: null
+    summary: >-
+      Parses legacy Stellarium constellationship.fab and constellation_names files from 53 culture
+      folders, resolves segments and centroid labels on switch, and filters segments to stars whose
+      float direction bits match the stock Core star binary.
+    novelty: medium
+    techniques: [data-file-parsing, starmap-lifecycle]
+    lifecycle: [startup:all-mods-loaded, frame:draw-ui]
+    hooks: ["starmap StarMapAllModsLoaded", "starmap StarMapBeforeGui"]
+    game_types: [KSA.ModLibrary, KSA.Mod]
+    key_paths: [src/SkyCulturesRenderer.cs, skycultures/modern/constellationship.fab]
+    howto_topics:
+      - slug: load-stellarium-sky-cultures
+        title: Load Stellarium constellation data into a mod
+        note: .fab line and names formats; HIP-keyed joins
+      - slug: read-stock-star-binaries
+        title: Read KSA's star binary files
+        note: int32 count then 16-byte records (3 floats + scale + RGB), as Mod.LoadStarBinaries
+  - id: mods/ohmystars/features/hyg-star-catalog
+    title: AT-HYG star catalog and star information
+    category: celestials
+    submod: null
+    summary: >-
+      Header-indexed parse of a 330k-row AT-HYG CSV into Hipparcos-keyed ecliptic directions and star
+      records with synthetic keys for unnumbered named stars and a live-position special case for the
+      central star, browsed through constellation, proper-name and Bayer selectors with search.
+    novelty: medium
+    techniques: [data-file-parsing, imgui-window, starmap-lifecycle]
+    lifecycle: [startup:all-mods-loaded, frame:draw-ui]
+    hooks: ["starmap StarMapAllModsLoaded", "starmap StarMapBeforeGui", "starmap StarMapAfterGui"]
+    game_types: [KSA.Program, KSA.Camera, KSA.Vehicle, Brutal.ImGuiApi.ImGui]
+    key_paths: [src/SkyCulturesRenderer.cs, src/OhMyStarsWindow.cs, src/athyg_32_reduced_m10.csv]
+    howto_topics:
+      - slug: bundle-a-star-catalog
+        title: Bundle and query a real star catalog
+        note: HIP keys, J2000 to ecliptic, parsecs to light years
+      - slug: searchable-imgui-combo
+        title: Build a searchable ImGui combo box
+        note: InputText inside BeginCombo with ImInputString buffers
+  - id: mods/ohmystars/features/star-pointer
+    title: Star pointer
+    category: ui
+    submod: null
+    summary: >-
+      Line from the nearest window corner to a sky target; off-screen and behind-camera targets are
+      pushed to the viewport edge by normalising the clip-space direction.
+    novelty: medium
+    techniques: [imgui-drawlist, offscreen-indicator]
+    lifecycle: [frame:draw-ui]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: [KSA.Camera, Brutal.ImGuiApi.ImGui]
+    key_paths: [src/StellariumRenderer.cs]
+    howto_topics:
+      - slug: offscreen-target-indicator
+        title: Point to off-screen targets from the HUD
+        note: EgoToClip, divide by W, flip when W < 0, clamp to the NDC square
+  - id: mods/ohmystars/features/navball-star-marker
+    title: Navball star marker
+    category: ui
+    submod: null
+    summary: >-
+      Custom navball marker computed like NavBallRenderer.ToScreenMarker (CCE to CCI to control to
+      Body2Screen) and styled with constants copied from NavballMarkers.glsl, drawn on the foreground
+      draw list with CPU coverage checks and a repainted centre indicator.
+    novelty: high
+    techniques: [imgui-drawlist, shader-constant-mirroring]
+    lifecycle: [frame:draw-ui]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: [KSA.NavBallRenderer, KSA.GaugeCanvas, KSA.GaugeComponent, KSA.CanvasRect, KSA.GaugeBase, KSA.Vehicle, KSA.IParentBody, KSA.ImGuiHelper, KSA.Program]
+    key_paths: [src/NavballMarkerRenderer.cs]
+    howto_topics:
+      - slug: add-a-navball-marker
+        title: Add a custom marker to the navball
+        note: direction to navball screen space, Gauges.xml Navball/Ball component, foreground draw list
+      - slug: draw-over-gauge-canvases
+        title: Draw over gauge canvases rendered by draw callbacks
+        note: GaugeCanvas windows render via ImGui AddCallback; use the foreground list
+  - id: mods/ohmystars/features/orient-to-star
+    title: Orient a vessel to a star
+    category: flight-and-orbits
+    submod: null
+    summary: >-
+      Writes AttitudeMode Auto, AttitudeFrame EclBody, AttitudeTrackTarget Custom and Euler angles
+      solved from the star direction (kitten-specific up axis), re-applied in a Vehicle.PrepareWorker
+      prefix right before the worker copies the flight computer; toggling off restores the previous
+      mode and rate command on the next dispatch.
+    novelty: high
+    techniques: [harmony-prefix, flight-computer-target]
+    lifecycle: [frame:draw-ui, frame:dispatch-solvers, physics:vehicle-solver]
+    hooks: ["starmap StarMapBeforeGui", "harmony-prefix KSA.Vehicle.PrepareWorker"]
+    game_types: [KSA.Vehicle, KSA.FlightComputer, KSA.VehicleReferenceFrameEx, KSA.KittenEva, KSA.VehicleUpdateState, KSA.VehicleUpdateData, KSA.Universe]
+    key_paths: [src/OhMyStarsWindow.cs, src/StarOrientationObserver.cs]
+    howto_topics:
+      - slug: point-a-vessel-in-a-direction
+        title: Point a vessel at an arbitrary direction with the stock flight computer
+        note: Custom track target in EclBody; BODY2UPFRAME axis convention
+      - slug: drive-the-flight-computer-each-tick
+        title: Feed the flight computer every physics step from the main thread
+        note: prefix Vehicle.PrepareWorker before PrepareFromVehicle copies the flight computer
+  - id: mods/ohmystars/features/attitude-mode-handoff-patches
+    title: Attitude-mode hand-off patches
+    category: patching
+    submod: null
+    summary: >-
+      Prefixes on FlightComputer.TrackTarget/RateHold/SetNullRot, Vehicle.SetEnum/ToggleEnum/
+      SetStabilization, KittenEva.HandleKittenAction and PhysicsBubble MMU methods (via TargetMethods)
+      release the mod's custom target and restore CustomAttitudeTarget before rate hold reads it. Input
+      paths run at frame:input; SetNullRot (on the worker's flight computer copy) and the MMU methods
+      also run on vehicle-solver workers, where the prefixes touch the mod's unsynchronized collections.
+    novelty: medium
+    techniques: [harmony-prefix, reflection, harmony-target-methods]
+    lifecycle: [startup:all-mods-loaded, frame:input, frame:dispatch-solvers, physics:vehicle-solver]
+    hooks:
+      - "harmony-prefix KSA.Vehicle.PrepareWorker"
+      - "harmony-prefix KSA.FlightComputer.TrackTarget"
+      - "harmony-prefix KSA.FlightComputer.RateHold"
+      - "harmony-prefix KSA.FlightComputer.SetNullRot"
+      - "harmony-prefix KSA.Vehicle.SetStabilization"
+      - "harmony-prefix KSA.Vehicle.SetEnum"
+      - "harmony-prefix KSA.Vehicle.ToggleEnum"
+      - "harmony-prefix KSA.KittenEva.HandleKittenAction"
+      - "harmony-prefix KSA.PhysicsBubble.ApplyMmuAttitudeTarget"
+      - "harmony-prefix KSA.PhysicsBubble.ResetMmuAttitudeTarget"
+    game_types: [KSA.FlightComputer, KSA.Vehicle, KSA.KittenEva, KSA.PhysicsBubble, KSA.VehicleUpdateState, KSA.VehicleUpdateData, KSA.InputEvents, KSA.GaugeButtonFlightComputer]
+    key_paths: [src/StarOrientationObserver.cs, src/OhMyStarsWindow.cs]
+    howto_topics:
+      - slug: detect-attitude-mode-changes
+        title: Detect when the player changes attitude mode
+        note: SetEnum/ToggleEnum catch-all plus direct AttitudeMode writers
+      - slug: harmony-and-aggressive-inlining
+        title: Patch methods marked AggressiveInlining
+        note: prefixes on inlinable FlightComputer methods may be bypassed; patch the callers too; KSA.dll is built with DisableOptimizations
+      - slug: harmony-prefixes-on-worker-threads
+        title: Know which thread a Harmony prefix runs on
+        note: the same method can be called on the main thread and on vehicle-solver workers (SetNullRot); guard shared state
+      - slug: harmony-target-methods-private
+        title: Patch private or protected game methods by name
+        note: TargetMethods with AccessTools.Method and __args
+  - id: mods/ohmystars/features/star-instance-restyle-patch
+    title: Star instance restyle patch
+    category: rendering
+    submod: null
+    summary: >-
+      StarMapBeforeMain prefix on InstancedStarTechnique.AddInstance rewrites each star's size and
+      colour bytes and skips adds when full; a constructor prefix (ref int __4, dormant in this build)
+      and reflective buffer re-creation resize the instance capacity at runtime, disposing the old GPU
+      buffer immediately rather than through RetiredResourceQueue.
+    novelty: high
+    techniques: [harmony-prefix, reflection, vulkan-buffer]
+    lifecycle: [startup:starmap-before-main, startup:all-mods-loaded, frame:draw-ui]
+    hooks:
+      - "starmap StarMapBeforeMain"
+      - "harmony-prefix KSA.InstancedStarTechnique.AddInstance"
+      - "harmony-prefix KSA.InstancedStarTechnique..ctor"
+      - "reflection KSA.InstancedRenderTechnique._maxInstances"
+      - "reflection KSA.InstancedStarTechnique.CreateInstanceBuffer"
+    game_types: [KSA.InstancedStarTechnique, KSA.InstancedRenderTechnique, KSA.ModLibrary, KSA.Mod, KSA.Program, KSA.Rendering.RetiredResourceQueue]
+    key_paths: [src/StarsEditPatcher.cs, src/StarsEditWindow.cs]
+    howto_topics:
+      - slug: restyle-background-stars
+        title: Change the size and colour of the background stars
+        note: prefix AddInstance before Program builds and populates the star technique
+      - slug: harmony-constructor-argument-rewrite
+        title: Change a constructor argument with a Harmony prefix
+        note: positional __N injection on a manually patched ConstructorInfo
+      - slug: resize-game-instance-buffers
+        title: Resize a game instanced-render buffer at runtime
+        note: reflection on readonly fields and protected CreateInstanceBuffer; frames in flight
+      - slug: safe-gpu-resource-replacement
+        title: Replace a game GPU buffer without breaking frames in flight
+        note: retire the old buffer with KSA.Rendering.RetiredResourceQueue instead of disposing it
+  - id: mods/ohmystars/features/star-binary-switcher
+    title: Star binary switcher
+    category: celestials
+    submod: null
+    summary: >-
+      Lists *.bin files in the mod and Core folders, rewrites Mod.StarBinaries by reflection, resets
+      and reloads the star technique with proportional quotas and stride sampling, and keeps named
+      presets in starsedit_settings.ini with game Popup confirmations. Only preset save/use/delete
+      writes the file, and a saved binary selection is never re-applied at start-up.
+    novelty: high
+    techniques: [reflection, imgui-window, ini-config]
+    lifecycle: [startup:all-mods-loaded, frame:draw-ui]
+    hooks:
+      - "starmap StarMapAllModsLoaded"
+      - "starmap StarMapBeforeGui"
+      - "reflection KSA.ModLibrary.Lookup"
+      - "reflection KSA.Mod.StarBinaries"
+      - "reflection KSA.Program._starStarTechnique"
+    game_types: [KSA.ModLibrary, KSA.Mod, KSA.Program, KSA.InstancedStarTechnique, KSA.ViewportRegistry, KSA.Popup, KSA.TimedAlert]
+    key_paths: [src/StarsEditWindow.cs]
+    howto_topics:
+      - slug: reload-the-star-field-at-runtime
+        title: Reload or replace the star field at runtime
+        note: ResetInstances, AddInstance per record, UpdateInstanceBuffer per viewport
+      - slug: enumerate-loaded-mods
+        title: Enumerate loaded mods and their manifest data
+        note: ModLibrary.Lookup is internal; reflection on GetList
+      - slug: game-styled-confirmation-popup
+        title: Show a game-styled confirmation popup
+        note: subclass KSA.Popup; the constructor self-registers with Popup.DrawAll
+  - id: mods/ohmystars/features/ini-settings-persistence
+    title: settings.ini persistence
+    category: persistence
+    submod: null
+    summary: >-
+      Flat key=value settings.ini beside the DLL, loaded at all-mods-loaded and rewritten on each
+      change (and when window open state changes), while plain ImGui.Begin keeps window geometry in
+      imgui.ini; the build overwrites the installed copy with shipped defaults.
+    novelty: low
+    techniques: [ini-config, imgui-window]
+    lifecycle: [startup:all-mods-loaded, frame:draw-ui]
+    hooks: ["starmap StarMapAllModsLoaded", "starmap StarMapBeforeGui"]
+    game_types: [KSA.ConsoleStyle, Brutal.ImGuiApi.ImGui]
+    key_paths: [src/OhMyStarsWindow.cs, src/settings.ini, src/OhMyStars.csproj]
+    howto_topics:
+      - slug: persist-mod-settings
+        title: Persist mod settings to a file
+        note: debounce writes; temp file and move for atomicity
+      - slug: persist-imgui-window-state
+        title: Persist ImGui window position, size and visibility
+        note: imgui.ini keeps geometry unless NoSavedSettings; visibility needs your own file
+  - id: mods/ohmystars/features/save-scoped-settings-sidecar
+    title: Save-scoped settings sidecar
+    category: persistence
+    submod: null
+    summary: >-
+      Postfixes on UncompressedSave.Load and Make (which UncompressedSave.Overwrite also calls) track
+      the save id and write an atomic per-save TOML-like file into the save folder through a generic
+      store; the settings type is empty in this version.
+    novelty: low
+    techniques: [harmony-postfix, save-sidecar]
+    lifecycle: [startup:all-mods-loaded, event:save, event:load]
+    hooks:
+      - "harmony-postfix KSA.UncompressedSave.Load"
+      - "harmony-postfix KSA.UncompressedSave.Make"
+    game_types: [KSA.UncompressedSave, KSA.GameSave, KSA.GameSaves, KSA.Constants]
+    key_paths: [src/SaveLoadObserver.cs, src/SaveScopedSettingsStore.cs, src/Settings.cs]
+    howto_topics:
+      - slug: save-sidecar-files
+        title: Store mod data next to a KSA save
+        note: a Make postfix also covers overwrites (Overwrite calls Make); patch Load; use GameSaves.SaveFolderPath
+  - id: mods/ohmystars/features/modmenu-entry-and-console-style-windows
+    title: ModMenu entry and game-styled windows
+    category: ui
+    submod: null
+    summary: >-
+      A [ModMenuEntry] static method toggles two windows drawn from StarMapBeforeGui with plain
+      ImGui.Begin plus ConsoleStyle/ConsoleWidgets styling (avoiding ConsoleStyle.BeginWindow's
+      NoSavedSettings), custom title-bar-coloured tab buttons and indented collapsible sections.
+    novelty: medium
+    techniques: [imgui-window, imgui-menu, starmap-lifecycle]
+    lifecycle: [frame:draw-ui]
+    hooks: ["starmap StarMapBeforeGui", "modmenu ModMenuEntry"]
+    game_types: [KSA.ConsoleStyle, KSA.ConsoleWidgets, KSA.ImGuiDisabledScope, KSA.Program, Brutal.ImGuiApi.ImGui]
+    key_paths: [src/OhMyStarsEntryPoint.cs, src/OhMyStarsWindow.cs, src/ModMenu.Attributes.dll]
+    howto_topics:
+      - slug: register-with-modmenu
+        title: Add a menu entry through ModMenu
+        note: ModMenuEntry attribute from a locally referenced ModMenu.Attributes.dll
+      - slug: game-styled-imgui-windows
+        title: Make ImGui windows look like KSA's console UI
+        note: ConsoleStyle.PushWidgetStyle and ConsoleWidgets rows without BeginWindow
+  - id: mods/ohmystars/features/game-styled-popups-and-toasts
+    title: Game-styled popups and toasts
+    category: ui
+    submod: null
+    summary: >-
+      ChoicePopup subclasses KSA.Popup and draws with the protected console-modal helpers the stock
+      ConfirmActionPopup uses (BeginConsoleModal, CenteredWrappedText, DrawConsoleButtonRow); the
+      Popup constructor registers the instance, so constructing it shows it in Popup.DrawAll right
+      after StarMapBeforeGui. TimedAlert.Create/CreateWarning give toasts.
+    novelty: medium
+    techniques: [imgui-window, game-popup-subclass]
+    lifecycle: [frame:draw-ui]
+    hooks: ["starmap StarMapBeforeGui"]
+    game_types: [KSA.Popup, KSA.PopupButton, KSA.PopupButtonKind, KSA.ConfirmActionPopup, KSA.TimedAlert, KSA.Alert, KSA.ConsoleStyle, KSA.Program]
+    key_paths: [src/StarsEditWindow.cs]
+    howto_topics:
+      - slug: game-styled-confirmation-popup
+        title: Show a game-styled confirmation popup
+        note: subclass KSA.Popup or call ConfirmActionPopup.Create; drawn by Popup.DrawAll in OnDrawUiFrame
+      - slug: in-game-toast-notifications
+        title: Show short in-game toast notifications
+        note: TimedAlert.Create and CreateWarning, drawn by Alert.DrawAll; durations in player time
+  - id: mods/ohmystars/features/mod-root-and-packaging
+    title: Mod root and packaging
+    category: getting-started
+    submod: null
+    summary: >-
+      Resolves its data folder from the running assembly location with ModLibrary.Find and Documents
+      fallbacks, uses a mod.toml without a [StarMap] table (entry assembly = manifest id), and deploys
+      an explicit file list with an overridable KSAGameDir.
+    novelty: low
+    techniques: [starmap-lifecycle, msbuild-deploy]
+    lifecycle: [startup:all-mods-loaded]
+    hooks: ["starmap StarMapAllModsLoaded"]
+    game_types: [KSA.ModLibrary, KSA.Mod]
+    key_paths: [src/ModPaths.cs, src/OhMyStars.csproj, packaging/mod.toml, NOTICE.txt]
+    howto_topics:
+      - slug: find-your-mod-folder
+        title: Find your mod's install folder at runtime
+        note: Assembly.Location first; instance paths and stale copies
+      - slug: ship-data-files-with-a-mod
+        title: Ship data files and third-party licences with a code mod
+        note: MSBuild content items with TargetPath, NOTICE for GPL and CC BY-SA data

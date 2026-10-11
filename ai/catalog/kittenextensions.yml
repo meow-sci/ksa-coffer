@@ -1,0 +1,264 @@
+mod: kittenextensions
+repo: KittenExtensions
+ref: b52467541a4fda3c3771eb2c157ed7574f9e2d7c
+summary: >-
+  KittenExtensions Continued (mod id KittenExtensionsContinued, assembly KittenExtensions; AMPW's
+  continuation of tom_is_unlucky's KittenExtensions) is a foundational StarMap library mod. In a
+  Harmony prefix on ModLibrary.PrepareAll it imports the planetMeshes, systems, assets and patches
+  files of every manifest mod (disabled ones included) into one XPathPatch document
+  (Root/Mod Id/RelPath), runs every <Patch> (Copy, Merge, Delete, If, IfAny, IfNone, With, SetVar) in
+  manifest order (operation semantics per the README; the XPathPatch submodule is not checked out),
+  and a transpiler on Mod.PrepareSystems, LoadSystems, LoadAssetBundles and LoadPlanetMeshes swaps
+  XmlLoader.Load<T> for a loader that deserializes from the patched document; LoadEditorTagDefinitions
+  and LoadPlanetRandomHeightmaps still read the unpatched files.
+  A Program.Main prefix scans every AssemblyLoadContext for classes tagged with name-matched
+  KxAsset/KxAssetInject attributes, adds them to XmlHelper.AttributeOverrides, rebuilds the game's
+  cached serializers and swaps the save serializers through UnsafeAccessor. A manifest debug flag
+  opens an ImGui patch step debugger before the game loop exists, failures end in an error dialog and
+  exit, and every run writes a per-mutation log. ShaderExtensions and MPFX depend on it non-optionally.
+features:
+  - id: mods/kittenextensions/features/gamedata-document
+    title: Combined GameData XML document
+    category: assets
+    submod: null
+    summary: >-
+      Before any mod XML is deserialized, a ModLibrary.PrepareAll prefix parses every manifest mod's
+      mod.toml with Tomlet and imports its planet mesh, system, asset and patch files into one
+      in-memory Root/Mod document with RelPath on each file root, then runs every Patch in manifest
+      order; disabled mods are included.
+    novelty: high
+    techniques: [xml-patch, harmony-prefix, toml-config]
+    lifecycle: [startup:asset-load]
+    hooks: ["harmony-prefix KSA.ModLibrary.PrepareAll"]
+    game_types: [KSA.ModLibrary, KSA.ModEntry, KSA.ModManifest, KSA.Mod, KSA.Program]
+    key_paths: [KittenExtensions/Patches.cs, KittenExtensions/Patch/Patcher.cs]
+    howto_topics:
+      - slug: patch-game-xml-data
+        title: Patch Core or another mod's XML data without copying files
+        note: list patch files under patches in mod.toml; KittenExtensions applies them to an in-memory document
+      - slug: mod-xml-load-order
+        title: Understand when and in which order KSA loads mod XML
+        note: PrepareAll (system headers), PreloadAssetBundles, LoadEditorTags, LoadAll, then AttachGameData
+      - slug: harmony-patch-order-on-shared-methods
+        title: Predict the order of several mods' Harmony patches on the same game method
+        note: equal-priority patches run in registration order; StarMap applies its own patches after every StarMapBeforeMain
+  - id: mods/kittenextensions/features/xpath-patch-operations
+    title: XML patch files and XPathPatch operations
+    category: assets
+    submod: null
+    summary: >-
+      Patch files hold Copy (Pos Replace/Append/Prepend/Before/After), Merge (_MergeId, _MergePos),
+      Delete, If/IfAny/IfNone, With and SetVar operations whose XPath 1.0 paths are evaluated from
+      Root; operations run in manifest then document order and may rewrite later patches.
+    novelty: high
+    techniques: [xml-patch, xpath]
+    lifecycle: [startup:asset-load]
+    hooks: ["harmony-prefix KSA.ModLibrary.PrepareAll"]
+    game_types: [KSA.AssetBundle, KSA.SystemTemplate, KSA.PlanetMeshCollection, KSA.GaugeCanvas]
+    key_paths: [README.md, KittenExtensions/Patch/Patcher.cs, KittenExtensions/Patch/PatchLogger.cs]
+    howto_topics:
+      - slug: xpath-xml-patch-recipes
+        title: Write XPath patch operations for game XML
+        note: Copy, Merge, Delete, If, With, SetVar against the combined GameData document; scope paths with Mod[@Id]
+      - slug: merge-xml-elements-by-id
+        title: Merge XML elements into existing data by Id
+        note: Merge with _MergeId and _MergePos controls
+      - slug: add-gauge-button-via-patch
+        title: Add a button to a stock gauge canvas with an XML patch
+        note: AFC appends a Button to GaugeCanvas EngineControl with Copy Pos="Append"
+  - id: mods/kittenextensions/features/xmlloader-call-site-redirect
+    title: XmlLoader call-site redirect
+    category: patching
+    submod: null
+    summary: >-
+      A HarmonyTargetMethods transpiler on four Mod loader methods replaces each constructed
+      XmlLoader.Load<T> operand with XmlPatcher.Load<T>.MakeGenericMethod(T), which reads the file node
+      from the patched document through an XmlReader with an override-aware serializer;
+      LoadEditorTagDefinitions and LoadPlanetRandomHeightmaps stay stock.
+    novelty: high
+    techniques: [harmony-transpiler, generic-call-rewrite, xml-asset, xml-patch]
+    lifecycle: [startup:starmap-before-main, startup:immediate-load, startup:asset-load]
+    hooks:
+      - "starmap StarMapBeforeMain"
+      - "harmony-transpiler KSA.Mod.PrepareSystems"
+      - "harmony-transpiler KSA.Mod.LoadSystems"
+      - "harmony-transpiler KSA.Mod.LoadAssetBundles"
+      - "harmony-transpiler KSA.Mod.LoadPlanetMeshes"
+    game_types: [KSA.XmlLoader, KSA.Mod, KSA.ModLibrary, KSA.XmlHelper, KSA.ILibraryData, KSA.AssetBundle, KSA.SystemInfo, KSA.SystemTemplate, KSA.PlanetMeshCollection]
+    key_paths: [KittenExtensions/Patches.cs, KittenExtensions/Patch/Patcher.cs, KittenExtensions/AssetEx.cs]
+    howto_topics:
+      - slug: harmony-transpiler-generic-call-swap
+        title: Retarget a generic method call inside game code with a transpiler
+        note: match GetGenericMethodDefinition, swap operand for a same-signature MakeGenericMethod
+      - slug: redirect-game-xml-loading
+        title: Feed the game's XML loaders from memory instead of disk
+        note: rewrite callers of XmlLoader.Load<T>, keep the OnDataLoad contract
+      - slug: duplicate-asset-id-first-wins
+        title: Know which copy of a duplicate asset id the game keeps
+        note: SerializedCollection.Register keeps the first entry; LoadEditorTags registers EditorTagDefs before LoadAll
+  - id: mods/kittenextensions/features/custom-xml-asset-types
+    title: Custom XML asset types via KxAsset attributes
+    category: assets
+    submod: null
+    summary: >-
+      A Program.Main prefix scans AssemblyLoadContext.All for assemblies that define their own
+      KittenExtensions.KxAssetAttribute or KxAssetInjectAttribute, matches attributes by full name,
+      validates member types, adds XmlElement mappings to XmlHelper.AttributeOverrides, rebuilds every
+      cached serializer and overwrites the GameSaves and VehicleSaves serializer backing fields with
+      UnsafeAccessor.
+    novelty: high
+    techniques: [xml-asset, harmony-prefix, reflection, unsafe-accessor, assembly-load-context, inter-mod-api]
+    lifecycle: [startup:starmap-before-main, startup:asset-load]
+    hooks:
+      - "harmony-prefix KSA.Program.Main"
+      - "reflection KSA.GameSaves.<UniverseSerializer>k__BackingField"
+      - "reflection KSA.VehicleSaves.<VehicleSerializer>k__BackingField"
+    game_types: [KSA.XmlHelper, KSA.AssetBundle, KSA.SerializedId, KSA.GameSaves, KSA.VehicleSaves, KSA.UniverseData, KSA.VehicleSaveData, KSA.Program, KSA.PartTemplate, KSA.PartInstance]
+    key_paths: [KittenExtensions/AssetEx.cs, KittenExtensions/Attributes.cs, KittenExtensions/Patches.cs]
+    howto_topics:
+      - slug: register-custom-xml-asset-type
+        title: Register a new XML asset element usable in any mod's asset files
+        note: KxAsset on a SerializedId subclass, attribute copy in namespace KittenExtensions, OnDataLoad registration
+      - slug: extend-xmlserializer-overrides
+        title: Extend the game's XmlSerializer mappings with XmlAttributeOverrides
+        note: copy existing XmlElement attributes, add new ones, rebuild cached serializers
+      - slug: write-readonly-static-with-unsafeaccessor
+        title: Replace a get-only static property value with UnsafeAccessor
+        note: StaticField accessor on the k__BackingField with UnsafeAccessorType naming the game type
+      - slug: run-after-all-mod-assemblies-load
+        title: Run code after every mod assembly is loaded but before the game starts
+        note: Harmony prefix on Program.Main; StarMapBeforeMain is too early for dependents
+  - id: mods/kittenextensions/features/patch-debug-stepper
+    title: Patch debug stepper
+    category: testing-and-tooling
+    submod: null
+    summary: >-
+      A debug = true key on the KittenExtensionsContinued manifest entry saves the unpatched document
+      to root.xml and blocks startup in an ImGui popup with Run All, Step, Step Over and Step Out, an
+      action tree with target and source XPath results, an XPath tester and a live document tree.
+    novelty: high
+    techniques: [imgui-window, toml-config, xml-patch, modal-loop]
+    lifecycle: [startup:asset-load]
+    hooks: ["harmony-prefix KSA.ModLibrary.PrepareAll"]
+    game_types: [KSA.ModLibrary, KSA.Constants, KSA.Popup, KSA.Program, KSA.ModManifest, KSA.ModEntry]
+    key_paths: [KittenExtensions/Patch/Patcher.cs, KittenExtensions/Patch/Patcher.Debug.cs, KittenExtensions/Patch/Utils.cs]
+    howto_topics:
+      - slug: debug-xml-patches
+        title: Debug XML patches step by step
+        note: enable debug in manifest.toml, inspect root.xml and step actions
+      - slug: manifest-toml-custom-flags
+        title: Read a custom per-mod flag from the player's manifest.toml
+        note: the game's ModManifest.Save rewrites only id and enabled, dropping extra keys (new-mod dialog, PrepareManifest, settings apply)
+  - id: mods/kittenextensions/features/patch-session-log
+    title: Patch session log
+    category: testing-and-tooling
+    submod: null
+    summary: >-
+      KittenExtensions.log in the Logs folder beside mods, deleted at StarMapBeforeMain, subscribes to
+      the patch executor's ActionStarted, ActionCompleted and ActionFailed events and writes one line
+      per Set, Insert, InsertText or Remove with old and new values, plus per-file summaries echoed to
+      the game log.
+    novelty: medium
+    techniques: [xml-patch, starmap-lifecycle, event-subscription, file-logging]
+    lifecycle: [startup:starmap-before-main, startup:asset-load]
+    hooks: ["starmap StarMapBeforeMain", "harmony-prefix KSA.ModLibrary.PrepareAll"]
+    game_types: [KSA.ModLibrary, KSA.Constants, Brutal.Logging.DefaultCategory]
+    key_paths: [KittenExtensions/Patch/PatchLogger.cs, KittenExtensions/Mod.cs]
+    howto_topics:
+      - slug: audit-xml-patch-changes
+        title: Find out which mod changed a given XML value
+        note: search KittenExtensions.log mutation lines by target file and object
+      - slug: per-session-mod-log-file
+        title: Write a per-session log file for a mod
+        note: delete at StarMapBeforeMain, append with AutoFlush, summarize to the game log
+  - id: mods/kittenextensions/features/pre-game-popup-loop
+    title: Pre-game ImGui popup loop and fatal patch errors
+    category: ui
+    submod: null
+    summary: >-
+      PopupTask wraps a KSA.Popup subclass and pumps GLFW events, an ImGui frame and a single Vulkan
+      render pass with only ImGui draw data, copied from SelectSystem, so the debugger and the error
+      dialog work inside ModLibrary.PrepareAll; ErrorAndExit shows the failing element with context
+      and calls Environment.Exit(1).
+    novelty: medium
+    techniques: [imgui-window, modal-loop, vulkan-render-pass, fail-fast]
+    lifecycle: [startup:asset-load]
+    hooks: ["harmony-prefix KSA.ModLibrary.PrepareAll"]
+    game_types: [KSA.Popup, KSA.SetupTaskBase, KSA.SelectSystem, KSA.ConfirmMods, KSA.Program, KSA.ImGuiHelper, KSA.ImGuiBackend, KSA.GameSettings, Core.Renderer]
+    key_paths: [KittenExtensions/Patch/Utils.cs, KittenExtensions/Patch/Patcher.cs, KittenExtensions/Patch/Patcher.Debug.cs, KittenExtensions/Patch/ImGuiEx.cs]
+    howto_topics:
+      - slug: startup-modal-imgui-dialog
+        title: Show an ImGui dialog during loading, before the game loop runs
+        note: subclass KSA.Popup and run the SelectSystem/ConfirmMods frame loop yourself
+      - slug: fail-fast-startup-error-dialog
+        title: Abort startup with a readable error dialog
+        note: show the error with copyable text, then Environment.Exit
+  - id: mods/kittenextensions/features/imgui-tree-view
+    title: ImGui tree view widget
+    category: ui
+    submod: null
+    summary: >-
+      ImGuiTreeView<N, A> with static abstract adapters draws trees with custom arrows, guide lines,
+      hover and selection fills on a two-channel draw list, keeps open state in ImGui storage,
+      expands and scrolls to a selected path, highlights ancestor chains and uses C# 14 extension
+      members on floatRect.
+    novelty: medium
+    techniques: [imgui-drawlist, imgui-window, static-abstract-interface, extension-members]
+    lifecycle: [startup:asset-load]
+    hooks: ["harmony-prefix KSA.ModLibrary.PrepareAll"]
+    game_types: [Brutal.ImGuiApi.ImGui, Brutal.ImGuiApi.ImDrawListPtr, Brutal.ImGuiApi.ImGuiStoragePtr, Brutal.Numerics.floatRect]
+    key_paths: [KittenExtensions/Patch/ImGuiEx.Tree.cs, KittenExtensions/Patch/ImGuiEx.cs, KittenExtensions/Patch/Patcher.Debug.cs]
+    howto_topics:
+      - slug: imgui-custom-tree-view
+        title: Draw a custom ImGui tree view with selection paths and guide lines
+        note: NodeScope with using, ImGui state storage for open state
+      - slug: imgui-draw-list-channels
+        title: Draw backgrounds beneath ImGui widgets with draw-list channels
+        note: ChannelsSplit(2), draw fills on channel 0, merge at the end
+  - id: mods/kittenextensions/features/continued-fork-identity
+    title: Continued fork with a new mod id and the old assembly name
+    category: getting-started
+    submod: null
+    summary: >-
+      The fork changes only the mod id (folder name KittenExtensionsContinued) and keeps AssemblyName,
+      namespace, attribute names and Harmony id, so dependents compiled against KittenExtensions.dll
+      keep binding through a non-optional StarMap dependency whose ImportedAssemblies names the
+      KittenExtensions assembly.
+    novelty: medium
+    techniques: [starmap-lifecycle, assembly-load-context, inter-mod-api, msbuild-targets]
+    lifecycle: [startup:starmap-before-main]
+    hooks: ["starmap StarMapBeforeMain"]
+    game_types: [KSA.ModEntry, KSA.ModLibrary]
+    key_paths: [KittenExtensions/KittenExtensions.csproj, KittenExtensions/CopyOutput.targets, KittenExtensions/Patch/Patcher.cs]
+    howto_topics:
+      - slug: fork-a-library-mod-compatibly
+        title: Fork or rename a library mod without breaking its dependents
+        note: new mod id, same assembly name and namespace; dependents import the assembly name
+      - slug: declare-starmap-mod-dependency
+        title: Declare a StarMap mod dependency and import its assembly
+        note: ModId is the folder id, ImportedAssemblies are assembly names, Optional defaults to false
+  - id: mods/kittenextensions/features/msbuild-mod-toml-generation
+    title: MSBuild-generated mod.toml and deploy
+    category: getting-started
+    submod: null
+    summary: >-
+      CopyOutput.targets (shared with ShaderExtensions and MPFX) writes mod.toml from MSBuild
+      properties, ModManifestArray-tagged None items and StarMapModDependency items, replaces
+      Release/<ModName> and the installed mod folder on every build; KSADLLs.props globs game DLLs; CI
+      builds against a private DLL repo and publishes to GitHub and SpaceDock.
+    novelty: medium
+    techniques: [msbuild-targets, mod-packaging, ci-release]
+    lifecycle: []
+    hooks: []
+    game_types: []
+    key_paths: [KittenExtensions/CopyOutput.targets, KittenExtensions/KSADLLs.props, KittenExtensions/KittenExtensions.csproj, .github/workflows/build.yml]
+    howto_topics:
+      - slug: generate-mod-toml-from-msbuild
+        title: Generate mod.toml and StarMap dependencies from the project file
+        note: ModManifestArray metadata and StarMapModDependency items
+      - slug: reference-game-dlls-by-glob
+        title: Reference the game's assemblies without copying them
+        note: glob Brutal*.dll, KSA.dll, Planet*.dll, Tomlet.dll with Private=False
+      - slug: ci-build-against-private-game-dlls
+        title: Build and release a KSA mod in CI with private game DLLs
+        note: GitHub App token to a private DLL repo, release on VersionPrefix change, SpaceDock upload

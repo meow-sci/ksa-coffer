@@ -1,0 +1,5 @@
+# Understand KSA coordinate frames and epochs history
+
+## 2026-10-10
+* **Update**: Review against build 2026.10.10.5554: [Use Ecl as the working frame](understand-ksa-coordinate-frames-and-epochs-2.md) said a `StarMapAfterOnFrame` hook's drawing "appears next frame"; gizmo instances submitted there are wiped by `GizmosRenderer.ResetInstances` (`Program.cs` L2260) before the next frame's render, so the sentence now says so. [Equatorial versus ecliptic reference planes](understand-ksa-coordinate-frames-and-epochs-4.md) no longer cites the AFC feature page as saying the stock inclination is ecliptic (that page is corrected); `Orbit.Inclination` is `acos(h.Z / |h|)` against CCI +Z, the parent pole (`Orbit.cs` L1611-L1630).
+* **Creation**: Wrote the overview and five approach articles (gatOS and Kitten-Engineer-Redux frame table, KSArmory ECL working frame, KSA-MeasureTools owner-frame anchors, KSA-AdvancedFlightComputer reference planes, KSAGolf draw anchor) against game build 2026.10.10.5554.

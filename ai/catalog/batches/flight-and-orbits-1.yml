@@ -1,0 +1,1283 @@
+batch: flight-and-orbits-1
+game_loop_reference: getting-started/game-loop-and-lifecycle
+category: flight-and-orbits
+category_description: Reading a vehicle's flight state and orbit, working in KSA's coordinate frames and epochs, driving the
+  flight computer and burns from a mod, extending the stock Transfer Planner, transfer and encounter math, targets, map-view
+  overlays and guided flight (ascent, boostback, landing, ballistic and homing guidance).
+groups:
+  flight-state: 'Reading where a craft is and how it flies: coordinate frames and epochs, flight state, horizon-frame angles,
+    orbit elements, mission time and simulation speed.'
+  autopilot: 'Flying a craft from code: maneuver nodes, executing burns, the flight computer and attitude modes, per-vehicle
+    autopilots and navigation targets.'
+  transfers: 'Transfer planning: patched-conic delta-v, multi-leg routes, transfer and launch windows, flyby targeting and
+    extending the stock Transfer Planner.'
+topics:
+- slug: understand-ksa-coordinate-frames-and-epochs
+  title: Understand KSA coordinate frames and epochs (ECL, CCE, CCI, CCF, ego, body)
+  kind: reference
+  group: flight-state
+  batch: flight-and-orbits-1
+  summary: Reference for which frame and epoch each Vehicle, Orbit and body member lives in, how to sample two positions at
+    one consistent epoch, how to convert a position to latitude, longitude and altitude, and what the usual conversion pitfalls
+    are.
+  game_types:
+  - KSA.Vehicle
+  - KSA.IParentBody
+  - KSA.Orbit
+  - KSA.Camera
+  - KSA.CelestialFrameMath
+  - KSA.Universe
+  - KSA.PhysicsBubble
+  - KSA.Celestial
+  engine_pointers:
+  - current/decomp/KSA/Celestial.cs (GetCce2Cci, GetCci2Ccf)
+  - current/decomp/KSA/Orbit.cs (Inclination, CreateFromStateCci)
+  - current/decomp/KSA/Camera.cs (EclToEgo, GetPositionEgo)
+  - current/decomp/KSA/Camera.cs GetPositionEgo, EclToEgo
+  - current/decomp/KSA/Universe.cs GetElapsedTime, ApplyVehicleSolvers
+  - current/decomp/KSA/Celestial.cs GetCci2Ccf, GetLlaFromCcf
+  lifecycle:
+  - frame:draw-ui
+  - frame:dispatch-solvers
+  - frame:celestials
+  - frame:after-on-frame
+  - frame:viewports
+  approaches:
+  - n: 1
+    title: Vessel state in CCI/CCF/ECL
+    mod: gatos
+    features:
+    - mods/gatos/features/vessel-flight-state-reads
+    - mods/kitten-engineer-redux/features/orbit-readouts-and-hohmann-estimate
+    technique: immutable-snapshot
+    note: 'Attitude is stored as Body2Cce; the table of which member is in which frame. Also (convert-position-to-latitude-longitude):
+      Sub-step folded from convert-position-to-latitude-longitude (give it its own section): The two mods use the same two
+      calls; the article also covers the reverse (lat/lon to a position) used in site and landing code.'
+  - n: 2
+    title: Ecl as the mod's working frame, ego for anything drawn
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/ecliptic-frames-and-epochs
+    - mods/ksarmory/features/cpa-threat-classification
+    technique: frame-invariant-signatures
+    note: 'All state in Ecl at the sub-step instant; the 29.8 km/s carrier that makes mixing epochs fail. Also (sample-positions-at-a-consistent-epoch):
+      Sub-step folded from sample-positions-at-a-consistent-epoch (give it its own section): One parent-first walk in ApplyVehicleSolvers
+      decides which instant each engine sample belongs to; relative motion taken from paired samples.'
+  - n: 3
+    title: Anchors stored in the owner's frame and resolved on use
+    mod: ksa-measuretools
+    features:
+    - mods/ksa-measuretools/features/live-body-relative-anchors
+    technique: frame-relative-anchors
+    note: CCE offset, orbit-parent offset, body-fixed lat/lon and part-local asmb frames as resolve-to-ECL recipes.
+  - n: 4
+    title: Equatorial versus ecliptic reference planes
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/apse-and-inclination-quick-tools
+    technique: custom-physics
+    note: Orbit.Inclination is measured against CCI +Z (the parent pole); the ecliptic normal is CCE +Z via GetCce2Cci (AFC labels the two the other way round).
+  - n: 5
+    title: Pair the rendered Ego position with Ecl offsets from the same instant
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/frame-epoch-draw-anchor
+    technique: frame-epoch
+    note: 'Sub-step folded from sample-positions-at-a-consistent-epoch (give it its own section): Draw next to a craft by
+      measuring offsets against a platform sample taken the same frame, avoiding the 500 m-per-frame ecliptic error.'
+  related:
+  - build-a-site-frame-and-compute-a-launch-window
+  - anchor-and-pick-points-on-bodies
+  - compute-mission-elapsed-time-and-detect-liftoff
+  - find-closest-approach-along-the-flight-plan
+  merged_from:
+  - understand-ksa-coordinate-frames
+  - sample-positions-at-a-consistent-epoch
+  - convert-position-to-latitude-longitude
+- slug: read-vehicle-flight-state
+  title: Read a vehicle's position, velocity, attitude, orbit and flight instruments
+  kind: howto
+  group: flight-state
+  batch: flight-and-orbits-1
+  summary: Pull a consistent kinematic snapshot (position, velocity, attitude, mass, orbit, navball, SOI encounters) out of
+    KSA.Vehicle, knowing which frame and unit each member uses and which thread and frame point the read is valid on; then
+    derive the instrument values (barometric versus radar altitude, orbital versus surface speed, g-load, dynamic pressure,
+    Mach).
+  game_types:
+  - KSA.Vehicle
+  - KSA.Orbit
+  - KSA.NavBallData
+  - KSA.PatchedConic
+  - KSA.Encounter
+  - KSA.UniverseTime
+  - KSA.PhysicsEnvironment
+  - KSA.PhysicalAtmosphereReference
+  - KSA.ReadOnlyPhysicsStates
+  - KSA.SituationEx
+  engine_pointers:
+  - current/decomp/KSA/Vehicle.cs (GetPositionCci, GetVelocityCci, GetBody2Cci, Orbit, NavBallData)
+  - current/decomp/KSA/Program.cs OnFrame (what is settled after the solver apply)
+  - current/decomp/KSA/Universe.cs ApplyVehicleSolvers
+  - current/decomp/KSA/Vehicle.cs (GetBarometricAltitude, GetRadarAltitude, GetSurfaceSpeed, AccelerationBody)
+  - current/decomp/KSA/PhysicsEnvironment.cs
+  - current/decomp/KSA/PhysicalAtmosphereReference.cs
+  lifecycle:
+  - frame:viewports
+  - frame:draw-ui
+  - frame:after-on-frame
+  approaches:
+  - n: 1
+    title: Immutable snapshot built in a main-viewport OnFrame prefix
+    mod: gatos
+    features:
+    - mods/gatos/features/vessel-flight-state-reads
+    technique: immutable-snapshot
+    note: CCI/CCF/ECL members, NaN scrubbing, UniverseTime sentinels and SOI encounters copied into a record that other threads
+      can read without touching the game.
+  - n: 2
+    title: Plain snapshot taken from StarMapAfterOnFrame, drawn next frame
+    mod: ksa-public-telemetry
+    features:
+    - mods/ksa-public-telemetry/features/live-flight-telemetry-sampling
+    technique: snapshot-copy
+    note: 'One read per frame after the game finished the frame, one frame of latency, no locks; shows the apsides, thrust,
+      T/W and downrange extras. Also (read-altitude-speed-and-g-load): Sub-step folded from read-altitude-speed-and-g-load
+      (give it its own section): Reads dynamic pressure from ReadOnlyPhysicsStates.Environment, sums active engine thrust,
+      derives T/W and downrange.'
+  - n: 3
+    title: Postfix read of a settled vehicle for an instrument panel
+    mod: ksa-aircrafthud
+    features:
+    - mods/ksa-aircrafthud/features/flight-data-from-vehicle
+    technique: harmony-postfix
+    note: 'Reading after the vehicle solver results are applied so values are not a frame stale; compare with approaches 1
+      and 2. Also (read-altitude-speed-and-g-load): Sub-step folded from read-altitude-speed-and-g-load (give it its own section):
+      Barometric versus radar altitude, surface speed, AccelerationBody and Mach computed from PhysicalAtmosphereReference.'
+  - n: 4
+    title: Speed of sound from pressure and density
+    mod: ksaero
+    features:
+    - mods/ksaero/features/mach-from-game-atmosphere
+    technique: flight-math
+    note: 'Sub-step folded from read-altitude-speed-and-g-load (give it its own section): sqrt(1.4 p / rho) from PhysicsEnvironment;
+      constant per body because KSA atmospheres are isothermal.'
+  related:
+  - understand-ksa-coordinate-frames-and-epochs
+  - read-orbit-elements-and-timing
+  - drive-the-flight-computer-and-attitude-modes-from-a-mod
+  - read-flight-state-in-a-local-horizon-frame
+  - compute-a-suicide-burn
+  merged_from:
+  - read-altitude-speed-and-g-load
+- slug: read-flight-state-in-a-local-horizon-frame
+  title: Read roll, pitch, heading, angle of attack and sideslip in the local horizon frame
+  kind: howto
+  group: flight-state
+  batch: flight-and-orbits-1
+  summary: 'Express a vehicle''s attitude and velocity relative to the local horizon (east-north-up or north-east-down) of
+    the body it is over: roll, pitch, heading, flight-path angle, angle of attack and sideslip, and the surface-relative velocity
+    on a rotating body.'
+  game_types:
+  - KSA.Vehicle
+  - KSA.VehicleReferenceFrameEx
+  - KSA.QuaternionEx
+  - Brutal.Numerics.doubleQuat
+  - KSA.PhysicalAtmosphereReference
+  engine_pointers:
+  - current/decomp/KSA/VehicleReferenceFrameEx.cs GetEnuBody2Cci
+  - current/decomp/KSA/Vehicle.cs GetBody2Cci
+  - current/decomp/KSA/Vehicle.cs (GetBody2Cci, surface velocity)
+  - current/decomp/KSA/VehicleReferenceFrameEx.cs
+  lifecycle:
+  - frame:viewports
+  - frame:dispatch-solvers
+  approaches:
+  - n: 1
+    title: Concatenate GetBody2Cci with the inverse of the ENU frame, then ToRollPitchYawRadians
+    mod: ksa-aircrafthud
+    features:
+    - mods/ksa-aircrafthud/features/flight-data-from-vehicle
+    technique: custom-physics
+    note: 'The game-supplied ENU body frame does the horizon work; the article shows the composition order and the resulting
+      angle conventions. Also (compute-angle-of-attack-and-sideslip): Sub-step folded from compute-angle-of-attack-and-sideslip
+      (give it its own section): Alpha and beta from the body-frame velocity components; why the wind-relative velocity is
+      the right input.'
+  - n: 2
+    title: Transform basis vectors with the game's own quaternion type
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/vehicle-state-to-site-frame
+    technique: frame-conversion
+    note: Never assume a quaternion convention (doubleQuat is scalar-last); rotate known basis vectors and rebuild the attitude
+      from them. Body axes inferred from the measured thrust direction.
+  related:
+  - build-a-site-frame-and-compute-a-launch-window
+  - understand-ksa-coordinate-frames-and-epochs
+  - predict-impact-point-and-build-a-ballistic-computer
+  - fly-a-boostback-and-glide-to-a-landing-site
+  merged_from:
+  - compute-attitude-in-the-local-horizon-frame
+  - compute-angle-of-attack-and-sideslip
+- slug: read-orbit-elements-and-timing
+  title: Read orbit elements, apsides and event countdowns safely
+  kind: howto
+  group: flight-state
+  batch: flight-and-orbits-1
+  summary: Read a vehicle's or celestial's orbit elements, apsides, periods and event countdowns, and pick the right Mu for
+    transfer maths, without tripping on hyperbolic orbits, NaN or sentinel values. Body physical data (radius, mass, SOI,
+    atmosphere, rotation) lives in read-body-properties-and-orbit-elements.
+  game_types:
+  - KSA.Orbit
+  - KSA.Vehicle
+  - KSA.TrueAnomaly
+  - KSA.UniverseTime
+  - KSA.IParentBody
+  - KSA.Celestial
+  - KSA.Astronomical
+  - KSA.IOrbiter
+  - KSA.CelestialSystem
+  - KSA.AtmosphereReference
+  engine_pointers:
+  - current/decomp/KSA/Orbit.cs (GetRemainingTimeTo, GetPhaseAngle, Mu)
+  - current/decomp/KSA/UniverseTime.cs EndOfTime, IsSaturated
+  - current/decomp/KSA/CelestialSystem.cs
+  - current/decomp/KSA/Orbit.cs Mu
+  - current/decomp/KSA/Astronomical.cs
+  lifecycle:
+  - frame:draw-ui
+  - frame:viewports
+  approaches:
+  - n: 1
+    title: Readouts from state vectors in the CCI frame
+    mod: kitten-engineer-redux
+    features:
+    - mods/kitten-engineer-redux/features/orbit-readouts-and-hohmann-estimate
+    technique: flight-math
+    note: Apsides, period, time to node via GetRemainingTimeTo(TrueAnomaly), eccentricity vector.
+  - n: 2
+    title: Sentinel-safe orbit and encounter reads
+    mod: gatos
+    features:
+    - mods/gatos/features/vessel-flight-state-reads
+    technique: immutable-snapshot
+    note: EndOfTime converts to a finite number; test IsSaturated before using times from an escape or non-intersecting orbit.
+  - n: 3
+    title: Orbit.Mu versus Parent.Mu and a per-system cache for transfer math
+    mod: ksa-deltavmap
+    features:
+    - mods/ksa-deltavmap/features/patched-conic-transfer-model
+    technique: per-system-cache
+    note: 'Sub-step folded from read-celestial-orbit-and-body-data (give it its own section): Cache keyed by the Universe.CurrentSystem
+      reference, not the Id, so a reload invalidates it.'
+  related:
+  - plan-multi-leg-and-interstellar-delta-v-routes
+  - estimate-transfer-delta-v-with-patched-conics
+  - read-body-properties-and-orbit-elements
+  merged_from:
+  - read-orbit-elements-and-body-data
+  note: 'Approaches merged into other topics: "Catalog walk with session-constant data cached" -> read-body-properties-and-orbit-elements;
+    "Derived body properties (radius, mass, escape velocity, SOI, periods)" -> read-body-properties-and-orbit-elements.'
+- slug: compute-mission-elapsed-time-and-detect-liftoff
+  title: Show mission elapsed time from actual liftoff and pick the right clock under time warp
+  kind: howto
+  group: flight-state
+  batch: flight-and-orbits-1
+  summary: Start a mission clock at real liftoff instead of scene load, and choose between universe time, applied simulation
+    step and wall clock so timers, schedulers and cooldowns behave under time warp.
+  game_types:
+  - KSA.Vehicle
+  - KSA.UniverseTime
+  - KSA.Universe
+  - KSA.CelestialSystem
+  - KSA.LookupCollection
+  - KSA.SimSpeed
+  - KSA.Program
+  engine_pointers:
+  - current/decomp/KSA/Vehicle.cs LaunchGameTime, Split
+  - current/decomp/KSA/Universe.cs GetElapsedSeconds
+  - current/decomp/KSA/Universe.cs (GetLastSimStep, GetElapsedSeconds, GetAchivedSpeedFraction)
+  lifecycle:
+  - frame:after-on-frame
+  - frame:draw-ui
+  - frame:celestials
+  approaches:
+  - n: 1
+    title: T-/T+ clock keyed on LaunchGameTime with contact-loss liftoff detection
+    mod: ksa-public-telemetry
+    features:
+    - mods/ksa-public-telemetry/features/mission-clock-and-liftoff-detection
+    technique: starmap-lifecycle
+    note: Liftoff from contact loss, burning engine and climb rate; LaunchGameTime nanoseconds as the grouping key for stages;
+      revert detection when elapsed time goes backwards; epochs persisted to config.
+  - n: 2
+    title: Advance on Universe.GetLastSimStep, deduplicated on NextTime
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/consume-applied-sim-step
+    technique: sim-clock
+    note: 'Sub-step folded from choose-a-clock-under-time-warp (give it its own section): Pause and warp are right by construction;
+      contiguity and the two-frame delay.'
+  - n: 3
+    title: Render, wall and sim clocks for timed command playback
+    mod: gatos
+    features:
+    - mods/gatos/features/timed-command-scheduler
+    technique: command-queue
+    note: 'Sub-step folded from choose-a-clock-under-time-warp (give it its own section): dtPlayer is clamped; use sim time
+      for orbital events, with coalescing catch-up.'
+  related:
+  - create-and-read-maneuver-nodes
+  - set-simulation-speed-from-a-mod
+  merged_from:
+  - choose-a-clock-under-time-warp
+- slug: set-simulation-speed-from-a-mod
+  title: Set, limit and request simulation speed from a mod
+  kind: howto
+  group: flight-state
+  batch: flight-and-orbits-1
+  summary: Change the time-warp rate from code, clamp it during sensitive phases, and request a lower speed for a feature
+    that cannot tolerate warp.
+  game_types:
+  - KSA.Universe
+  - KSA.SimSpeed
+  - KSA.Program
+  - KSA.InputEvents
+  engine_pointers:
+  - current/decomp/KSA/Universe.cs SetSimulationSpeed
+  - current/decomp/KSA/InputEvents.cs AutoWarpBuffer
+  lifecycle:
+  - frame:prepare
+  - frame:viewports
+  - frame:draw-ui
+  - frame:after-on-frame
+  approaches:
+  - n: 1
+    title: Universe.SetSimulationSpeed(f, alert false)
+    mod: gatos
+    features:
+    - mods/gatos/features/debug-cheats-teleport-refuel-warp
+    technique: command-queue
+    note: Direct call from a drained command.
+  - n: 2
+    title: InputEvents.AutoWarpBuffer drained in PrepareFrame
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/launch-window-to-target-plane
+    technique: input-buffer
+    note: Request warp-to-time through the game's own buffer so the stock warp UI and limits apply.
+  - n: 3
+    title: Feedback controller over SetSimulationSpeed with player yield and restore
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/timewarp-policy-during-engagements
+    technique: control-loop
+    note: Settles across the two-frame actuator delay; restores the speed when the need passes.
+  related:
+  - compute-mission-elapsed-time-and-detect-liftoff
+  - build-a-site-frame-and-compute-a-launch-window
+- slug: create-and-read-maneuver-nodes
+  title: Create, chain and read stock maneuver nodes from code
+  kind: howto
+  group: autopilot
+  batch: flight-and-orbits-1
+  summary: Turn a computed impulse into a stock maneuver node, compute set-apsis, circularize and plane-change burns, place
+    a chain of burns on the orbits earlier burns produce, read back a vehicle's planned burns, and draw them on a mission
+    timeline.
+  game_types:
+  - KSA.Burn
+  - KSA.BurnPlan
+  - KSA.FlightPlan
+  - KSA.PatchedConic
+  - KSA.InputEvents
+  - KSA.TransferPlanner
+  - KSA.Orbit
+  - KSA.OrbitalTransfers
+  - KSA.PatchTransition
+  - KSA.FlightComputer
+  - KSA.UniverseTime
+  - KSA.Vehicle
+  engine_pointers:
+  - current/decomp/KSA/Burn.cs Create
+  - current/decomp/KSA/InputEvents.cs BurnUpdateBuffer
+  - current/decomp/KSA/TransferPlanner.cs
+  - current/decomp/KSA/Orbit.cs
+  - current/decomp/KSA/FlightPlan.cs
+  - current/decomp/KSA/FlightPlan.cs CalculateBurnPatch, ComputeCompleteTrajectory
+  - current/decomp/KSA/BurnPlan.cs (HasActiveBurns, BurnCount, TryGetBurn)
+  - current/decomp/KSA/BurnPlan.cs
+  lifecycle:
+  - frame:draw-ui
+  - frame:input
+  - frame:apply-solvers
+  - frame:after-on-frame
+  approaches:
+  - n: 1
+    title: Burn.Create on the right patch, queued through InputEvents.BurnUpdateBuffer
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/planner-burn-node-creation
+    technique: input-buffer
+    note: Avoids racing the vehicle solver by using the game's own buffers.
+  - n: 2
+    title: Schedule an impulsive burn directly on the flight computer
+    mod: gatos
+    features:
+    - mods/gatos/features/solver-phase-command-drain
+    technique: command-queue
+    note: Sets FlightComputer.Burn = new BurnTarget from a Priority.First prefix on ExecuteNextVehicleSolvers, because CopyFrom
+      would erase writes made earlier in the frame.
+  - n: 3
+    title: Opposite-apse and AN/DN impulse formulas
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/apse-and-inclination-quick-tools
+    technique: custom-physics
+    note: 'Sub-step folded from plan-apse-and-plane-change-burns (give it its own section): Reads the post-burn patch from
+      the flight plan; ecliptic versus equatorial inclination. Also (chain-burns-through-the-flight-plan): Sub-step folded
+      from chain-burns-through-the-flight-plan (give it its own section): Read the patch after the last pending burn before
+      computing a quick-tool impulse.'
+  - n: 4
+    title: CalculateBurnPatch pass by pass
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/multi-pass-burn-splitting
+    technique: custom-physics
+    note: 'Sub-step folded from chain-burns-through-the-flight-plan (give it its own section): Every later pass is placed
+      on the orbit the earlier passes produce.'
+  - n: 5
+    title: TryGetBurn loop each frame converted to mission time
+    mod: ksa-public-telemetry
+    features:
+    - mods/ksa-public-telemetry/features/mission-timeline-with-planned-burns
+    technique: starmap-lifecycle
+    note: 'Sub-step folded from read-planned-maneuver-burns (give it its own section): HasActiveBurns, BurnCount, TryGetBurn(i,
+      out Burn), Burn.Time and HasDeltaV. Also (draw-a-mission-timeline-with-planned-burns): Sub-step folded from draw-a-mission-timeline-with-planned-burns
+      (give it its own section): Label placement with cursors and leader lines; shares code with read-planned-maneuver-burns.'
+  related:
+  - drive-the-flight-computer-and-attitude-modes-from-a-mod
+  - set-and-clear-the-vehicle-target
+  - execute-planned-burns-with-the-stock-autopilot
+  - inject-ui-into-a-stock-window
+  - aim-a-transfer-at-a-flyby-periapsis
+  - compute-mission-elapsed-time-and-detect-liftoff
+  merged_from:
+  - create-a-maneuver-node-from-code
+  - plan-apse-and-plane-change-burns
+  - chain-burns-through-the-flight-plan
+  - read-planned-maneuver-burns
+  - draw-a-mission-timeline-with-planned-burns
+- slug: execute-planned-burns-with-the-stock-autopilot
+  title: Execute planned burns hands-free with the stock Auto burn
+  kind: howto
+  group: autopilot
+  batch: flight-and-orbits-1
+  summary: Split a long burn into several periapsis passes, hand each computed maneuver to the stock Auto burn, detect which
+    planned burn the flight computer just finished, and remove completed burns from the plan safely so a sequence runs without
+    the player.
+  game_types:
+  - KSA.FlightComputer
+  - KSA.BurnPlan
+  - KSA.Burn
+  - KSA.Vehicle
+  - KSA.InputEvents
+  - KSA.TransferPlanner
+  - KSA.FlightPlan
+  - KSA.PatchedConic
+  - KSA.SequencePerformanceList
+  - KSA.SequencePerformance
+  - KSA.PatchTransition
+  - KSA.FlightComputerBurnMode
+  - KSA.BurnTarget
+  - KSA.Program
+  - KSA.Constants
+  engine_pointers:
+  - current/decomp/KSA/FlightComputer.cs RaisePendingAlerts
+  - current/decomp/KSA/BurnPlan.cs
+  - current/decomp/KSA/FlightPlan.cs CalculateBurnPatch
+  - current/decomp/KSA/SequencePerformanceList.cs
+  - current/decomp/KSA/Vehicle.cs SetEnum
+  - current/decomp/KSA/FlightComputer.cs
+  - current/decomp/KSA/FlightComputer.cs RaisePendingAlerts, EndAutoBurn
+  lifecycle:
+  - frame:apply-solvers
+  - frame:prepare
+  - frame:input
+  - frame:draw-ui
+  - frame:dispatch-solvers
+  approaches:
+  - n: 1
+    title: Multi-pass state machine on stock Auto with a save sidecar
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/multi-pass-execution
+    technique: save-sidecar
+    note: 'Advance on stock burn-end events; persist progress per vehicle. Also (hand-a-maneuver-to-the-stock-autopilot):
+      Sub-step folded from hand-a-maneuver-to-the-stock-autopilot (give it its own section): Timing of the re-arm relative
+      to the input buffers.'
+  - n: 2
+    title: Equal-time or equal-dv allocation from a private staging model
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/multi-pass-burn-splitting
+    technique: custom-physics
+    note: 'Sub-step folded from split-a-long-burn-into-passes (give it its own section): Pass-by-pass placement on the evolving
+      orbit.'
+  - n: 3
+    title: Stock computes ignition timing before you arm Auto
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/deorbit-landing-planner
+    technique: harmony-prefix
+    note: 'Sub-step folded from hand-a-maneuver-to-the-stock-autopilot (give it its own section): Node first, Auto once the
+      queued burn exists, braking re-planned from the measured orbit.'
+  - n: 4
+    title: RaisePendingAlerts prefix captures, postfix learns whether EndAutoBurn kept the burn
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/stock-burn-end-detection
+    technique: harmony-prefix
+    note: 'Sub-step folded from react-to-stock-burn-completion (give it its own section): Uses __state to carry data from
+      prefix to postfix.'
+  - n: 5
+    title: Postfix on RaisePendingAlerts
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/auto-remove-finished-burns
+    technique: harmony-postfix
+    note: 'Sub-step folded from remove-finished-burns-from-the-plan (give it its own section): Acts only when the completed
+      burn is the last one in the plan.'
+  related:
+  - compute-transfer-windows
+  - read-staged-delta-v-from-the-game
+  - execute-burns-with-rcs-and-throttle-inputs
+  merged_from:
+  - execute-planned-burns-hands-free
+  - split-a-long-burn-into-passes
+  - hand-a-maneuver-to-the-stock-autopilot
+  - react-to-stock-burn-completion
+  - remove-finished-burns-from-the-plan
+- slug: execute-burns-with-rcs-and-throttle-inputs
+  title: Execute burns with RCS translation and throttle inputs from code
+  kind: howto
+  group: autopilot
+  batch: flight-and-orbits-1
+  summary: Drive throttle and RCS translation inputs from a mod, execute a burn with RCS only, and trim and release several
+    payloads along one line from a bus.
+  game_types:
+  - KSA.Vehicle
+  - KSA.FlightComputer
+  - KSA.BurnTarget
+  - KSA.BurnPlan
+  - KSA.FlightComputerOutput
+  - KSA.InputAction
+  - KSA.ManualControlInputs
+  - KSA.PhysicsBubble
+  - KSA.VehicleProperties
+  - KSA.Universe
+  engine_pointers:
+  - current/decomp/KSA/Vehicle.cs SetEnum
+  - current/decomp/KSA/FlightComputer.cs ComputeControl
+  - current/decomp/KSA/Vehicle.cs (_manualControlInputs, ProcessInput)
+  - current/decomp/KSA/ManualControlInputs.cs
+  - current/decomp/KSA/PhysicsBubble.cs
+  lifecycle:
+  - frame:input
+  - frame:apply-solvers
+  - physics:vehicle-solver
+  - frame:viewports
+  - frame:draw-ui
+  - frame:dispatch-solvers
+  approaches:
+  - n: 1
+    title: Intercept the Auto burn-mode request and drive an RCS state machine
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/rcs-burn-execution
+    - mods/ksa-advancedflightcomputer/features/rcs-thruster-allocation
+    technique: harmony-prefix
+    note: Immutable command handed to the vehicle worker keyed by the shared BurnPlan; end through the stock completion flags;
+      jet selection by signed-axis groups or a fuel-optimal LP.
+  - n: 2
+    title: One-direction-at-a-time trim in pulse mode
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/mirv-bus-trim-and-release
+    technique: closed-loop-trim
+    note: 'Null the velocity error against a propagated burnout solution through input injection, then go quiet so KSA can
+      put the craft back on rails. Also (deploy-multiple-payloads-from-a-bus): Sub-step folded from deploy-multiple-payloads-from-a-bus
+      (give it its own section): Release pointing and per-round focus; disposing of spent vehicles.'
+  - n: 3
+    title: Reflection write into the private _manualControlInputs struct
+    mod: gatos
+    features:
+    - mods/gatos/features/manual-throttle-and-rcs-inputs
+    technique: reflection
+    note: 'Sub-step folded from drive-throttle-and-rcs-inputs-from-code (give it its own section): Box, set, write the box
+      back; ThrusterMapFlags bits; RCS mode and attitude hold gate them.'
+  - n: 4
+    title: Vehicle.ProcessInput injection from the PrepareWorker window
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/fly-another-vehicle
+    technique: input-injection
+    note: 'Sub-step folded from drive-throttle-and-rcs-inputs-from-code (give it its own section): PrepareWorker clears held
+      input on the controlled craft, so commands must be re-applied each step.'
+  related:
+  - execute-planned-burns-with-the-stock-autopilot
+  - run-an-autopilot-for-every-vehicle-each-step
+  - predict-impact-point-and-build-a-ballistic-computer
+  merged_from:
+  - execute-burns-with-rcs-translation
+  - drive-throttle-and-rcs-inputs-from-code
+  - deploy-multiple-payloads-from-a-bus
+- slug: drive-the-flight-computer-and-attitude-modes-from-a-mod
+  title: Drive the flight computer and attitude modes from a mod
+  kind: howto
+  group: autopilot
+  batch: flight-and-orbits-1
+  summary: 'Write a Custom attitude target (Auto mode, EclBody or inertial frame, Euler angles or quaternion) so the stock
+    controller flies a mod-computed attitude, command gimbals, and know which write window to use: the vehicle solver snapshots
+    the flight computer each step and applies results afterward, so writes at the wrong moment are erased, raced or seen a
+    step late (worker-copy channel facts, PrepareWorker prefix, ExecuteNextVehicleSolvers prefix, ComputeControl on the worker,
+    post-ApplyVehicleSolvers tick).'
+  game_types:
+  - KSA.Vehicle
+  - KSA.FlightComputer
+  - KSA.VehicleReferenceFrameEx
+  - KSA.FlightComputerAttitudeTrackTarget
+  - KSA.KittenEva
+  - KSA.VehicleUpdateState
+  - KSA.Universe
+  - KSA.VehicleUpdateData
+  - KSA.PhysicsBubble
+  - KSA.Program
+  - KSA.InputEvents
+  - KSA.BurnPlan
+  - KSA.FlightComputerOutput
+  - KSA.GimbalController
+  - KSA.GimbalControllerState
+  - KSA.EngineController
+  - KSA.RocketCore
+  - KSA.FlightComputerBurnMode
+  - KSA.BurnTarget
+  engine_pointers:
+  - current/decomp/KSA/FlightComputer.cs (AttitudeMode, AttitudeFrame, AttitudeTrackTarget, CustomAttitudeTarget)
+  - current/decomp/KSA/VehicleReferenceFrameEx.cs
+  - current/decomp/KSA/Vehicle.cs PrepareWorker
+  - current/decomp/KSA/Universe.cs ExecuteNextVehicleSolvers, ApplyVehicleSolvers
+  - current/decomp/KSA/FlightComputer.cs CopyFrom, ComputeControl
+  - current/decomp/KSA/Universe.cs ApplyVehicleSolvers
+  - current/decomp/KSA/InputEvents.cs (ApplyInputEvents, BurnUpdateBuffer, AutoWarpBuffer, ChangeTargetData)
+  - current/decomp/KSA/GimbalController.cs
+  - current/decomp/KSA/FlightComputer.cs ComputeControl
+  - current/decomp/KSA/FlightComputer.cs (TrackTarget, RateHold, SetNullRot)
+  - current/decomp/KSA/Vehicle.cs (SetEnum, ToggleEnum, SetStabilization)
+  lifecycle:
+  - frame:dispatch-solvers
+  - physics:vehicle-solver
+  - frame:apply-solvers
+  - frame:input
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: Orient to a sky direction from a PrepareWorker prefix
+    mod: ohmystars
+    features:
+    - mods/ohmystars/features/orient-to-star
+    technique: flight-computer-target
+    note: Auto + EclBody + Custom with Euler angles solved from the star direction; toggling off restores the previous mode
+      and rate command.
+  - n: 2
+    title: Custom target for autopiloted craft written before the worker snapshot
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/fly-another-vehicle
+    - mods/ksarmory/features/prepareworker-prefix-command-window
+    technique: harmony-prefix
+    note: 'Roll reference carried across frames; combined with ProcessInput for throttle and staging. Also (choose-a-moment-to-write-flight-computer-state):
+      Sub-step folded from choose-a-moment-to-write-flight-computer-state (give it its own section): Queued writes performed
+      just before KSA snapshots the vehicle; double-buffered across the frame.'
+  - n: 3
+    title: Attitude mode and arbitrary quaternion from the solver-phase drain
+    mod: gatos
+    features:
+    - mods/gatos/features/solver-phase-command-drain
+    technique: command-queue
+    note: 'Convert a quaternion to EclBody euler angles for the Custom track. Also (choose-a-moment-to-write-flight-computer-state):
+      Sub-step folded from choose-a-moment-to-write-flight-computer-state (give it its own section): After apply, before PrepareWorker;
+      why frame-phase writes are erased by CopyFrom.'
+  - n: 4
+    title: Custom attitude in an inertial frame plus turning-rate feedforward
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/guidance-attitude-and-gimbal-actuation
+    - mods/ksa-advancedflightcomputer/features/engine-performance-and-throttle-inversion
+    technique: harmony-postfix
+    note: 'Postfix on the private UpdateAttitudeTarget on the worker adds the commanded rate. Also (actuate-gimbals-and-thrust-from-a-guidance-loop):
+      Sub-step folded from actuate-gimbals-and-thrust-from-a-guidance-loop (give it its own section): TVC allocation after
+      ComputeControl, thrust inversion by bracketed root finding.'
+  - n: 5
+    title: Worker-thread postfix on FlightComputer.ComputeControl
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/flight-computer-command-sink
+    technique: harmony-postfix
+    note: 'Sub-step folded from choose-a-moment-to-write-flight-computer-state (give it its own section): One sink runs every
+      mod actuator writer on the vehicle worker with immutable commands.'
+  - n: 6
+    title: Main-thread tick around Universe.ApplyVehicleSolvers
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/post-solver-vehicle-tick
+    technique: harmony-postfix
+    note: 'Sub-step folded from choose-a-moment-to-write-flight-computer-state (give it its own section): Fresh physics results
+      before input is drained and before stock reacts to burn flags. Also (run-code-after-physics-results-land): Sub-step
+      folded from run-code-after-physics-results-land (give it its own section): The sampling-before, acting-after pattern
+      also used for automatic staging.'
+  - n: 7
+    title: ComputeControl prefix with a finalizer that restores edited input
+    mod: compendium
+    features:
+    - mods/compendium/features/flight-computer-root-attitude-tracking
+    technique: harmony-finalizer
+    note: 'Sub-step folded from choose-a-moment-to-write-flight-computer-state (give it its own section): Edit inputs by ref
+      on the worker, restore after the original runs.'
+  - n: 8
+    title: Own ConcurrentQueue drained in a prefix on InputEvents.ApplyInputEvents
+    mod: compendium
+    features:
+    - mods/compendium/features/root-navigation-targets
+    technique: command-queue
+    note: 'Sub-step folded from queue-vehicle-changes-through-input-events (give it its own section): Runs before the stock
+      buffers are consumed.'
+  - n: 9
+    title: Patch every attitude-mode writer to release your custom target
+    mod: ohmystars
+    features:
+    - mods/ohmystars/features/attitude-mode-handoff-patches
+    technique: harmony-prefix
+    note: 'Sub-step folded from arbitrate-control-of-a-vehicle (give it its own section): SetEnum/ToggleEnum catch-all plus
+      TrackTarget/RateHold/SetNullRot; AggressiveInlining caveats and TargetMethods for private methods.'
+  related:
+  - run-an-autopilot-for-every-vehicle-each-step
+  - synthesize-a-navigation-target-for-the-flight-computer
+  - read-vehicle-flight-state
+  - set-and-clear-the-vehicle-target
+  - create-and-read-maneuver-nodes
+  - compute-a-suicide-burn
+  - plan-and-fly-a-powered-landing
+  merged_from:
+  - command-attitude-through-the-flight-computer
+  - choose-a-moment-to-write-flight-computer-state
+  - run-code-after-physics-results-land
+  - queue-vehicle-changes-through-input-events
+  - actuate-gimbals-and-thrust-from-a-guidance-loop
+  - arbitrate-control-of-a-vehicle
+- slug: run-an-autopilot-for-every-vehicle-each-step
+  title: Run a closed-loop autopilot for every vehicle each step and arbitrate control with the player
+  kind: howto
+  group: autopilot
+  batch: flight-and-orbits-1
+  summary: Run a per-vehicle guidance loop on the vehicle worker every physics step, claim vehicles per mod, detect when the
+    player takes over attitude or burn mode, and release only what you changed.
+  game_types:
+  - KSA.Vehicle
+  - KSA.Universe
+  - KSA.FlightComputer
+  - KSA.ManualControlInputs
+  - KSA.Program
+  - KSA.SequenceList
+  - KSA.Decoupler
+  - KSA.FlightComputerBurnMode
+  - KSA.FlightComputerAttitudeTrackTarget
+  - KSA.BurnTarget
+  engine_pointers:
+  - current/decomp/KSA/Vehicle.cs PrepareWorker, Split
+  - current/decomp/KSA/Universe.cs
+  - current/decomp/KSA/FlightComputer.cs (TrackTarget, RateHold, SetNullRot)
+  - current/decomp/KSA/Vehicle.cs (SetEnum, ToggleEnum, SetStabilization)
+  lifecycle:
+  - frame:dispatch-solvers
+  - frame:draw-ui
+  - event:save-load
+  - event:vehicle-destroyed
+  - frame:apply-solvers
+  - frame:input
+  approaches:
+  - n: 1
+    title: PrepareWorker prefix loop with takeover checks and a menu-bar off switch
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/guidance-vehicle-step-loop
+    technique: harmony-prefix
+    note: Fault counter and retry gate disengage a failing craft instead of throwing every frame.
+  - n: 2
+    title: Adopt a separated booster as its own guided vehicle
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/boostback-impact-prediction
+    technique: harmony-prefix
+    note: Record detached root parts before staging, match the new vehicle after the split.
+  - n: 3
+    title: Fly a vehicle that is not the controlled one, then hand it back
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/fly-another-vehicle
+    technique: harmony-prefix
+    note: Throttle through Vehicle.ProcessInput, staging via the sequence list.
+  - n: 4
+    title: Per-vehicle claims, burn-mode hold and exact-field takeover checks
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/vehicle-control-ownership
+    technique: conditional-weak-table
+    note: 'Sub-step folded from arbitrate-control-of-a-vehicle (give it its own section): Compare the exact fields the flight
+      computer reads; mirror Vehicle.SetEnum for burn-mode requests.'
+  related:
+  - drive-the-flight-computer-and-attitude-modes-from-a-mod
+  - execute-burns-with-rcs-and-throttle-inputs
+  merged_from:
+  - arbitrate-control-of-a-vehicle
+- slug: set-and-clear-the-vehicle-target
+  title: Set or clear a vehicle's target, including bodies the game cannot target
+  kind: howto
+  group: autopilot
+  batch: flight-and-orbits-1
+  summary: Set and clear the vehicle target from mod code through the same path the UI uses, and make fixed stars and barycenters
+    targetable when the stock target list refuses them.
+  game_types:
+  - KSA.Universe
+  - KSA.InputEvents
+  - KSA.Vehicle
+  - KSA.OrbitingStar
+  - KSA.IOrbiter
+  - KSA.CelestialSystem
+  - KSA.FixedStar
+  - KSA.Barycenter
+  - KSA.IIndependentRoot
+  - KSA.NavBallData
+  - KSA.BurnPlan
+  engine_pointers:
+  - current/decomp/KSA/Universe.cs SetTargetCommand, UnsetTargetCommand
+  - current/decomp/KSA/InputEvents.cs ChangeTargetData
+  - current/decomp/KSA/Vehicle.cs SetTarget
+  - current/decomp/KSA/Universe.cs UnsetTargetCommand
+  - current/decomp/KSA/InputEvents.cs (ApplyInputEvents, BurnUpdateBuffer, AutoWarpBuffer, ChangeTargetData)
+  lifecycle:
+  - frame:input
+  - frame:draw-ui
+  - event:target-changed
+  - event:starmap-unload
+  approaches:
+  - n: 1
+    title: Universe.SetTargetCommand queues ChangeTargetData for the input point
+    mod: compendium
+    features:
+    - mods/compendium/features/native-target-selection
+    technique: input-event-buffer
+    note: The command reaches Universe.SetTarget and Vehicle.SetTarget at ApplyInputEvents, matching stock timing.
+  - n: 2
+    title: ConditionalWeakTables keyed by Vehicle and the shared BurnPlan, UI requests drained in a prefix
+    mod: compendium
+    features:
+    - mods/compendium/features/root-navigation-targets
+    technique: conditional-weak-table
+    note: 'Sub-step folded from target-bodies-the-game-cannot-target (give it its own section): Key by a reference solver
+      copies share; native targets stay authoritative. Also (queue-vehicle-changes-through-input-events): Sub-step folded
+      from queue-vehicle-changes-through-input-events (give it its own section): Runs before the stock buffers are consumed.'
+  related:
+  - drive-the-flight-computer-and-attitude-modes-from-a-mod
+  - synthesize-a-navigation-target-for-the-flight-computer
+  - create-and-read-maneuver-nodes
+  merged_from:
+  - target-bodies-the-game-cannot-target
+  - queue-vehicle-changes-through-input-events
+- slug: synthesize-a-navigation-target-for-the-flight-computer
+  title: Synthesize a NavigationTarget for an object that has no orbit
+  kind: howto
+  group: autopilot
+  batch: flight-and-orbits-1
+  summary: Build the NavigationTarget struct the navball, flight computer and Toward/Away modes read for a side target, and
+    make the solver thread see it only while it is needed.
+  game_types:
+  - KSA.NavigationTarget
+  - KSA.FlightComputer
+  - KSA.FlightComputerNavigation
+  - KSA.NavBallData
+  - KSA.Vehicle
+  - KSA.FlightComputerAttitudeTrackTarget
+  engine_pointers:
+  - current/decomp/KSA/NavigationTarget.cs Create
+  - current/decomp/KSA/FlightComputer.cs ComputeControl
+  - current/decomp/KSA/Vehicle.cs UpdateNavBallMarkers
+  lifecycle:
+  - physics:vehicle-solver
+  - frame:apply-solvers
+  - frame:input
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: Prefix with __state and restoring finalizer on FlightComputer.ComputeControl
+    mod: compendium
+    features:
+    - mods/compendium/features/flight-computer-root-attitude-tracking
+    technique: harmony-finalizer
+    note: Inject into the ref readonly navigation struct only for Toward/Away or Dock-frame hold; find the solver copy via
+      the shared BurnPlan.
+  - n: 2
+    title: Transpile NavigationTarget.Create call sites for the navball marker
+    mod: compendium
+    features:
+    - mods/compendium/features/navball-target-marker-and-tgt-frame
+    technique: harmony-transpiler
+    note: Mirror NavigationTarget.Create, ECL difference to the parent, Cce2Cci rotation, GetDock2Cci; swap one call and widen
+      null tests to include the side target.
+  related:
+  - set-and-clear-the-vehicle-target
+  - drive-the-flight-computer-and-attitude-modes-from-a-mod
+- slug: estimate-transfer-delta-v-with-patched-conics
+  title: Estimate transfer delta-v in closed form with patched conics
+  kind: howto
+  group: transfers
+  batch: flight-and-orbits-1
+  summary: Compute Hohmann-style departure and arrival delta-v between circular reference orbits around one body and across
+    spheres of influence using the patched-conic approximation and the game's own orbit and Mu data.
+  game_types:
+  - KSA.Orbit
+  - KSA.IParentBody
+  - KSA.OrbitalTransfers
+  - KSA.Astronomical
+  engine_pointers:
+  - current/decomp/KSA/OrbitalTransfers.cs
+  - current/decomp/KSA/Orbit.cs
+  lifecycle:
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: Coplanar Hohmann estimate to a circular altitude
+    mod: kitten-engineer-redux
+    features:
+    - mods/kitten-engineer-redux/features/orbit-readouts-and-hohmann-estimate
+    technique: flight-math
+    note: Two-burn estimate from the current orbit, suitable for a one-line readout.
+  - n: 2
+    title: Hub legs wrapped in Oberth burns, cached per body pair
+    mod: ksa-deltavmap
+    features:
+    - mods/ksa-deltavmap/features/patched-conic-transfer-model
+    technique: patched-conic-math
+    note: Comet, multiple-star, ascent, landing, plane-change and transfer-time terms; mirrors the game's own transfer model.
+  related:
+  - compute-transfer-windows
+  - plan-multi-leg-and-interstellar-delta-v-routes
+  - aim-a-transfer-at-a-flyby-periapsis
+  merged_from:
+  - estimate-hohmann-transfer-delta-v
+- slug: plan-multi-leg-and-interstellar-delta-v-routes
+  title: Plan and total multi-leg and interstellar delta-v routes
+  kind: howto
+  group: transfers
+  batch: flight-and-orbits-1
+  summary: Classify a vessel's orbit state, derive a reference orbit for each body, find a route through the body tree, sum
+    the leg delta-vs, and estimate fuel and coast time for an interstellar trip.
+  game_types:
+  - KSA.Program
+  - KSA.Vehicle
+  - KSA.Orbit
+  - KSA.IParentBody
+  - KSA.ConsoleWidgets
+  - KSA.AtmosphericBody
+  - KSA.AstronomicalTemplate
+  - KSA.PhysicalAtmosphereReference
+  - KSA.InterstellarBurnPlan
+  - KSA.InterstellarDrive
+  - KSA.InterstellarBurnEstimate
+  - KSA.OrbitalTransfers
+  - KSA.VehicleProperties
+  engine_pointers:
+  - current/decomp/KSA/Program.cs
+  - current/decomp/KSA/ConsoleWidgets.cs
+  - current/decomp/KSA/Vehicle.cs HasMeaningfulOrbit
+  - current/decomp/KSA/AtmosphericBody.cs
+  - current/decomp/KSA/OrbitalTransfers.cs SolveInterstellar
+  - current/decomp/KSA/InterstellarDrive.cs TryGetFrom
+  lifecycle:
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: LCA path on a re-rooted tree with piloting margin applied at display
+    mod: ksa-deltavmap
+    features:
+    - mods/ksa-deltavmap/features/route-finding-and-accumulation
+    technique: tree-lca-routing
+    note: Event-driven recompute (only on input events) and cached ImGui strings keep the panel cheap.
+  - n: 2
+    title: Body-state ladder and snapped eccentricity classification
+    mod: ksa-deltavmap
+    features:
+    - mods/ksa-deltavmap/features/body-state-ladder-and-you-are-here
+    technique: vehicle-state-classification
+    note: 'Sub-step folded from classify-vessel-orbit-state (give it its own section): Vehicle.HasMeaningfulOrbit plus eccentricity
+      snapping; low-orbit altitude from atmosphere height or GetNearSurfaceRadius plus clearance; a 1 AU parking orbit for
+      stars and barycenters.'
+  - n: 3
+    title: Reuse InterstellarBurnPlan, golden-section speed search, rocket equation fallback
+    mod: ksa-deltavmap
+    features:
+    - mods/ksa-deltavmap/features/interstellar-routes-and-fuel
+    technique: stock-model-reuse
+    note: 'Sub-step folded from estimate-interstellar-trip (give it its own section): Cheapest and fastest-affordable cruise
+      speed searches; propellant from staged masses.'
+  related:
+  - estimate-transfer-delta-v-with-patched-conics
+  - read-orbit-elements-and-timing
+  merged_from:
+  - plan-multi-leg-delta-v-routes
+  - classify-vessel-orbit-state
+  - estimate-interstellar-trip
+- slug: compute-transfer-windows
+  title: Compute phase angles, synodic periods and the time to the next transfer window
+  kind: howto
+  group: transfers
+  batch: flight-and-orbits-1
+  summary: Find the phase angle and the time until the next transfer window between two bodies, and schedule a multi-pass
+    transfer around it.
+  game_types:
+  - KSA.Orbit
+  - KSA.OrbitalTransfers
+  - KSA.MathEx
+  - KSA.IOrbiter
+  - KSA.Universe
+  engine_pointers:
+  - current/decomp/KSA/OrbitalTransfers.cs AlignmentTime
+  - current/decomp/KSA/Orbit.cs GetPhaseAngle
+  lifecycle:
+  - frame:draw-ui
+  - frame:apply-solvers
+  approaches:
+  - n: 1
+    title: Mirror the branches of OrbitalTransfers.AlignmentTime with a phase clock
+    mod: ksa-deltavmap
+    features:
+    - mods/ksa-deltavmap/features/transfer-windows-and-phase-clock
+    technique: closed-form-orbital-math
+    note: Closed-form ejection angle PI - acos(-1/e); live phase from Orbit.GetPhaseAngle; resizable list and polar clock
+      with hover highlight on the map node.
+  - n: 2
+    title: Shift a same-parent window and re-solve Lambert
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/multi-pass-hohmann-schedule
+    technique: harmony-transpiler
+    note: Raise apoapsis in periapsis kicks whose periods sum to whole parking periods so the last kick lands on the window.
+  related:
+  - estimate-transfer-delta-v-with-patched-conics
+  - aim-a-transfer-at-a-flyby-periapsis
+  - execute-planned-burns-with-the-stock-autopilot
+  - draw-a-predicted-trajectory-and-map-markers
+- slug: build-a-site-frame-and-compute-a-launch-window
+  title: Build a local site frame and compute a launch window into a target plane
+  kind: howto
+  group: transfers
+  batch: flight-and-orbits-1
+  summary: Build a local east-north-up frame at a surface site on a rotating body, get surface-relative velocity and terrain
+    height in it, and use it to find when a launch site passes under a target orbit plane and which azimuth to fly.
+  game_types:
+  - KSA.Orbit
+  - KSA.StateVectors
+  - KSA.IParentBody
+  - KSA.InputEvents
+  - KSA.Universe
+  - KSA.Vehicle
+  - KSA.Double3Ex
+  - KSA.FlightComputerNavigation
+  engine_pointers:
+  - current/decomp/KSA/Orbit.cs
+  - current/decomp/KSA/InputEvents.cs AutoWarpBuffer
+  - current/decomp/KSA/IParentBody.cs GetAngularVelocityCci
+  - current/decomp/KSA/Celestial.cs GetTerrainHeightFromDirCcf
+  - current/decomp/KSA/VehicleReferenceFrameEx.cs
+  lifecycle:
+  - frame:dispatch-solvers
+  - frame:draw-ui
+  - frame:input
+  approaches:
+  - n: 1
+    title: Site latitude versus inclination, crossing time with lead, warp request
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/launch-window-to-target-plane
+    technique: orbital-geometry
+    note: Co-elliptic chase orbit matches eccentricity and argument of periapsis.
+  - n: 2
+    title: Site frame from CCI for guidance, with v minus omega cross r
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/vehicle-state-to-site-frame
+    technique: coordinate-bridge
+    note: 'Sub-step folded from build-a-local-site-frame (give it its own section): Converts vehicle state, gimbal limits
+      and attitude into a site-fixed frame for solvers and back; surface-relative velocity.'
+  - n: 3
+    title: North from the spin axis, terrain height queries in the same frame
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/terrain-height-queries
+    technique: frame-conversion
+    note: 'Sub-step folded from build-a-local-site-frame (give it its own section): Why north must come from the body''s spin
+      axis, not the ecliptic; ties the frame to Celestial terrain-height queries.'
+  - n: 4
+    title: Orbit-relative surface velocity readouts
+    mod: kitten-engineer-redux
+    features:
+    - mods/kitten-engineer-redux/features/orbit-readouts-and-hohmann-estimate
+    technique: flight-math
+    note: 'Sub-step folded from build-a-local-site-frame (give it its own section): Surface velocity = v - omega x r in the
+      CCI frame, split into radial and tangential parts.'
+  related:
+  - fly-closed-loop-ascent-guidance
+  - set-simulation-speed-from-a-mod
+  - understand-ksa-coordinate-frames-and-epochs
+  - read-flight-state-in-a-local-horizon-frame
+  - plan-and-fly-a-powered-landing
+  merged_from:
+  - compute-launch-window-to-a-target-plane
+  - build-a-local-site-frame
+- slug: aim-a-transfer-at-a-flyby-periapsis
+  title: Aim a transfer at a flyby periapsis and predict its encounter
+  kind: howto
+  group: transfers
+  batch: flight-and-orbits-1
+  summary: 'Target a chosen periapsis around a destination body instead of its center: solve the transfer with Lambert, predict
+    the encounter periapsis of a planned burn, and iterate the departure burn until the miss is closed.'
+  game_types:
+  - KSA.OrbitalTransfers
+  - KSA.Orbit
+  - KSA.IParentBody
+  - KSA.TransferPlanner
+  - KSA.Burn
+  - KSA.CorrectionBurnTask
+  - KSA.FlightPlan
+  - KSA.PatchedConic
+  - KSA.Encounter
+  - KSA.Celestial
+  engine_pointers:
+  - current/decomp/KSA/OrbitalTransfers.cs
+  - current/decomp/KSA/TransferPlanner.cs
+  - current/decomp/KSA/FlightPlan.cs CalculateBurnPatch, ComputeCompleteTrajectory
+  - current/decomp/KSA/Encounter.cs
+  lifecycle:
+  - frame:draw-ui
+  - frame:pre-render
+  - frame:dispatch-solvers
+  approaches:
+  - n: 1
+    title: Impact-parameter offset with transpiled planner hooks
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/flyby-periapsis-targeting
+    - mods/ksa-advancedflightcomputer/features/deorbit-landing-planner
+    technique: harmony-transpiler
+    note: 'Uses the encounter predictor to verify the result. Also (solve-lambert-transfer): Sub-step folded from solve-lambert-transfer
+      (give it its own section): Offset the target by an impact parameter, or search a time-sliced set of approach points.'
+  - n: 2
+    title: CalculateBurnPatch plus ComputeCompleteTrajectory filtered to the target
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/flyby-encounter-prediction
+    technique: harmony-postfix
+    note: 'Sub-step folded from predict-encounter-for-a-planned-burn (give it its own section): Typed reasons for failure;
+      draws the plan in place of stock''s preview.'
+  - n: 3
+    title: Own universal-variable Lambert against a spinning-planet target
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/icbm-ballistic-computer
+    technique: lambert-universal-variables
+    note: 'Sub-step folded from solve-lambert-transfer (give it its own section): Solve over flight time in the parent body''s
+      inertial frame; target moves with the planet''s rotation.'
+  related:
+  - add-plan-type-to-the-transfer-planner
+  - draw-a-predicted-trajectory-and-map-markers
+  - find-closest-approach-along-the-flight-plan
+  - plan-and-fly-a-powered-landing
+  - predict-impact-point-and-build-a-ballistic-computer
+  merged_from:
+  - predict-encounter-for-a-planned-burn
+  - solve-lambert-transfer
+- slug: add-plan-type-to-the-transfer-planner
+  title: Add plan types to the stock Transfer Planner
+  kind: howto
+  group: transfers
+  batch: flight-and-orbits-1
+  summary: 'Extend the stock Transfer Planner window with a custom plan type: register it, inject extra UI and call-site changes
+    into the plan window, open and preselect the planner from a mod, and let it target bodies on hyperbolic orbits.'
+  game_types:
+  - KSA.TransferPlanner
+  - KSA.TransferType
+  - KSA.ConsoleStyle
+  - KSA.ConsoleWidgets
+  - KSA.OrbitalTransfers
+  - KSA.Burn
+  - KSA.RefineBurnTask
+  - KSA.TransferTask
+  - KSA.PatchedConic
+  - KSA.Orbit
+  engine_pointers:
+  - current/decomp/KSA/TransferPlanner.cs (TransferTypes, DrawPlanWindow)
+  - current/decomp/KSA/TransferPlanner.cs DrawPlanWindow
+  - current/decomp/KSA/TransferPlanner.cs ShowPlanWindow, SetTransferInfo
+  - current/decomp/KSA/TransferPlanner.cs
+  - current/decomp/KSA/OrbitalTransfers.cs
+  lifecycle:
+  - startup:all-mods-loaded
+  - frame:draw-ui
+  - event:mod-unload
+  - startup:asset-load
+  - thread:background
+  approaches:
+  - n: 1
+    title: Skip-original prefix redrawing the stock window under the same id, title and signature
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/transfer-planner-custom-plan-types
+    technique: harmony-prefix
+    note: Entries removed on mod unload.
+  - n: 2
+    title: Transpiler with validated IL anchors and moved labels
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/plan-window-transpiler-injection
+    technique: harmony-transpiler
+    note: 'Sub-step folded from inject-ui-into-the-transfer-planner-window (give it its own section): Moves labels and exception
+      blocks correctly; fails soft when anchors are missing.'
+  - n: 3
+    title: AccessTools FieldRef and delegates bound once
+    mod: ksa-deltavmap
+    features:
+    - mods/ksa-deltavmap/features/stock-transfer-planner-bridge
+    technique: reflection
+    note: 'Sub-step folded from open-and-preselect-the-stock-transfer-planner (give it its own section): Missing keys are
+      collected; plan type lookup by key.'
+  - n: 4
+    title: Hand a retargeted transfer to the stock Create path
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/flyby-periapsis-targeting
+    technique: harmony-transpiler
+    note: 'Sub-step folded from open-and-preselect-the-stock-transfer-planner (give it its own section): Retargeted Lambert
+      result goes through the planner''s own Create button.'
+  - n: 5
+    title: XML patch plus NaN-period patches and a Harmony finalizer
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/hyperbolic-transfer-targets
+    technique: harmony-finalizer
+    note: 'Sub-step folded from let-the-transfer-planner-target-hyperbolic-bodies (give it its own section): Several patched
+      methods run on ThreadPool tasks; touch only thread-safe state and defer UI to the draw thread.'
+  related:
+  - inject-ui-into-a-stock-window
+  - aim-a-transfer-at-a-flyby-periapsis
+  merged_from:
+  - inject-ui-into-the-transfer-planner-window
+  - open-and-preselect-the-stock-transfer-planner
+  - let-the-transfer-planner-target-hyperbolic-bodies

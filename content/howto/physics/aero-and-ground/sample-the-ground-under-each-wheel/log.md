@@ -1,0 +1,5 @@
+# Sample terrain and pad surfaces under each wheel history
+
+## 2026-10-10
+* **Creation**: Added [overview](overview.md) and 3 article(s): [GetTerrainHeightFromDirCce with accurate true in the PrepareWorker prefix](sample-the-ground-under-each-wheel-1.md); [Copy convex children under the shapes lock in an ExecuteNextVehicleSolvers prefix](sample-the-ground-under-each-wheel-2.md); [Rebuild box and cylinder colliders from template data and drop a ray per wheel](sample-the-ground-under-each-wheel-3.md). Checked against the decompiled game build 2026.10.10.5554 and the pinned mod repositories.
+* **Update**: Review: article 1 retitled from "worker window" to the main-thread `PrepareWorker` prefix; corrected which callers pass `accurate: false`; replaced non-existent `KSA.BodyTemplate` with `KSA.CelestialTemplate`; softened the shapes-registry "one moment" claim; overview lifecycle now the union of the articles; added `group` to frontmatter. Reviewed against decompiled build 2026.10.10.5554 and the pinned mod repositories.

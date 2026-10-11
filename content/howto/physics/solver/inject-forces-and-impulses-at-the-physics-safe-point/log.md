@@ -1,0 +1,5 @@
+# Inject forces, impulses and velocity changes at the physics safe point history
+
+## 2026-10-10
+* **Creation**: Added [overview](overview.md) and 5 article(s): [Add velocity deltas in the PrepareWorker prefix](inject-forces-and-impulses-at-the-physics-safe-point-1.md); [Summed per-part drag-style shove with torque from a blast front](inject-forces-and-impulses-at-the-physics-safe-point-2.md); [Impulsive kick from the solver-dispatch window](inject-forces-and-impulses-at-the-physics-safe-point-3.md); [Velocity and spin deltas gated by hatches in the PrepareWorker prefix](inject-forces-and-impulses-at-the-physics-safe-point-4.md); [Hover and touchdown under real engine power with a PID](inject-forces-and-impulses-at-the-physics-safe-point-5.md). Verified against the decompiled game build 2026.10.10.5554 and the pinned mod repositories.
+* **Update**: Review: replaced non-existent `KSA.Kinematic` with `KSA.KinematicStates` in game_types; added `group` to frontmatter. Reviewed against decompiled build 2026.10.10.5554 and the pinned mod repositories.

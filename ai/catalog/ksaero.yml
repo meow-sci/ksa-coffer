@@ -1,0 +1,230 @@
+mod: ksaero
+repo: KSAero
+ref: 3e7e26c9c694a563048261bd6e426e817377d404
+summary: >-
+  KSAero (cairn5) is a small StarMap mod that replaces KSA's stock bounding-box atmospheric drag with a
+  body-of-revolution model (Allen-Perkins viscous crossflow extended by Jorgensen) giving
+  angle-of-attack drag, lift with a stall, tail-first lift and a transonic drag rise. It installs one
+  Harmony transpiler at StarMapAllModsLoaded that retargets the single atmospheric ComputeDrag call
+  inside PhysicsStates.ComputeDerivatives (found by scanning the call's argument IL for the
+  AtmosphericDensity load) to a same-signature replacement, refuses and rolls back if the method shape
+  differs, falls back to stock drag through an AccessTools.MethodDelegate, shows an ImGui readout from
+  StarMapAfterGui, keeps the math in a game-free file tested headless, and deploys via MSBuild targets.
+features:
+  - id: mods/ksaero/features/computedrag-call-site-transpiler
+    title: ComputeDrag call-site transpiler
+    category: patching
+    submod: null
+    summary: >-
+      Transpiles PhysicsStates.ComputeDerivatives and changes the operand of the one ComputeDrag call
+      whose arguments load PhysicsEnvironment.AtmosphericDensity, so the replacement runs even though
+      ComputeDrag is AggressiveInlining and the ocean call stays stock.
+    novelty: high
+    techniques: [harmony-transpiler, reflection, call-site-rewrite, il-argument-scan]
+    lifecycle: [startup:all-mods-loaded, physics:vehicle-solver]
+    hooks:
+      - "starmap StarMapAllModsLoaded"
+      - "harmony-transpiler KSA.PhysicsStates.ComputeDerivatives"
+      - "reflection KSA.PhysicsStates.ComputeDrag"
+    game_types: [KSA.PhysicsStates, KSA.PhysicsEnvironment, KSA.ReadOnlyPhysicsStates]
+    key_paths: [KSAero/AirForcePatch.cs, KSAero/Mod.cs]
+    howto_topics:
+      - slug: harmony-transpiler-call-site-swap
+        title: Swap one call inside a game method with a Harmony transpiler
+        note: change only the call operand to a same-signature static method; no stack surgery
+      - slug: identify-call-by-argument-il
+        title: Identify a specific call site by what its arguments load
+        note: backward scan from the call, stop at the previous call boundary, match LoadsField
+      - slug: patch-around-aggressive-inlining
+        title: Change the behaviour of an AggressiveInlining game method
+        note: patch the callers' IL instead of the inlinable callee
+      - slug: replace-stock-aerodynamic-forces
+        title: Replace the stock aerodynamic force model
+        note: call-site transpiler because ComputeDrag is AggressiveInlining
+      - slug: resolve-methods-with-byref-parameters
+        title: Resolve overloaded game methods with in and ref parameters through AccessTools
+        note: explicit parameter arrays with MakeByRefType
+  - id: mods/ksaero/features/patch-refusal-and-rollback
+    title: Patch refusal and rollback
+    category: patching
+    submod: null
+    summary: >-
+      The transpiler throws unless exactly one call matched; the entry class catches, calls
+      UnpatchAll with its own Harmony id, logs once and keeps the readout disabled so stock behaviour
+      continues.
+    novelty: medium
+    techniques: [harmony-transpiler, starmap-lifecycle, fail-safe-patching]
+    lifecycle: [startup:all-mods-loaded, event:starmap-unload]
+    hooks:
+      - "starmap StarMapAllModsLoaded"
+      - "starmap StarMapUnload"
+    game_types: [KSA.PhysicsStates]
+    key_paths: [KSAero/Mod.cs, KSAero/AirForcePatch.cs]
+    howto_topics:
+      - slug: fail-safe-harmony-patching
+        title: Make a Harmony patch refuse and roll back when the game method changes
+        note: throw from the transpiler, catch around Patch, UnpatchAll(id)
+      - slug: unpatch-own-harmony-id
+        title: Remove only your own Harmony patches
+        note: UnpatchAll without an id is global
+      - slug: gate-features-on-patch-success
+        title: Enable dependent UI only when a patch installed
+      - slug: starmap-shutdown-unpatch-order
+        title: Know what is still patched when StarMapUnload runs
+        note: StarMapCore.DeInit calls the id-less UnpatchAll before invoking StarMapUnload methods
+  - id: mods/ksaero/features/stock-drag-delegate-fallback
+    title: Stock ComputeDrag delegate fallback
+    category: patching
+    submod: null
+    summary: >-
+      Binds a typed delegate with matching in/ref parameters to the private static ComputeDrag via
+      AccessTools.MethodDelegate once at startup and calls it from the worker-thread replacement when
+      the vehicle geometry is degenerate.
+    novelty: medium
+    techniques: [reflection, harmony-transpiler, method-delegate]
+    lifecycle: [startup:all-mods-loaded, physics:vehicle-solver]
+    hooks:
+      - "reflection KSA.PhysicsStates.ComputeDrag"
+      - "harmony-transpiler KSA.PhysicsStates.ComputeDerivatives"
+    game_types: [KSA.PhysicsStates, KSA.VehicleProperties]
+    key_paths: [KSAero/AirForcePatch.cs]
+    howto_topics:
+      - slug: call-private-game-method-via-delegate
+        title: Call a private game method without per-call reflection
+        note: AccessTools.MethodDelegate with a delegate type mirroring in/ref modifiers
+      - slug: fallback-to-stock-behaviour
+        title: Fall back to the stock implementation from a replacement
+  - id: mods/ksaero/features/body-of-revolution-aerodynamics
+    title: Body-of-revolution aerodynamics
+    category: physics
+    submod: null
+    summary: >-
+      Turns the vehicle bounding box into an equivalent cylinder and applies viscous-crossflow lift and
+      drag with stall, tail-first and transonic terms as a body-axis force through the centre of mass,
+      per substep on vehicle worker threads.
+    novelty: high
+    techniques: [harmony-transpiler, custom-physics, reflection]
+    lifecycle: [physics:vehicle-solver]
+    hooks: ["harmony-transpiler KSA.PhysicsStates.ComputeDerivatives"]
+    game_types: [KSA.PhysicsStates, KSA.PhysicsEnvironment, KSA.VehicleProperties, KSA.KinematicStates, KSA.Disturbances, KSA.PhysicsBubble, KSA.VehicleUpdateTask, BepuPhysics.Collidables.Box]
+    key_paths: [KSAero/AirForcePatch.cs, KSAero/AeroModel.cs]
+    howto_topics:
+      - slug: replace-stock-aerodynamic-forces
+        title: Replace the stock aerodynamic force model
+        note: call-site transpiler because ComputeDrag is AggressiveInlining
+      - slug: add-forces-in-vehicle-solver
+        title: Add custom forces to vehicles inside the physics substep
+        note: write into the Disturbances accumulator from ComputeDerivatives
+      - slug: worker-thread-safe-physics-code
+        title: Write physics patches that are safe on vehicle worker threads
+        note: pure, allocation-free, never throw, use only the in arguments
+      - slug: vehicle-solver-call-chain
+        title: Understand when and on which thread ComputeDerivatives runs
+        note: >-
+          PrepareFrame -> ExecuteNextVehicleSolvers -> VehicleUpdateTask on VehicleSolver -> PhysicsBubble
+          jobs on VehicleWorkerPool -> substeps -> Verlet (2 calls), constrained (1 call) or RK8 (12 calls,
+          never inside the physics radius)
+      - slug: physics-step-exception-behaviour
+        title: Know what happens when code inside the vehicle step throws
+        note: MarkFailed logs an error and the bubble's step is not applied that frame; nothing is rethrown
+      - slug: aerodynamic-lift-model
+        title: Model lift and stall for rocket-shaped vehicles
+  - id: mods/ksaero/features/mach-from-game-atmosphere
+    title: Mach number from the game atmosphere
+    category: physics
+    submod: null
+    summary: >-
+      Computes the speed of sound as sqrt(1.4 p / rho) from PhysicsEnvironment pressure and density;
+      constant per body because KSA atmospheres are isothermal exponentials (about 340 m/s on Earth).
+    novelty: medium
+    techniques: [custom-physics, harmony-transpiler]
+    lifecycle: [physics:vehicle-solver, frame:draw-ui]
+    hooks:
+      - "harmony-transpiler KSA.PhysicsStates.ComputeDerivatives"
+      - "starmap StarMapAfterGui"
+    game_types: [KSA.PhysicsEnvironment, KSA.PhysicalAtmosphereReference, KSA.PhysicsStates]
+    key_paths: [KSAero/AeroModel.cs, KSAero/AirForcePatch.cs, KSAero/AeroReadout.cs]
+    howto_topics:
+      - slug: compute-mach-number
+        title: Compute Mach number and the speed of sound in KSA
+      - slug: read-atmosphere-state
+        title: Read atmospheric pressure and density at a vehicle
+        note: PhysicsEnvironment fields filled from PhysicalAtmosphereReference
+  - id: mods/ksaero/features/aero-readout-window
+    title: Aero readout window
+    category: ui
+    submod: null
+    summary: >-
+      ImGui window from StarMapAfterGui that reads Program.ControlledVehicle's ref-readonly physics
+      state and re-runs the pure aero model to show Mach, q, AoA, CL, CD, lift and drag.
+    novelty: low
+    techniques: [imgui-window, starmap-lifecycle]
+    lifecycle: [frame:draw-ui]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: [KSA.Program, KSA.Vehicle, KSA.PhysicsEnvironment, KSA.PhysicsStates, KSA.VehicleProperties, Brutal.ImGuiApi.ImGui]
+    key_paths: [KSAero/AeroReadout.cs, KSAero/Mod.cs]
+    howto_topics:
+      - slug: controlled-vehicle-imgui-readout
+        title: Show live data for the controlled vehicle in an ImGui window
+      - slug: read-vehicle-state-on-main-thread
+        title: Read vehicle physics state safely from UI code
+        note: Vehicle fields are settled after ApplyVehicleSolvers each frame
+      - slug: imgui-window-begin-end-safety
+        title: Keep ImGui Begin/End balanced with try/finally and log-once guards
+  - id: mods/ksaero/features/game-version-check
+    title: Game version check
+    category: getting-started
+    submod: null
+    summary: >-
+      Compares VersionInfo.Current.VersionString with a tested-version constant at
+      StarMapAllModsLoaded and logs a warning; the transpiler's structural check decides.
+    novelty: low
+    techniques: [starmap-lifecycle, version-check]
+    lifecycle: [startup:all-mods-loaded]
+    hooks: ["starmap StarMapAllModsLoaded"]
+    game_types: [KSA.VersionInfo, Brutal.Logging.DefaultCategory]
+    key_paths: [KSAero/Mod.cs]
+    howto_topics:
+      - slug: check-game-version
+        title: Check the running KSA version from a mod
+        note: VersionString is v-prefixed and drops +commit metadata
+  - id: mods/ksaero/features/headless-model-tests
+    title: Headless model tests
+    category: testing-and-tooling
+    submod: null
+    summary: >-
+      Console project that source-links the game-free AeroModel.cs and asserts physical invariants
+      (axisymmetry, force decomposition, monotonic drag, continuity, stall, tail-first lift) without KSA.
+    novelty: medium
+    techniques: [headless-harness, source-linking, invariant-testing]
+    lifecycle: []
+    hooks: []
+    game_types: []
+    key_paths: [KSAero.Tests/KSAero.Tests.csproj, KSAero.Tests/Program.cs, KSAero/AeroModel.cs]
+    howto_topics:
+      - slug: headless-tests-for-mod-logic
+        title: Test mod logic without the game by source-linking game-free files
+      - slug: split-game-adapters-from-pure-logic
+        title: Structure a mod so its core math has no game references
+  - id: mods/ksaero/features/mod-deploy-targets
+    title: Build and deploy targets
+    category: getting-started
+    submod: null
+    summary: >-
+      KsaDir-based game references with Private=false, NuGet Harmony and StarMap.API, an imported
+      ModDeploy.targets that copies the DLL and mod.toml into the mods folder with a locked-DLL
+      diagnosis, launch profile and deploy stamp, and a Release zip target.
+    novelty: medium
+    techniques: [msbuild-targets, nuget-references, mod-packaging]
+    lifecycle: []
+    hooks: []
+    game_types: [KSA.ModLibrary, KSA.Constants]
+    key_paths: [KSAero/KSAero.csproj, build/ModDeploy.targets, KSAero/mod.toml, NuGet.config]
+    howto_topics:
+      - slug: build-and-deploy-starmap-mod
+        title: Build a StarMap mod against the game DLLs and deploy it on every build
+      - slug: package-mod-release-zip
+        title: Package a mod release zip with MSBuild
+      - slug: starmap-mod-dependency-resolution
+        title: Know which assemblies a StarMap mod must ship
+        note: Harmony and StarMap.API resolve from StarMap's load contexts

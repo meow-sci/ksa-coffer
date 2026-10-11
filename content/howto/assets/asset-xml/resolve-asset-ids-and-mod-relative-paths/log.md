@@ -1,0 +1,5 @@
+# Resolve asset ids and file paths correctly across mods history
+
+## 2026-10-10
+* **Update**: Independent review of the topic against the decompiled build 2026.10.10.5554 and the pinned mod checkouts. Noted that KSArmory's comment about first-registration-wins between a SubPart and a mesh does not match the separate `AllParts` and `AllMeshes` registries. Link text of cross references now names the target article, unresolved topic placeholders became links and truncated snippets are marked with an elision.
+* **Creation**: Added [Resolve asset ids and file paths correctly across mods](overview.md), [Lay out mod-folder-relative paths and prefixed global asset ids](resolve-asset-ids-and-mod-relative-paths-1.md), [Reach another mod's or Core's files with absolute paths and Id-only references](resolve-asset-ids-and-mod-relative-paths-2.md). Two approaches: mod-folder-relative paths with prefixed ids, and absolute and Id-only references to other mods' and Core's assets. Verified against the decompiled game build 2026.10.10.5554 and the pinned mod checkouts.

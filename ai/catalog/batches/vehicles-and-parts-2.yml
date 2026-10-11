@@ -1,0 +1,351 @@
+batch: vehicles-and-parts-2
+game_loop_reference: getting-started/game-loop-and-lifecycle
+category: vehicles-and-parts
+category_description: Defining parts and whole craft, spawning and controlling vehicles at runtime, reading and driving part
+  modules (engines, tanks, staging, RCS, parachutes), subpart animation, scaling, crash survival, part geometry and anchors,
+  and loading part mods into a running game.
+groups:
+  part-geometry: 'Part-level geometry: points and meshes in vehicle, world and screen space, anchors that survive vehicle
+    changes, and engine layout diagrams.'
+  craft-tracking: 'Knowing which craft matter: part-Id-driven behaviour, rosters and loss detection, and automated weapon
+    targeting.'
+topics:
+- slug: get-part-points-in-vehicle-and-world-frames
+  title: Read part meshes, attach nodes and part-local points in vehicle, world and screen space
+  kind: howto
+  group: part-geometry
+  batch: vehicles-and-parts-2
+  summary: Get triangle positions from a part's shared mesh (feature edges, rim circles, interleaved-mesh cloning), and convert
+    part-local points to vehicle assembly, ECL/ego and screen coordinates without the render camera, locate connectors, and
+    split vectors along the vehicle's stack axis.
+  game_types:
+  - KSA.Part
+  - KSA.PartConnectorInstance
+  - KSA.Vehicle
+  - KSA.EngineController
+  - KSA.MeshReference
+  - KSA.PartModel
+  - KSA.MeshViewModule
+  engine_pointers:
+  - current/decomp/KSA/Part.cs MatrixAsmb2VehicleAsmb, Connector
+  - current/decomp/KSA/Vehicle.cs Asmb2Ego, CenterOfMassAsmb, GetPositionEcl
+  - current/decomp/KSA/MeshReference.cs
+  - current/decomp/KSA/PartModel.cs
+  lifecycle:
+  - frame:input
+  - frame:draw-ui
+  - frame:prepare
+  - render:scene-opaque
+  approaches:
+  - n: 1
+    title: Connector.PositionEgo and PositionVehicleAsmb
+    mod: ksa-measuretools
+    features:
+    - mods/ksa-measuretools/features/part-mesh-raycast-picking
+    technique: screen-space-picking
+    note: No part scale included.
+  - n: 2
+    title: Part-local to world through centre of mass and Asmb2Ego
+    mod: ksa-measuretools
+    features:
+    - mods/ksa-measuretools/features/part-anchor-rehoming
+    technique: frame-relative-anchors
+    note: (posVehicleAsmb - CenterOfMassAsmb) rotated by Asmb2Ego about GetPositionEcl.
+  - n: 3
+    title: Stack axis from connectors and axial/radial components
+    mod: ksa-measuretools
+    features:
+    - mods/ksa-measuretools/features/cad-style-snap-tiers
+    technique: screen-space-picking
+    note: Stack connectors face part +X; asmb X is up; skip surface connectors.
+  - n: 4
+    title: MeshView positions, weld, dihedral edges, Kasa circle fit
+    mod: ksa-measuretools
+    features:
+    - mods/ksa-measuretools/features/mesh-feature-edges-and-circle-fitting
+    - mods/ksa-measuretools/features/circle-and-face-angle-tools
+    technique: mesh-analysis
+    note: '[folded from read-part-mesh-geometry: give it its own section] Index-unrolled positions of primitive 0; MeshReference.Get
+      returns one instance shared by all parts of a type, so cache per asset.'
+  - n: 5
+    title: Clone an interleaved mesh into a Simple mesh
+    mod: unscience
+    features:
+    - mods/unscience/features/rocky-mcrock-face-interleaved-mesh-clone
+    technique: vulkan-buffer
+    note: '[folded from read-part-mesh-geometry: give it its own section] SimpleVkMesh from HostPrimitives, for renderers
+      that cannot draw interleaved meshes.'
+  related:
+  - ray-cast-against-vessel-meshes-and-terrain
+  - anchor-to-parts-across-vehicle-changes
+  merged_from:
+  - read-part-mesh-geometry
+- slug: anchor-to-parts-across-vehicle-changes
+  title: Keep an anchor on a part through staging, docking, editor changes and saves
+  kind: howto
+  group: part-geometry
+  batch: vehicles-and-parts-2
+  summary: 'Part objects move between vehicles on Split, MergeFrom and editor Dispose. Re-find the part by identity, by InstanceId
+    plus vehicle id, or by a saved path plus topology hash. Also covers: Access the craft and in-hand parts in the vehicle
+    editor.'
+  game_types:
+  - KSA.Part
+  - KSA.PartTree
+  - KSA.Vehicle
+  - KSA.VehicleEditor
+  - KSA.EditingSpace
+  engine_pointers:
+  - current/decomp/KSA/Vehicle.cs Split, MergeFrom
+  - current/decomp/KSA/Part.cs InstanceId
+  - current/decomp/KSA/VehicleEditor.cs OnFrame, OnDrawUi
+  lifecycle:
+  - frame:draw-ui
+  - frame:prepare
+  - editor:draw-ui
+  - editor:on-frame
+  - event:save
+  - event:load
+  - frame:input
+  approaches:
+  - n: 1
+    title: Identity tracking and rehoming each frame
+    mod: ksa-measuretools
+    features:
+    - mods/ksa-measuretools/features/part-anchor-rehoming
+    technique: object-identity-tracking
+    note: Survives editor boundary.
+  - n: 2
+    title: Re-resolve by vehicle id and Part.InstanceId
+    mod: unscience
+    features:
+    - mods/unscience/features/hot-pursuit-mesh-ray-placement
+    technique: imgui-drawlist
+    note: Dormant when the target is gone.
+  - n: 3
+    title: Saved part reference with tree paths and topology signature
+    mod: unscience
+    features:
+    - mods/unscience/features/lib-save-part-identity
+    technique: save-sidecar
+    note: Resolves to null rather than substituting another part.
+  - n: 4
+    title: Harmony hooks in the editor frame, reading EditingSpace.Parts/AllParts
+    mod: ksa-measuretools
+    features:
+    - mods/ksa-measuretools/features/editor-measuring
+    technique: harmony-postfix
+    note: '[folded from access-parts-in-the-vehicle-editor: give it its own section] Part transforms are uncached while the
+      part is held.'
+  related:
+  - get-part-points-in-vehicle-and-world-frames
+  - weld-one-vessel-to-another
+  - scale-a-vessel-or-its-parts-at-runtime
+  merged_from:
+  - access-parts-in-the-vehicle-editor
+- slug: draw-an-engine-diagram-from-nozzle-positions
+  title: Draw an engine diagram from nozzle positions and live engine state
+  kind: howto
+  group: part-geometry
+  batch: vehicles-and-parts-2
+  summary: List the active stage engines with their states and propellant per tank, locate each engine nozzle (LocationAsmb
+    through the part matrix into vehicle space) and lay the engines out as a top-down diagram.
+  game_types:
+  - KSA.PartTree
+  - KSA.ModuleList
+  - KSA.ModuleStateful
+  - KSA.EngineController
+  - KSA.SequenceList
+  - KSA.Tank
+  - KSA.Battery
+  - KSA.Part
+  - KSA.PartConnectorInstance
+  - KSA.Vehicle
+  - KSA.Mole
+  - KSA.MoleState
+  - KSA.SolidMotor
+  engine_pointers:
+  - current/decomp/KSA/PartTree.cs Modules
+  - current/decomp/KSA/EngineController.cs
+  - current/decomp/KSA/SequenceList.cs ActiveSequence
+  - current/decomp/KSA/Part.cs MatrixAsmb2VehicleAsmb, Connector
+  - current/decomp/KSA/Vehicle.cs Asmb2Ego, CenterOfMassAsmb, GetPositionEcl
+  - current/decomp/KSA/Tank.cs
+  - current/decomp/KSA/Mole.cs GetStoredMass
+  - current/decomp/KSA/SolidMotor.cs
+  lifecycle:
+  - frame:viewports
+  - frame:draw-ui
+  - frame:after-on-frame
+  - frame:input
+  approaches:
+  - n: 1
+    title: Engines of the active stage with their states
+    mod: ksa-public-telemetry
+    features:
+    - mods/ksa-public-telemetry/features/engine-diagram-from-nozzle-positions
+    technique: part-tree-modules
+    note: SequenceList.ActiveSequence to engines; pair with nozzle positions for a diagram. nozzle.LocationAsmb.Transform(float4x4.Pack(part.MatrixAsmb2VehicleAsmb)).
+      Propellant per tank and totals.
+  related:
+  - read-live-part-module-state
+  - get-part-points-in-vehicle-and-world-frames
+  - command-engines-throttle-and-rcs-from-code
+  - ray-cast-against-vessel-meshes-and-terrain
+  - anchor-to-parts-across-vehicle-changes
+  - refill-or-drain-resources
+- slug: give-inert-parts-behaviour-by-part-id
+  title: Give inert parts behaviour by recognising their part Id (weapons, dispensers, decoys)
+  kind: howto
+  group: craft-tracking
+  batch: vehicles-and-parts-2
+  summary: 'Keep XML free of behaviour and let code discover parts on any craft by Id, using a data-driven registry of profiles,
+    so other mods can add parts as data and dispenser or weapon kinds are decided by which part is fitted. Also covers: Simulate
+    flares and chaff as decoys.'
+  game_types:
+  - KSA.Part
+  - KSA.PartTemplate
+  - KSA.Vehicle
+  engine_pointers:
+  - current/decomp/KSA/Part.cs template Id
+  - current/decomp/KSA/Vehicle.cs
+  lifecycle:
+  - startup:all-mods-loaded
+  - frame:draw-ui
+  - startup:asset-load
+  - frame:after-on-frame
+  approaches:
+  - n: 1
+    title: Weapon registry keyed by part Id, with profiles in a game-free layer
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/weapon-registry-and-profiles
+    technique: data-driven-registry
+    note: Profiles live in Sim/, the game adapter finds parts per craft; also how packs from other mods feed the registry.
+  - n: 2
+    title: Dispenser kind decided by which part is fitted
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/countermeasure-dispensers
+    technique: part-id-lookup
+    note: Same pattern with a different consumer. (also simulate-decoys-flares-and-chaff) Dispenser kind decided by the fitted
+      part Id.
+  - n: 3
+    title: Registry fed from a folder in every installed mod
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/weapon-packs-from-mod-folders
+    technique: convention-folder-scan
+    note: Data-only add-on packs; strict reader and post-load audit.
+  related:
+  - track-and-classify-craft
+  - define-a-part-with-game-data
+  - target-and-gate-automated-weapons
+  merged_from:
+  - simulate-decoys-flares-and-chaff
+- slug: track-and-classify-craft
+  title: Track which craft carry your part, classify them, and detect staging and loss
+  kind: howto
+  group: craft-tracking
+  batch: vehicles-and-parts-2
+  summary: Build a per-frame roster of craft keyed by Vehicle reference rather than name, so a mod knows its own craft, who
+    is allied, and when a craft is disposed, loses the part, stages, separates or fails structurally.
+  game_types:
+  - KSA.Vehicle
+  - KSA.Universe
+  - KSA.CelestialSystem
+  - KSA.StructuralLoad
+  - KSA.PhysicsBubble
+  engine_pointers:
+  - current/decomp/KSA/Universe.cs CurrentSystem.All enumeration
+  - current/decomp/KSA/StructuralLoad.cs
+  - current/decomp/KSA/PhysicsBubble.cs
+  lifecycle:
+  - frame:draw-ui
+  - frame:after-on-frame
+  approaches:
+  - n: 1
+    title: Per-frame sync of craft that carry the mod's part into a Vehicle-keyed dictionary
+    mod: ksacars
+    features:
+    - mods/ksacars/features/frame-step-latch-and-car-registry
+    technique: starmap-lifecycle
+    note: Enumerate every vehicle from any hook (Program.VehiclesInFrame is empty after PostRender); drop entries when disposed
+      or the part leaves.
+  - n: 2
+    title: Teams, alliances and a reference-keyed roster declared each frame
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/iff-teams-and-allegiance
+    technique: reference-keyed-dictionary
+    note: Never parse allegiance from craft names; rules per team, roster rebuilt each step.
+  - n: 3
+    title: State diffing for staging and max-q callouts
+    mod: ksa-public-telemetry
+    features:
+    - mods/ksa-public-telemetry/features/flight-event-detection-and-callouts
+    technique: state-diffing
+    note: '[folded from detect-staging-and-vehicle-loss: give it its own section] Part-count drop or new vehicle sharing LaunchGameTime;
+      radial decoupler connections tell booster separation.'
+  - n: 4
+    title: IsDisposed, IsControllable and StructuralLoad fractions
+    mod: ksa-public-telemetry
+    features:
+    - mods/ksa-public-telemetry/features/freeze-on-signal-loss
+    technique: state-machine
+    note: '[folded from detect-staging-and-vehicle-loss: give it its own section] GLoadFraction and DynamicPressureFraction;
+      PhysicsBubble breaks at >= 1.'
+  related:
+  - give-inert-parts-behaviour-by-part-id
+  - draw-ui-while-the-hud-is-hidden
+  - stage-a-vehicle-from-code
+  - make-a-vehicle-indestructible
+  merged_from:
+  - detect-staging-and-vehicle-loss
+- slug: target-and-gate-automated-weapons
+  title: 'Pick and gate targets for automated weapons: closest approach, radar cone and lock, named gates'
+  kind: howto
+  group: craft-tracking
+  batch: vehicles-and-parts-2
+  summary: Engage targets passing by (closed-form CPA with filtered relative motion), model a sensor cone with masking, lock
+    dwell and terrain line of sight, and gate automated fire with ordered named gates that explain the first refusal while
+    sharing targets across weapons.
+  game_types:
+  - KSA.Vehicle
+  - KSA.Universe
+  engine_pointers:
+  - current/decomp/KSA/Vehicle.cs state vectors
+  - current/decomp/KSA/Universe.cs vehicle census
+  - current/decomp/KSA/Vehicle.cs
+  lifecycle:
+  - frame:draw-ui
+  - frame:after-on-frame
+  - frame:celestials
+  approaches:
+  - n: 1
+    title: Closed-form CPA with median filtering
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/cpa-threat-classification
+    technique: closed-form-geometry
+    note: Relative motion from paired samples in one frame.
+  - n: 2
+    title: Radar profile with search cone and lock dwell
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/radar-search-and-lock
+    technique: closed-form-geometry
+    note: '[folded from model-radar-search-and-lock: give it its own section] Terrain samples only where the sphere test is
+      ambiguous.'
+  - n: 3
+    title: Gate ladder and per-craft target tally
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/fire-control-and-target-allocation
+    technique: gate-ladder
+    note: '[folded from gate-automation-with-an-explainable-ladder: give it its own section] Tally keyed on the target handle.'
+  related:
+  - track-and-classify-craft
+  merged_from:
+  - classify-threats-by-closest-point-of-approach
+  - model-radar-search-and-lock
+  - gate-automation-with-an-explainable-ladder

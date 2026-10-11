@@ -1,0 +1,660 @@
+mod: ksa-public-telemetry
+repo: KSA-Public-Telemetry
+ref: 90608fb465f87d6008208798cc4d20ed8182c9a0
+summary: >-
+  KSA Broadcast Telemetry Overlay (elevatorctln, Spacedock "Webcast Telemetry Overlay") is a StarMap ImGui mod that
+  draws a SpaceX-webcast-style telemetry bar over flight: speed/altitude/g-force gauges, a T+ clock keyed on LaunchGameTime
+  with its own liftoff detection, a mission timeline with planned burns from the flight computer, heuristic event
+  callouts, and an engine diagram projected from the active stage nozzle positions with a propellant arc. It samples
+  the controlled vehicle in StarMapAfterOnFrame, draws on the ImGui foreground draw list in StarMapAfterGui (and
+  from a reflection-only Harmony postfix on Program.DrawFps when F2 hides the UI), hides and restores stock GaugeCanvases,
+  offers every panel as a KSA.ImGuiWindow, integrates with ModMenu through a vendored attribute with a fallback
+  window, and persists a forgiving JSON config in the KSA documents folder.
+features:
+- id: mods/ksa-public-telemetry/features/foreground-drawlist-broadcast-overlay
+  title: Broadcast overlay on the ImGui foreground draw list
+  category: ui
+  submod: null
+  summary: >-
+    Draws the whole webcast bar (anchored gauge capsules, gradient band, sloped shelf plates) into ImGui.GetForegroundDrawList
+    each frame using a tiny IOverlayPanel/PanelHost layout system; shelf gradients are made by rewriting the alpha
+    of freshly emitted ImDrawVerts.
+  novelty: high
+  techniques:
+  - imgui-drawlist
+  - starmap-lifecycle
+  lifecycle:
+  - frame:draw-ui
+  hooks:
+  - starmap StarMapAfterGui
+  - harmony-postfix KSA.Program.DrawFps
+  game_types:
+  - Brutal.ImGuiApi.ImGui
+  - Brutal.ImGuiApi.ImDrawListPtr
+  - Brutal.ImGuiApi.Internal.ImGuiWindowPtr
+  - KSA.Program
+  key_paths:
+  - Rendering/OverlayRenderer.cs
+  - Rendering/PanelHost.cs
+  - Rendering/IOverlayPanel.cs
+  - Rendering/Gfx.cs
+  - Rendering/ReadoutPanel.cs
+  howto_topics:
+  - slug: fullscreen-hud-overlay-on-foreground-drawlist
+    title: Draw a full-screen HUD overlay on the ImGui foreground draw list
+    note: >-
+      no window, anchored to GetMainViewport WorkPos/WorkSize, clears the game menu bar via FindWindowByName
+  - slug: imgui-gradient-polygon-via-vertex-colors
+    title: Fill an ImGui polygon with a gradient by editing emitted vertices
+    note: record VtxBuffer.Count around AddConvexPolyFilled and rescale ImDrawVert.col alpha
+  - slug: round-gauge-with-arc-fill
+    title: Draw a round gauge with a sweeping arc fill in ImGui
+    note: PathArcTo + PathStroke, angle origin rotated to 12 o clock, exponential value smoothing
+- id: mods/ksa-public-telemetry/features/intro-outro-animation
+  title: Staged intro and outro animation
+  category: ui
+  submod: null
+  summary: >-
+    Five overlapping intro stages with 1-(1-t)^n easing, edge-in stagger by distance from the screen edge, reversible
+    outro, and jittered colour fades for engine dots, all driven by dt.
+  novelty: medium
+  techniques:
+  - imgui-drawlist
+  - animation-easing
+  lifecycle:
+  - frame:draw-ui
+  hooks:
+  - starmap StarMapAfterGui
+  - harmony-postfix KSA.Program.DrawFps
+  game_types:
+  - Brutal.ImGuiApi.ImDrawListPtr
+  key_paths:
+  - Rendering/IntroAnimator.cs
+  - Rendering/IOverlayPanel.cs
+  - Rendering/EngineClusterPanel.cs
+  - Rendering/Tuning.cs
+  howto_topics:
+  - slug: animate-imgui-overlays-with-easing
+    title: Animate ImGui overlays with staged easing and stagger
+    note: >-
+      phase struct consumed as opacity/scale/sweep multipliers; reverse by scaling elapsed time to zero
+- id: mods/ksa-public-telemetry/features/montserrat-fonts-in-imgui-atlas
+  title: Montserrat fonts in the ImGui atlas
+  category: ui
+  submod: null
+  summary: >-
+    Adds bundled TTFs to the game ImGui atlas lazily on the first UI frame with the same ImFontConfig fields as
+    KSA.FontManager, then renders any size with ImGui 1.92 PushFont(font, size); tabular digits and drop shadows
+    on draw lists. FontManager.RegenerateFonts clears the atlas and leaves the cached pointers dangling.
+  novelty: medium
+  techniques:
+  - imgui-font
+  - imgui-drawlist
+  lifecycle:
+  - startup:immediate-load
+  - frame:draw-ui
+  hooks:
+  - starmap StarMapImmediateLoad
+  - starmap StarMapAfterGui
+  - harmony-postfix KSA.Program.DrawFps
+  game_types:
+  - Brutal.ImGuiApi.ImGui
+  - Brutal.ImGuiApi.ImFontAtlasPtr
+  - Brutal.ImGuiApi.ImFontConfig
+  - KSA.FontManager
+  - KSA.Mod
+  key_paths:
+  - Rendering/OverlayFonts.cs
+  - Rendering/Gfx.cs
+  - KSATelemetryOverlay.csproj
+  - TelemetryOverlayMod.cs
+  howto_topics:
+  - slug: load-custom-font-into-imgui
+    title: Load a custom TTF font into the KSA ImGui atlas
+    note: >-
+      Mod.DirectoryPath for the file, AddFontFromFileTTF, dynamic atlas (RendererHasTextures) allows mid-frame adds;
+      atlas is cleared by FontManager.RegenerateFonts
+  - slug: tabular-digits-in-imgui
+    title: Draw fixed-width digits with a proportional font
+    note: widest-digit cell, centre each glyph
+  - slug: survive-imgui-font-atlas-rebuild
+    title: Keep custom ImGui fonts valid across a game font rebuild
+    note: >-
+      FontManager.RegenerateFonts (after font settings change) calls Fonts.Clear() and only reloads Content/*.ttf;
+      detect it (for example FontManager.ConsoleFont changed) and re-add; mod.toml fonts only feed the settings combo
+- id: mods/ksa-public-telemetry/features/live-flight-telemetry-sampling
+  title: Live flight telemetry sampling
+  category: flight-and-orbits
+  submod: null
+  summary: >-
+    Copies controlled-vehicle kinematics (surface/orbital speed, barometric/radar altitude, g-load, q, apsides,
+    thrust, T/W, downrange) into a plain snapshot once per frame from StarMapAfterOnFrame for the UI to draw next
+    frame.
+  novelty: medium
+  techniques:
+  - starmap-lifecycle
+  - snapshot-copy
+  lifecycle:
+  - frame:after-on-frame
+  hooks:
+  - starmap StarMapAfterOnFrame
+  game_types:
+  - KSA.Program
+  - KSA.Vehicle
+  - KSA.ReadOnlyPhysicsStates
+  - KSA.PhysicsEnvironment
+  - KSA.SituationEx
+  - KSA.EngineController
+  - KSA.Universe
+  key_paths:
+  - Telemetry/TelemetrySampler.cs
+  - Telemetry/TelemetrySnapshot.cs
+  - TelemetryOverlayMod.cs
+  - Rendering/ReadoutPanel.cs
+  howto_topics:
+  - slug: read-vehicle-flight-telemetry
+    title: Read live speed, altitude, g-load and dynamic pressure of the controlled vehicle
+    note: >-
+      Vehicle.GetSurfaceSpeed/GetBarometricAltitude/AccelerationBody, ReadOnlyPhysicsStates.Environment and ComputeAirVelocityBody
+  - slug: sample-after-frame-draw-next-frame
+    title: Sample game state after the frame and draw it next frame
+    note: StarMapAfterOnFrame into a plain snapshot; one frame latency, no locks
+  - slug: compute-current-engine-thrust
+    title: Compute current thrust of a vehicle
+    note: EngineController.ComputeActivePerformance(...).ThrustMax per active controller
+- id: mods/ksa-public-telemetry/features/engine-diagram-from-nozzle-positions
+  title: Engine diagram from real nozzle positions
+  category: vehicles-and-parts
+  submod: null
+  summary: >-
+    Enumerates the active stage engine controllers and rocket cores via ModuleStateful StateLists, transforms each
+    nozzle LocationAsmb by Part.MatrixAsmb2VehicleAsmb (as RocketNozzle.ResetState does), drops the stack axis and
+    normalises into a dot diagram; propellant fraction summed from tank moles.
+  novelty: high
+  techniques:
+  - imgui-drawlist
+  - part-tree-modules
+  - starmap-lifecycle
+  lifecycle:
+  - frame:after-on-frame
+  - frame:draw-ui
+  hooks:
+  - starmap StarMapAfterOnFrame
+  - starmap StarMapAfterGui
+  - harmony-postfix KSA.Program.DrawFps
+  game_types:
+  - KSA.PartTree
+  - KSA.EngineController
+  - KSA.EngineControllerState
+  - KSA.RocketCore
+  - KSA.RocketCoreState
+  - KSA.Rocket
+  - KSA.RocketNozzle
+  - KSA.Part
+  - KSA.SequenceList
+  - KSA.ModuleStateful
+  - KSA.Tank
+  - KSA.Mole
+  - KSA.MoleState
+  key_paths:
+  - Telemetry/TelemetrySampler.cs
+  - Rendering/EngineClusterPanel.cs
+  howto_topics:
+  - slug: enumerate-engines-of-active-stage
+    title: Enumerate the engines of the active stage with their states
+    note: >-
+      ModuleStateful<EngineController,...>.TryGetFrom(parts.States), SequenceList.ActiveSequence, RocketCores.GetModulesAndStates(controller.Cores)
+  - slug: nozzle-positions-in-vehicle-space
+    title: Get nozzle positions in vehicle assembly space
+    note: nozzle.LocationAsmb.Transform(float4x4.Pack(part.MatrixAsmb2VehicleAsmb))
+  - slug: read-propellant-remaining
+    title: Read remaining propellant mass and capacity from tanks
+    note: Tank.Moles, Moles.States[StatesIdx].Mass, Mole.GetStoredMass(ContainerVolume)
+- id: mods/ksa-public-telemetry/features/mission-clock-and-liftoff-detection
+  title: Mission clock and liftoff detection
+  category: flight-and-orbits
+  submod: null
+  summary: >-
+    T-/T+ clock keyed on Vehicle.LaunchGameTime (spawn time, copied to split stages), liftoff detected from contact
+    loss + burning engine + climb rate, hotkey countdown, revert detection, and liftoff epochs persisted in config.
+  novelty: high
+  techniques:
+  - starmap-lifecycle
+  - json-config
+  lifecycle:
+  - frame:after-on-frame
+  - frame:draw-ui
+  hooks:
+  - starmap StarMapAfterOnFrame
+  - starmap StarMapAfterGui
+  - harmony-postfix KSA.Program.DrawFps
+  game_types:
+  - KSA.Vehicle
+  - KSA.UniverseTime
+  - KSA.Universe
+  - KSA.CelestialSystem
+  - KSA.LookupCollection
+  key_paths:
+  - Telemetry/MissionClock.cs
+  - Telemetry/MissionRegistry.cs
+  - Telemetry/TelemetrySampler.cs
+  - Rendering/MissionClockPanel.cs
+  howto_topics:
+  - slug: mission-elapsed-time-from-liftoff
+    title: Show mission elapsed time from actual liftoff
+    note: stock MET is now - LaunchGameTime (time since spawn); detect liftoff yourself
+  - slug: group-split-vehicles-by-launch
+    title: Group stages and debris of one launch
+    note: Vehicle.Split copies LaunchGameTime; use LaunchGameTime.Nanoseconds as a key
+  - slug: detect-quickload-revert
+    title: Detect quickload or revert from universe time going backwards
+    note: compare Universe.GetElapsedSeconds with last seen per mission
+- id: mods/ksa-public-telemetry/features/flight-event-detection-and-callouts
+  title: In-flight event detection and callouts
+  category: vehicles-and-parts
+  submod: null
+  summary: >-
+    Heuristic event detector diffing burning-engine count, part count, mission vehicle count and attached radial
+    decouplers between frames (debounced) to emit LIFTOFF, MAX Q, MECO/SECO, STAGE/BOOSTER SEP, SES-1, LANDING BURN,
+    LANDING, shown as fading banners.
+  novelty: medium
+  techniques:
+  - starmap-lifecycle
+  - imgui-drawlist
+  - state-diffing
+  lifecycle:
+  - frame:after-on-frame
+  - frame:draw-ui
+  hooks:
+  - starmap StarMapAfterOnFrame
+  - starmap StarMapAfterGui
+  - harmony-postfix KSA.Program.DrawFps
+  game_types:
+  - KSA.PartTree
+  - KSA.Decoupler
+  - KSA.Part
+  - KSA.CelestialSystem
+  - KSA.LookupCollection
+  - KSA.Vehicle
+  key_paths:
+  - Telemetry/MissionEventLog.cs
+  - Telemetry/MissionEvent.cs
+  - Telemetry/TelemetrySampler.cs
+  - Rendering/NotificationPanel.cs
+  howto_topics:
+  - slug: detect-staging-events
+    title: Detect staging and separation events without game events
+    note: >-
+      part-count drop or new vehicle sharing LaunchGameTime; radial decoupler connections tell boosters apart
+  - slug: detect-max-q
+    title: Detect max dynamic pressure
+    note: track peak q, confirm when q < 95% of a peak above 1 kPa
+  - slug: imgui-toast-notifications
+    title: Show fading toast banners with ImGui draw lists
+    note: fade-in/hold/fade-out by age, max 3, notched AddConvexPolyFilled banner
+- id: mods/ksa-public-telemetry/features/mission-timeline-with-planned-burns
+  title: Mission timeline with planned burns
+  category: flight-and-orbits
+  submod: null
+  summary: >-
+    Reads Vehicle.FlightComputer.BurnPlan each frame (HasActiveBurns, BurnCount, TryGetBurn, Burn.Time, HasDeltaV),
+    converts to mission time and plots planned burns ahead of a now marker with recorded events behind.
+  novelty: medium
+  techniques:
+  - imgui-drawlist
+  - starmap-lifecycle
+  lifecycle:
+  - frame:after-on-frame
+  - frame:draw-ui
+  hooks:
+  - starmap StarMapAfterOnFrame
+  - starmap StarMapAfterGui
+  - harmony-postfix KSA.Program.DrawFps
+  game_types:
+  - KSA.Vehicle
+  - KSA.FlightComputer
+  - KSA.BurnPlan
+  - KSA.Burn
+  - KSA.BurnTarget
+  - KSA.UniverseTime
+  key_paths:
+  - Telemetry/TelemetrySampler.cs
+  - Telemetry/MissionEventLog.cs
+  - Rendering/TimelinePanel.cs
+  - Rendering/Gfx.cs
+  howto_topics:
+  - slug: read-planned-maneuver-burns
+    title: Read the planned maneuver burns of a vehicle
+    note: FlightComputer.BurnPlan.TryGetBurn(i, out Burn) and Burn.Time
+  - slug: scrolling-timeline-imgui
+    title: Draw a scrolling time window with labelled markers in ImGui
+    note: two label rows with cursors and leader lines for collision avoidance
+- id: mods/ksa-public-telemetry/features/freeze-on-signal-loss
+  title: Freeze on signal loss
+  category: vehicles-and-parts
+  submod: null
+  summary: >-
+    Pure tracking decision (sample/hold/clear) plus a Live/Lost state machine: freezes on loss of IsControllable
+    (never on EVA, KittenEva is always controllable), on vehicle destruction (id gone from CelestialSystem.All) or
+    when the per-step StructuralLoad g/q fraction reaches a threshold below the 1.0 at which the worker step creates a
+    VehicleDestructionEvent that the same ApplyVehicleSolvers call executes.
+  novelty: medium
+  techniques:
+  - starmap-lifecycle
+  - state-machine
+  lifecycle:
+  - frame:after-on-frame
+  - frame:draw-ui
+  hooks:
+  - starmap StarMapAfterOnFrame
+  - starmap StarMapAfterGui
+  - harmony-postfix KSA.Program.DrawFps
+  game_types:
+  - KSA.Vehicle
+  - KSA.StructuralLoad
+  - KSA.VehicleStructuralLimits
+  - KSA.Program
+  - KSA.CelestialSystem
+  - KSA.PhysicsBubble
+  - KSA.Universe
+  - KSA.KittenEva
+  key_paths:
+  - Telemetry/TelemetrySampler.cs
+  - Telemetry/SignalState.cs
+  - Rendering/OverlayRenderer.cs
+  howto_topics:
+  - slug: predict-structural-failure
+    title: Read how close a vehicle is to structural failure
+    note: >-
+      Vehicle.StructuralLoad GLoadFraction/DynamicPressureFraction; PhysicsBubble.DetectStructuralFailure destroys the
+      vehicle at >= 1.0, g limit from VehicleStructuralLimits.EffectiveMaxGLoad, q limit 200 kPa
+  - slug: detect-vehicle-destroyed-or-uncontrollable
+    title: Detect that the controlled vehicle was destroyed or lost control
+    note: IsDisposed, IsControllable, CelestialSystem.All.TryGet(id)
+- id: mods/ksa-public-telemetry/features/hide-and-restore-stock-flight-hud
+  title: Hide and restore the stock flight HUD
+  category: ui
+  submod: null
+  summary: >-
+    Disables every enabled non-AlwaysEnabled GaugeCanvas while active and re-enables exactly those later; pauses
+    while the LAYOUTS window (found by its derived ImGui name) is open because layout saves capture the enabled
+    flag.
+  novelty: high
+  techniques:
+  - imgui-window-lookup
+  - starmap-lifecycle
+  lifecycle:
+  - frame:draw-ui
+  - event:starmap-unload
+  hooks:
+  - starmap StarMapAfterGui
+  - harmony-postfix KSA.Program.DrawFps
+  - starmap StarMapUnload
+  game_types:
+  - KSA.GaugeCanvas
+  - KSA.LayoutSaves
+  - KSA.SerializedLayout
+  - KSA.ImGuiWindow
+  - KSA.Program
+  - Brutal.ImGuiApi.ImGui
+  key_paths:
+  - Rendering/FlightUiController.cs
+  - Rendering/OverlayRenderer.cs
+  - TelemetryOverlayMod.cs
+  howto_topics:
+  - slug: hide-stock-flight-hud
+    title: Hide and restore the stock flight HUD gauges
+    note: GaugeCanvas.AllCanvases, SetEnabled(false), remember what you changed, restore on unload
+  - slug: find-game-imgui-window-by-name
+    title: Detect whether a game ImGui window is open
+    note: KSA.ImGuiWindow ids are title###TypeFullName_; ImGui.Internal.FindWindowByName + WasActive
+- id: mods/ksa-public-telemetry/features/draw-while-ui-hidden-drawfps-postfix
+  title: Keep drawing while the game UI is hidden
+  category: patching
+  submod: null
+  summary: >-
+    Reflection-only Harmony postfix on private static Program.DrawFps, which OnFrame calls (like OnDrawUiConsole right
+    after it) outside the DrawUI guard that silences StarMap's UI hooks, to keep the overlay on screen when F2 hides the
+    UI; no compile-time Harmony reference. Not run on PrepareFrame Exit frames.
+  novelty: high
+  techniques:
+  - harmony-postfix
+  - reflection
+  lifecycle:
+  - startup:all-mods-loaded
+  - frame:draw-ui
+  hooks:
+  - starmap StarMapAllModsLoaded
+  - harmony-postfix KSA.Program.DrawFps
+  - reflection KSA.Program.DrawFps
+  game_types:
+  - KSA.Program
+  key_paths:
+  - HiddenUiPatch.cs
+  - TelemetryOverlayMod.cs
+  howto_topics:
+  - slug: draw-ui-while-hud-hidden
+    title: Keep drawing a mod UI when the player hides the HUD (F2)
+    note: >-
+      postfix Program.DrawFps or prefix OnDrawUiConsole, both outside if (DrawUI); return early while DrawUI is true;
+      StarMapBeforeGui/AfterGui are inside the guard
+  - slug: harmony-patch-via-reflection
+    title: Apply a Harmony patch without referencing Harmony at compile time
+    note: find HarmonyLib types in the AppDomain, fill Harmony.Patch arguments by parameter name
+- id: mods/ksa-public-telemetry/features/panels-as-static-imgui-windows
+  title: Every element as its own ImGui window
+  category: ui
+  submod: null
+  summary: >-
+    Subclasses KSA.ImGuiWindow + IStaticWindow so the game draws each panel as a stock-style window in its static-window
+    pass, builds them lazily on the first UI frame, shares the sampler's snapshot object by reference, and persists
+    position/size in the mod config because the base uses NoSavedSettings. All instances share one ### id.
+  novelty: medium
+  techniques:
+  - imgui-window
+  - imgui-drawlist
+  - json-config
+  lifecycle:
+  - frame:draw-ui
+  hooks:
+  - starmap StarMapAfterGui
+  game_types:
+  - KSA.ImGuiWindow
+  - KSA.IStaticWindow
+  - KSA.Program
+  - Brutal.ImGuiApi.ImGui
+  key_paths:
+  - Rendering/TelemetryWindow.cs
+  - Rendering/WindowHost.cs
+  howto_topics:
+  - slug: use-game-imguiwindow-base-class
+    title: Make a window with the game ImGuiWindow base class
+    note: >-
+      IStaticWindow auto-registration, DrawContent override, seed _initialPosition/_initialSize; note shared ###
+      id per subclass
+  - slug: persist-imgui-window-placement
+    title: Persist ImGui window position and size yourself
+    note: capture GetWindowPos/Size in DrawContent, debounce into config
+- id: mods/ksa-public-telemetry/features/modmenu-entry-with-standalone-fallback
+  title: ModMenu entry with a standalone fallback window
+  category: ui
+  submod: null
+  summary: >-
+    Vendored ModMenuEntryAttribute on a static settings method plus a hotkey-toggled fallback window drawing the
+    same content, switching BeginMenu for CollapsingHeader by a flag.
+  novelty: medium
+  techniques:
+  - imgui-menu
+  - imgui-window
+  - inter-mod-api
+  lifecycle:
+  - frame:draw-ui
+  hooks:
+  - starmap StarMapAfterGui
+  - modmenu ModMenuEntry Telemetry Overlay
+  game_types:
+  - Brutal.ImGuiApi.ImGui
+  key_paths:
+  - ModMenuEntry.cs
+  - Rendering/SettingsUi.cs
+  - TelemetryOverlayMod.cs
+  howto_topics:
+  - slug: modmenu-integration
+    title: Add a mod settings entry to ModMenu without a hard dependency
+    note: copy ModMenuEntryAttribute into your assembly
+  - slug: settings-ui-menu-or-window
+    title: Render one settings tree as a menu or a window
+    note: 'Category() helper: BeginMenu vs CollapsingHeader'
+- id: mods/ksa-public-telemetry/features/rebindable-numpad-hotkeys
+  title: Rebindable numpad hotkeys
+  category: ui
+  submod: null
+  summary: >-
+    ImGuiKey hotkeys stored as enum names in JSON, polled with ImGui.IsKeyPressed outside text input, and rebound
+    with a press-a-key capture loop over NamedKey_BEGIN..Oem102.
+  novelty: low
+  techniques:
+  - imgui-input
+  - json-config
+  lifecycle:
+  - frame:draw-ui
+  hooks:
+  - starmap StarMapAfterGui
+  - harmony-postfix KSA.Program.DrawFps
+  game_types:
+  - Brutal.ImGuiApi.ImGui
+  - Brutal.ImGuiApi.ImGuiKey
+  key_paths:
+  - TelemetryOverlayMod.cs
+  - Rendering/SettingsUi.cs
+  - OverlayConfig.cs
+  howto_topics:
+  - slug: rebindable-hotkeys-imgui
+    title: Implement rebindable hotkeys with ImGui key state
+    note: IsKeyPressed(repeat:false), skip on WantTextInput, capture by scanning ImGuiKey range
+- id: mods/ksa-public-telemetry/features/json-config-in-documents
+  title: JSON config in the KSA documents folder
+  category: persistence
+  submod: null
+  summary: >-
+    config.json under Constants.DocumentsFolderPath (follows StarMap's instance-path patch, except for the final save
+    in StarMapUnload, which runs after StarMap unpatched everything), System.Text.Json with fields and enum names,
+    drop-a-fragile-field-and-retry loading, clamping, 1 s debounced atomic temp-file save.
+  novelty: medium
+  techniques:
+  - json-config
+  - starmap-lifecycle
+  lifecycle:
+  - startup:all-mods-loaded
+  - frame:draw-ui
+  - event:starmap-unload
+  hooks:
+  - starmap StarMapAllModsLoaded
+  - starmap StarMapAfterGui
+  - harmony-postfix KSA.Program.DrawFps
+  - starmap StarMapUnload
+  game_types:
+  - KSA.Constants
+  key_paths:
+  - Config/ConfigStore.cs
+  - OverlayConfig.cs
+  howto_topics:
+  - slug: mod-config-json-in-documents
+    title: Store mod settings as JSON in the KSA documents folder
+    note: >-
+      Constants.DocumentsFolderPath, debounced save, write temp then File.Move overwrite; resolve the path before
+      StarMapUnload because the instance-path patch is gone there
+  - slug: tolerant-json-config-loading
+    title: Load a hand-edited JSON config without losing everything on one bad field
+    note: parse to JsonObject, remove a field and retry on JsonException
+- id: mods/ksa-public-telemetry/features/live-tuning-and-palette-reflection
+  title: Live tuning window and palette by reflection
+  category: testing-and-tooling
+  submod: null
+  summary: >-
+    Public static float/int tuning fields and uint colour fields reflected into a live slider window, override-only
+    persistence, and a Copy-as-source dump to bake values back into code.
+  novelty: medium
+  techniques:
+  - reflection
+  - imgui-window
+  - json-config
+  lifecycle:
+  - startup:all-mods-loaded
+  - frame:draw-ui
+  hooks:
+  - starmap StarMapAllModsLoaded
+  - starmap StarMapAfterGui
+  game_types:
+  - Brutal.ImGuiApi.ImGui
+  key_paths:
+  - Rendering/Tuning.cs
+  - Rendering/TuningUi.cs
+  - Config/OverlayPalette.cs
+  - Rendering/OverlayStyle.cs
+  howto_topics:
+  - slug: live-tweak-constants-in-game
+    title: Tweak layout and animation constants live in game
+    note: reflect static fields, ImGui sliders by ref, save diffs from defaults, dump as C#
+- id: mods/ksa-public-telemetry/features/error-budget-self-disable
+  title: Error budget and self-disable
+  category: getting-started
+  submod: null
+  summary: >-
+    try/catch around every hook, log only the first exception of a streak, disable the mod and restore the stock
+    HUD after 10 consecutive failures.
+  novelty: low
+  techniques:
+  - starmap-lifecycle
+  lifecycle:
+  - startup:all-mods-loaded
+  - frame:after-on-frame
+  - frame:draw-ui
+  hooks:
+  - starmap StarMapAllModsLoaded
+  - starmap StarMapAfterOnFrame
+  - starmap StarMapAfterGui
+  - harmony-postfix KSA.Program.DrawFps
+  game_types:
+  - KSA.GaugeCanvas
+  key_paths:
+  - TelemetryOverlayMod.cs
+  howto_topics:
+  - slug: fail-safe-mod-hooks
+    title: Make per-frame mod hooks fail safe across game updates
+    note: consecutive failure counter, log once, disable and undo side effects
+- id: mods/ksa-public-telemetry/features/allocation-free-readout-text
+  title: Allocation-free formatted readout text
+  category: ui
+  submod: null
+  summary: >-
+    Formats every per-frame readout into a stackalloc'd Span<char> with double.TryFormat (invariant culture, unit
+    suffix, hand-rolled HH:MM:SS) and passes the span to AddText/CalcTextSize, whose ImString conversion encodes it into
+    ImString.SharedStorage, an arena that ImGuiBackend.NewFrame resets every frame; the same pattern as Program.DrawFps.
+  novelty: medium
+  techniques:
+  - imgui-drawlist
+  - span-formatting
+  lifecycle:
+  - frame:draw-ui
+  hooks:
+  - starmap StarMapAfterGui
+  - harmony-postfix KSA.Program.DrawFps
+  game_types:
+  - Brutal.ImGuiApi.ImString
+  - Brutal.ImGuiApi.ImDrawListExtensions
+  - Brutal.ImGuiApi.ImGui
+  - Brutal.Strings.ArenaStringBuilder
+  - KSA.ImGuiBackend
+  - KSA.Program
+  key_paths:
+  - Rendering/Format.cs
+  - Rendering/ReadoutPanel.cs
+  - Rendering/MissionClockPanel.cs
+  - Rendering/Gfx.cs
+  howto_topics:
+  - slug: allocation-free-imgui-text
+    title: Draw per-frame ImGui text without allocating strings
+    note: >-
+      stackalloc Span<char> + TryFormat, pass ReadOnlySpan<char> (ImString arena reset in ImGuiBackend.NewFrame), u8
+      literals for constant labels, never keep an ImString across frames

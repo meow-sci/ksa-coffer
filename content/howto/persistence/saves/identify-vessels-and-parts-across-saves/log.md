@@ -1,0 +1,5 @@
+# Identify vessels and parts stably across saves history
+
+## 2026-10-10
+* **Creation**: Added [Identify vessels and parts stably across saves](overview.md) (engine background, approach comparison) and 4 how-to articles: [Key mod data on Vehicle.Id and follow renames and disposals with postfixes](identify-vessels-and-parts-across-saves-1.md), [Key settings on the craft display name and warn when two craft share it](identify-vessels-and-parts-across-saves-2.md), [Anchor a saved window layout on Vehicle.Id and accept best-effort part ids](identify-vessels-and-parts-across-saves-3.md), [Reference a specific part with tree paths and a topology hash, resolving to null instead of guessing](identify-vessels-and-parts-across-saves-4.md). Verified against the decompiled game build 2026.10.10.5554 and the pinned reference repositories.
+* **Update**: Review pass against build 2026.10.10.5554. Identifier claims (`Part.InstanceId`, `Part.ResolveRuntimeId`, `Vehicle.SetName`, `Vehicle.Dispose(bool)`, `KeyHash`) re-checked against the decompiled game; backticked approach references turned into links.

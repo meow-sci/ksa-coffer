@@ -1,0 +1,269 @@
+mod: starmap
+repo: StarMap
+ref: 4dc60f8dfeb1d9b035d44af2601d09115c16d2aa
+summary: >-
+  StarMap is the community code-mod loader for Kitten Space Agency. The player runs StarMap.exe,
+  which loads KSA.dll into its own process through a custom AssemblyLoadContext, fixes the working
+  and base directories, discovers code mods through KSA's own manifest.toml / mod.toml system
+  (reading an optional [StarMap] table for EntryAssembly, ExportedAssemblies and ModDependencies),
+  loads each mod's entry DLL into a non-collectible per-mod AssemblyLoadContext, orders mods by a
+  dependency graph, binds [StarMapMod] hook methods by attribute type name, applies Harmony patches
+  on Program.OnFrame / OnDrawUiFrame / OnDrawUiViewports, Mod.PrepareSystems and
+  ModLibrary.PrepareAll / LoadAll, and then invokes KSA's Main. It also offers a restart when new
+  mods are enabled during startup and can redirect the KSA documents folder per instance.
+features:
+  - id: mods/starmap/features/host-process-launch
+    title: Host KSA in-process from a launcher executable
+    category: getting-started
+    submod: null
+    summary: StarMap.exe reads StarMapConfig.json, loads 0Harmony into the default context, loads KSA.dll and StarMap.Core into a custom AssemblyLoadContext, sets the working directory and APP_CONTEXT_BASE_DIRECTORY to the game folder, and invokes KSA's entry point by reflection.
+    novelty: high
+    techniques: [assembly-load-context, reflection, json-config]
+    lifecycle: [startup:starmap-before-main]
+    hooks: ["reflection KSA.Program.Main (Assembly.EntryPoint)", "harmony PatchAll com.starmap.core"]
+    game_types: [KSA.Program, KSA.App]
+    key_paths: [StarMap/Program.cs, StarMap/LoaderConfig.cs, StarMap/CoreAssemblyLoadContext.cs, StarMap/GameSurveyer.cs, StarMap.Core/StarMapCore.cs, StarMap.Types/IStarMapCore.cs]
+    howto_topics:
+      - slug: how-starmap-launches-ksa
+        title: How StarMap launches KSA and loads your mod
+        note: end-to-end walkthrough of the host process, load contexts and entry-point invocation
+      - slug: host-a-dotnet-game-in-a-custom-launcher
+        title: Host a .NET game assembly inside your own launcher process
+        note: AssemblyLoadContext plus APP_CONTEXT_BASE_DIRECTORY trick
+      - slug: run-and-debug-a-starmap-mod-from-an-ide
+        title: Run and debug a StarMap mod from Rider or Visual Studio
+        note: working directory must be the StarMap folder; KSAero ModDeploy.targets launch profile
+  - id: mods/starmap/features/manifest-mod-discovery
+    title: Discover code mods through KSA's mod manifest
+    category: getting-started
+    submod: null
+    summary: StarMap calls ModLibrary.PrepareManifest before the game starts, walks enabled manifest entries in order, reads [StarMap] from each mod.toml (EntryAssembly defaults to the folder name) and loads the entry DLL; a StarMap mod is a KSA content mod plus a DLL.
+    novelty: medium
+    techniques: [toml-config, assembly-load-context]
+    lifecycle: [startup:starmap-before-main, startup:asset-load]
+    hooks: ["call KSA.ModLibrary.PrepareManifest"]
+    game_types: [KSA.ModLibrary, KSA.Mod, KSA.ModEntry, KSA.ModManifest, KSA.Constants]
+    key_paths: [StarMap.Core/ModRepository/ModLoader.cs, StarMap.Core/ModRepository/RuntimeMod.cs, StarMap.Core/Config/StarMapConfig.cs]
+    howto_topics:
+      - slug: mod-toml-reference
+        title: mod.toml reference (KSA keys and the [StarMap] table)
+        note: every KSA.Mod TomlField plus EntryAssembly / ExportedAssemblies / ModDependencies
+      - slug: ksa-mod-manifest-and-mod-folders
+        title: How KSA discovers mods (manifest.toml, Content vs Documents mods folder)
+        note: folder name is the mod id; new mods start disabled
+      - slug: create-a-minimal-starmap-mod
+        title: Create a minimal StarMap mod
+        note: mod.toml + [StarMapMod] class + csproj with Private=false game references
+  - id: mods/starmap/features/per-mod-assembly-load-context
+    title: Isolate each mod in its own AssemblyLoadContext
+    category: getting-started
+    submod: null
+    summary: Each mod's ModAssemblyLoadContext resolves names from the default context, then the game context, then dependency mods' contexts for imported names, then the mod's own deps.json; contexts are non-collectible and do not resolve native libraries.
+    novelty: high
+    techniques: [assembly-load-context, native-interop, reflection]
+    lifecycle: [startup:starmap-before-main]
+    hooks: ["assembly-load-context ModAssemblyLoadContext.Load"]
+    game_types: [KSA.Mod]
+    key_paths: [StarMap.Core/ModRepository/ModAssemblyLoadContext.cs, StarMap.Core/ModRepository/RuntimeMod.cs]
+    howto_topics:
+      - slug: package-mod-dependencies-for-starmap
+        title: Package third-party NuGet dependencies with a StarMap mod
+        note: ship deps.json, never ship 0Harmony.dll or StarMap.API.dll; game copies win
+      - slug: load-native-libraries-from-a-mod
+        title: Load native libraries from a mod folder
+        note: NativeLibrary.SetDllImportResolver in a ModuleInitializer, path from Assembly.Location
+      - slug: find-your-mod-folder-at-runtime
+        title: Find your mod's folder at run time
+        note: Assembly.Location vs KSA.Mod.DirectoryPath
+      - slug: patch-a-lazily-loaded-game-assembly
+        title: Patch code in a game assembly the game has not loaded yet
+        note: load it into the game's (core) load context first, never your own; RealAtmospheres preloads Planet.Render.Core
+  - id: mods/starmap/features/mod-dependency-graph
+    title: Order mod loading with a ModDependencies graph
+    category: getting-started
+    submod: null
+    summary: Mods whose [[StarMap.ModDependencies]] are not registered yet are parked, released when the dependency initializes, and retried at the end where only-optional-missing mods load; initialization order also fixes hook order across mods.
+    novelty: medium
+    techniques: [toml-config, inter-mod-api]
+    lifecycle: [startup:starmap-before-main]
+    hooks: ["call RuntimeMod.AllDependenciesLoaded / CheckForDependentMods / ModLoader.TryLoadWaitingMods"]
+    game_types: [KSA.ModEntry]
+    key_paths: [StarMap.Core/ModRepository/RuntimeMod.cs, StarMap.Core/ModRepository/ModLoader.cs, StarMap.Core/ModRepository/ModRegistry.cs]
+    howto_topics:
+      - slug: declare-mod-dependencies
+        title: Declare required and optional dependencies between StarMap mods
+        note: ModId is the folder name; optional deps must be handled in code; manifest order matters for chains
+      - slug: soft-dependency-on-another-mod
+        title: Integrate with another mod only when it is installed
+        note: Optional = true plus vendored fallback copies (gatOS)
+  - id: mods/starmap/features/shared-contract-assemblies
+    title: Share contract assemblies between mods with ExportedAssemblies and ImportedAssemblies
+    category: external-io
+    submod: null
+    summary: A dependent mod resolves listed assembly names from its dependency's load context so both share one Assembly and Type identity; at the pinned commit only the importer's ImportedAssemblies is effective because RuntimeMod.ExportedAssemblies is never filled.
+    novelty: high
+    techniques: [inter-mod-api, assembly-load-context, toml-config]
+    lifecycle: [startup:starmap-before-main]
+    hooks: ["assembly-load-context ModAssemblyLoadContext.Load (dependency step)"]
+    game_types: []
+    key_paths: [StarMap.Core/ModRepository/RuntimeMod.cs, StarMap.Core/ModRepository/ModAssemblyLoadContext.cs]
+    howto_topics:
+      - slug: publish-an-inter-mod-api
+        title: Publish an API or contract assembly for other mods
+        note: ExportedAssemblies on the exporter, ImportedAssemblies on every importer, ship transitive references together
+      - slug: avoid-type-identity-splits-between-mods
+        title: Avoid type identity splits between mods
+        note: same Assembly object across load contexts; purrTTY/gatOS shell registry
+  - id: mods/starmap/features/attribute-hook-discovery
+    title: Discover lifecycle hooks by attribute type name
+    category: getting-started
+    submod: null
+    summary: StarMap finds the first [StarMapMod] class and its public hook methods by comparing attribute type names, validates signatures with its own attribute instances, keeps one mod instance, and dispatches hooks by MethodInfo.Invoke without exception handling.
+    novelty: medium
+    techniques: [starmap-lifecycle, reflection]
+    lifecycle: [startup:starmap-before-main]
+    hooks: ["reflection StarMapModAttribute / StarMapMethodAttribute subclasses (by type name)", "reflection MethodInfo.Invoke on the [StarMapMod] instance"]
+    game_types: [KSA.Mod]
+    key_paths: [StarMap.Core/ModRepository/ModLoader.cs, StarMap.Core/ModRepository/RuntimeMod.cs, StarMap.Core/ModRepository/ModRegistry.cs, StarMap.API/BaseAttributes.cs, StarMap.API/OnGuiAttributes.cs, StarMap.API/OnFrameAttributes.cs]
+    howto_topics:
+      - slug: starmap-hook-signatures
+        title: StarMap hook attributes and their exact signatures
+        note: wrong signatures and non-public methods are silently ignored
+      - slug: attribute-based-plugin-discovery
+        title: Attribute-based plugin discovery that survives API version skew
+        note: match attribute types by name across load contexts
+      - slug: diagnose-a-hook-that-never-fires
+        title: Diagnose a lifecycle hook that never fires
+        note: non-public method, wrong parameter list (parameterless ImmediateLoad), second [StarMapMod] class, HUD hidden, mod parked on a dependency
+  - id: mods/starmap/features/startup-lifecycle-hooks
+    title: Startup lifecycle hooks (BeforeMain, ImmediateLoad, AllModsLoaded)
+    category: getting-started
+    submod: null
+    summary: StarMapBeforeMain runs before KSA's Main, StarMapImmediateLoad is a prefix on Mod.PrepareSystems inside ModLibrary.PrepareAll, and StarMapAllModsLoaded is a postfix on ModLibrary.LoadAll before GPU upload, game data attachment and universe load.
+    novelty: high
+    techniques: [starmap-lifecycle, harmony-prefix, harmony-postfix]
+    lifecycle: [startup:starmap-before-main, startup:immediate-load, startup:all-mods-loaded]
+    hooks: ["starmap StarMapBeforeMain", "harmony-prefix KSA.Mod.PrepareSystems", "harmony-postfix KSA.ModLibrary.LoadAll"]
+    game_types: [KSA.Program, KSA.Mod, KSA.ModLibrary, KSA.Universe]
+    key_paths: [StarMap.Core/ModRepository/RuntimeMod.cs, StarMap.Core/Patches/ModPatches.cs, StarMap.Core/Patches/ModLibraryPatches.cs, StarMap.Core/StarMapCore.cs]
+    howto_topics:
+      - slug: ksa-startup-sequence
+        title: KSA startup sequence and where each StarMap startup hook fires
+        note: Program constructor line map with available state per hook
+      - slug: choose-the-right-starmap-hook
+        title: Choose the right StarMap hook for initialization
+        note: BeforeMain for startup patches, ImmediateLoad for pre-asset work, AllModsLoaded for gameplay patches
+      - slug: patch-code-that-runs-during-game-startup
+        title: Patch game code that runs during startup
+        note: install Harmony patches in StarMapBeforeMain
+      - slug: register-data-before-assets-load
+        title: Register data that asset deserialization must already see
+        note: StarMapImmediateLoad runs before PreloadAssetBundles and LoadAll (AdvancedFlightComputer gauge enum, KSAStructures generated shader include)
+  - id: mods/starmap/features/frame-lifecycle-hooks
+    title: Frame lifecycle hooks (BeforeGui, AfterGui, AfterOnFrame)
+    category: getting-started
+    submod: null
+    summary: StarMapBeforeGui is a prefix on Program.OnDrawUiFrame, StarMapAfterGui a postfix on OnDrawUiViewports (before the menu bar and vehicle windows), both gated by DrawUI; StarMapAfterOnFrame is a postfix on Program.OnFrame after present.
+    novelty: high
+    techniques: [starmap-lifecycle, harmony-prefix, harmony-postfix]
+    lifecycle: [frame:draw-ui, frame:after-on-frame]
+    hooks: ["harmony-prefix KSA.Program.OnDrawUiFrame", "harmony-postfix KSA.Program.OnDrawUiViewports", "harmony-postfix KSA.Program.OnFrame"]
+    game_types: [KSA.Program, KSA.App, KSA.Universe]
+    key_paths: [StarMap.Core/Patches/ProgramPatcher.cs, StarMap.API/OnGuiAttributes.cs, StarMap.API/OnFrameAttributes.cs]
+    howto_topics:
+      - slug: game-loop-and-lifecycle
+        title: KSA frame loop and where StarMap frame hooks fire
+        note: PrepareFrame, ImGui window, draw-ui order, physics dispatch, after-on-frame
+      - slug: keep-updating-when-hud-hidden
+        title: Keep per-frame logic running when the HUD is hidden
+        note: DrawUI gates both GUI hooks; prefix OnDrawUiConsole or use AfterOnFrame
+      - slug: draw-a-mod-window-every-frame
+        title: Draw a mod ImGui window every frame
+        note: StarMapAfterGui is the usual hook; it precedes the menu bar and vehicle windows; no ImGui in AfterOnFrame
+  - id: mods/starmap/features/unload-and-shutdown
+    title: Unload hook and shutdown order
+    category: getting-started
+    submod: null
+    summary: StarMapUnload runs after KSA's Main returns and Program.Dispose destroyed GPU, window and audio state, and after StarMap's global Harmony UnpatchAll; Environment.Exit paths skip it, while a main-thread crash still reaches it through the launcher's using/async Main unwinding.
+    novelty: medium
+    techniques: [starmap-lifecycle]
+    lifecycle: [event:shutdown]
+    hooks: ["starmap StarMapUnload", "call IStarMapCore.DeInit (GameSurveyer.Dispose)"]
+    game_types: [KSA.Program, KSA.App, KSA.ConfirmMods, KSA.Loading, KSA.SelectSystem]
+    key_paths: [StarMap/Program.cs, StarMap/GameSurveyer.cs, StarMap.Core/StarMapCore.cs, StarMap.Core/ModRepository/ModLoader.cs]
+    howto_topics:
+      - slug: clean-up-on-game-exit
+        title: Clean up threads, processes and files when the game exits
+        note: StarMapUnload plus AppDomain.ProcessExit for Environment.Exit paths
+  - id: mods/starmap/features/new-mods-restart-flow
+    title: Restart when new mods are enabled
+    category: getting-started
+    submod: null
+    summary: A Harmony prefix on ModLibrary.PrepareAll notices manifest entries that are New and were just enabled in KSA's MOD FOUND popup, shows a restart popup, and relaunches StarMap.exe with --restarted before exiting.
+    novelty: medium
+    techniques: [harmony-prefix, starmap-lifecycle]
+    lifecycle: [startup:asset-load]
+    hooks: ["harmony-prefix KSA.ModLibrary.PrepareAll"]
+    game_types: [KSA.ModLibrary, KSA.ModEntry, KSA.ConfirmMods, KSA.ConfirmModPopup, KSA.Program]
+    key_paths: [StarMap.Core/Patches/ModLibraryPatches.cs]
+    howto_topics:
+      - slug: relaunch-the-game-from-a-mod
+        title: Relaunch the game process from inside a mod
+        note: Process.Start of the current MainModule with the right working directory, then Environment.Exit
+  - id: mods/starmap/features/startup-modal-popup
+    title: Startup modal popup with a self-pumped frame
+    category: ui
+    submod: null
+    summary: StarMap asks its restart question during loading by subclassing KSA.Popup and pumping its own GLFW poll, ImGui frame and ImGui-only Vulkan render pass, copied from KSA.ConfirmMods.
+    novelty: high
+    techniques: [imgui-window, startup-frame-pump, vulkan-command-buffer]
+    lifecycle: [startup:asset-load]
+    hooks: ["harmony-prefix KSA.ModLibrary.PrepareAll"]
+    game_types: [KSA.Popup, KSA.PopupButton, KSA.ConfirmMods, KSA.SetupTaskBase, KSA.ImGuiHelper, KSA.ConsoleStyle, KSA.Program, Core.Renderer]
+    key_paths: [StarMap.Core/UI/ConfirmRestart/ConfirmRestart.cs, StarMap.Core/UI/ConfirmRestart/ConfirmRestartPopup.cs]
+    howto_topics:
+      - slug: show-a-dialog-during-loading
+        title: Show a modal dialog during KSA's loading phase
+        note: frame pump modeled on KSA.ConfirmMods; requires renderer and ImGui context
+      - slug: game-styled-popups
+        title: Build game-styled popups with KSA.Popup
+        note: BeginConsoleModal, DrawConsoleButtonRow, Popup.CreateButton; Popup.DrawAll draws them in game
+  - id: mods/starmap/features/instance-path-override
+    title: Redirect the KSA documents folder per instance
+    category: persistence
+    submod: null
+    summary: -InstancePath on StarMap's command line or STARMAP_INSTANCE_PATH triggers a manual Harmony prefix on the Constants.DocumentsFolderPath getter, moving settings, saves, logs, manifest and local mods to another folder.
+    novelty: medium
+    techniques: [harmony-prefix, reflection]
+    lifecycle: [startup:starmap-before-main]
+    hooks: ["harmony-prefix KSA.Constants.DocumentsFolderPath (getter)"]
+    game_types: [KSA.Constants, KSA.ModLibrary, KSA.GameSettings, KSA.GameSaves, KSA.VehicleSaves, KSA.LayoutSaves]
+    key_paths: [StarMap.Core/Patches/DocumentsPathPatches.cs, StarMap.Core/ModRepository/ModLoader.cs]
+    howto_topics:
+      - slug: separate-game-instances
+        title: Run separate KSA instances with their own mods, saves and settings
+        note: STARMAP_INSTANCE_PATH survives the restart flow, -InstancePath does not
+      - slug: patch-a-static-property-getter
+        title: Patch a static property getter with Harmony
+        note: AccessTools.PropertyGetter plus prefix returning false
+      - slug: where-ksa-stores-user-data
+        title: Where KSA stores settings, saves, logs and mods
+        note: everything derives from Constants.DocumentsFolderPath
+  - id: mods/starmap/features/release-packaging-and-installer
+    title: Release packaging, StarMap.API NuGet and Windows installer
+    category: testing-and-tooling
+    submod: null
+    summary: GitHub Actions publish a framework-dependent win-x64 StarMap folder (zip without pdb/xml), RC builds from dev, StarMap.API to NuGet when it changed, and an Inno Setup installer that writes StarMapConfig.json with the chosen KSA folder.
+    novelty: low
+    techniques: [github-actions, nuget-package, inno-setup, json-config]
+    lifecycle: []
+    hooks: []
+    game_types: []
+    key_paths: [.github/workflows/release.yml, .github/workflows/rc-build.yml, .github/workflows/pr-build.yml, installer/WindowsInstaller.iss, StarMap.Core/StarMap.Core.csproj]
+    howto_topics:
+      - slug: build-against-ksa-reference-assemblies
+        title: Build a mod against KSA reference assemblies or a local install
+        note: Private=false references, RocketWerkz.KSA.Ref, Import folder
+      - slug: ship-a-windows-installer-for-a-mod-tool
+        title: Ship a Windows installer that configures the game path
+        note: Inno Setup custom directory page writing a JSON config

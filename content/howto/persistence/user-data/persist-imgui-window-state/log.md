@@ -1,0 +1,5 @@
+# Persist ImGui window state and layouts history
+
+## 2026-10-10
+* **Creation**: Added [Persist ImGui window state and layouts](overview.md) (engine background, approach comparison) and 3 how-to articles: [Plain ImGui.Begin so imgui.ini restores geometry](persist-imgui-window-state-1.md), [Filtered ImGui ini section saved on a timer and at unload](persist-imgui-window-state-2.md), [One TOML file per layout, applied only on request](persist-imgui-window-state-3.md). Verified against the decompiled game build 2026.10.10.5554 and the pinned reference repositories.
+* **Update**: Review pass against build 2026.10.10.5554. Approach 2 now spells out what `Program.Dispose` has already done before `StarMapUnload` (ImGui backends shut down, ImPlot context destroyed, `ImGui.DestroyContext` never called), which is why the unload save stays best effort. The game never assigns `ImGuiIO.IniFilename` in the decompiled code, so the ini location remains the native default and is still described as not located.

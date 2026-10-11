@@ -1,0 +1,5 @@
+# Smuggle data into stock shaders through unused uniforms, state bits and sentinel values history
+
+## 2026-10-10
+* **Creation**: Added [Smuggle data into stock shaders through unused uniforms, state bits and sentinel values](overview.md) (4 approaches): [Smuggle data into stock shaders: a temporary value swap in a prefix, or an edit of the boxed struct in a postfix](send-extra-data-to-stock-shaders-without-new-uniforms-1.md), [Smuggle data into stock shaders: spare high bits of the part state flags](send-extra-data-to-stock-shaders-without-new-uniforms-2.md), [Smuggle data into stock shaders: a marker in a material's ExtraData plus a shader-side branch](send-extra-data-to-stock-shaders-without-new-uniforms-3.md), [Smuggle data into stock shaders: cut the stock MiePhaseFunction and insert a dispatcher on asymmetry sentinels](send-extra-data-to-stock-shaders-without-new-uniforms-4.md). Written from the pinned mod checkouts and verified against the decompiled game build 2026.10.10.5554.
+* **Update**: Independent review (claude-code/sonnet-5.5): snippet range labels corrected (excerpt headers now match the lines shown; adapted block cites L203-L210).

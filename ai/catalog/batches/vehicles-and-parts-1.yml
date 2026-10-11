@@ -1,0 +1,1173 @@
+batch: vehicles-and-parts-1
+game_loop_reference: getting-started/game-loop-and-lifecycle
+category: vehicles-and-parts
+category_description: Defining parts and whole craft, spawning and controlling vehicles at runtime, reading and driving part
+  modules (engines, tanks, staging, RCS, parachutes), subpart animation, scaling, crash survival, part geometry and anchors,
+  and loading part mods into a running game.
+groups:
+  vehicles: 'Whole vehicles at runtime: spawning, safe creation and mutation, taking control, crash survival and scaling.'
+  parts: 'Defining parts and craft in XML and code: game data, ready-made craft, seats and doors, subparts, safe evolution
+    of shipped parts and runtime part-mod loading.'
+  modules-and-resources: 'Part modules and resources: reading live module state, refilling and draining, commanding engines
+    and RCS, adding parts in flight and parachutes.'
+  staging-and-engines: 'Stages and engine performance: staged delta-v, thrust at ambient pressure, staging from code and automatic
+    staging.'
+topics:
+- slug: spawn-a-vehicle-at-runtime
+  title: Spawn a vehicle from code (from the vehicle library or a hand-built part)
+  kind: howto
+  group: vehicles
+  batch: vehicles-and-parts-1
+  summary: Create a Vehicle at runtime from a craft save or from a single hand-built part, register it with its celestial
+    parent, and place it on the ground or in orbit. Also covers loading a craft from the stock or player vehicle library.
+    Spawning an EVA kitten lives in spawn-an-eva-kitten-from-code.
+  game_types:
+  - KSA.Vehicle
+  - KSA.Part
+  - KSA.PartTree
+  - KSA.VehicleSave
+  - KSA.KittenEva
+  - KSA.Orbit
+  - KSA.CelestialSystem
+  - KSA.VehicleSaves
+  - KSA.DefaultVehicleSaves
+  engine_pointers:
+  - current/decomp/KSA/Vehicle.cs CreateVehicle, TeleportToLocation
+  - current/decomp/KSA/VehicleSave.cs Load
+  - current/decomp/KSA/KittenEva.cs constructor
+  - current/decomp/KSA/Orbit.cs CreateFromStateCci
+  - current/decomp/KSA/VehicleSaves.cs Refresh, AsSpan
+  - current/decomp/KSA/DefaultVehicleSaves.cs FindSave
+  lifecycle:
+  - frame:after-on-frame
+  - frame:input
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: Parked copy of a library craft at a latitude and longitude
+    mod: ksacars
+    features:
+    - mods/ksacars/features/spawn-parked-craft
+    technique: starmap-lifecycle
+    note: VehicleSave.Load, CreateVehicle, parent.Children.Add, UpdatePerFrameData, then TeleportToLocation. (also load-a-craft-from-the-vehicle-library)
+      Handles missing saves and library refresh timing.
+  - n: 2
+    title: Test drones into orbit from a state vector
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/spawn-and-teleport-test-craft
+    technique: vehicle-spawn
+    note: Orbit.CreateFromStateCci after an Ecl-to-CCI rotation, KittenEva variant, ShapesRegistry lock.
+  - n: 3
+    title: A one-part vehicle built in code
+    mod: ksastructures
+    features:
+    - mods/ksastructures/features/office-furniture-craft
+    technique: xml-asset
+    note: new Part, CreateOwnTree, Vehicle.CreateVehicle, TeleportToLocation; no craft file needed.
+  related:
+  - change-vehicles-without-racing-the-solver
+  - teleport-a-vessel-by-building-a-new-orbit
+  - keep-mod-vehicles-out-of-saves
+  - ship-ready-made-craft
+  - spawn-an-eva-kitten-from-code
+  merged_from:
+  - load-a-craft-from-the-vehicle-library
+  note: 'Approaches merged into other topics: "Spawn an EVA kitten as a vehicle beside another craft" -> spawn-an-eva-kitten-from-code.'
+- slug: change-vehicles-without-racing-the-solver
+  title: Create, destroy and mutate vehicles, part state and mass without racing the vehicle solver
+  kind: howto
+  group: vehicles
+  batch: vehicles-and-parts-1
+  summary: The physics worker may be stepping while a mod builds, destroys or mutates a vehicle. Take the shape-registry lock
+    or wait for the solver before changing shapes, parts or vehicles, queue PartFailureEvent entries instead of splitting
+    directly, and write module state, mass, throttle or flight-computer fields only where the worker has not yet snapshotted
+    the vehicle.
+  game_types:
+  - KSA.ConstraintSim
+  - KSA.JobSystems
+  - KSA.Vehicle
+  - KSA.PhysicsBubble
+  - KSA.InputEvents
+  - KSA.PartFailureEvent
+  - KSA.PartFailure
+  - KSA.Universe
+  - KSA.PartTree
+  - KSA.MoleState
+  - KSA.FlightComputer
+  - KSA.Part
+  engine_pointers:
+  - current/decomp/KSA/ConstraintSim.cs UnlockShapes / UnlockShapesBlocking
+  - current/decomp/KSA/JobSystems.cs VehicleSolver.Wait
+  - current/decomp/KSA/InputEvents.cs EvaSpawn staging
+  - current/decomp/KSA/PartFailureEvent.cs
+  - current/decomp/KSA/PartFailure.cs
+  - current/decomp/KSA/Universe.cs ExecuteNextVehicleSolvers
+  - current/decomp/KSA/Vehicle.cs PrepareWorker, UpdateBulkStates
+  - current/decomp/KSA/Part.cs mass fields
+  - current/decomp/KSA/Vehicle.cs Props
+  lifecycle:
+  - frame:apply-solvers
+  - frame:after-on-frame
+  - frame:dispatch-solvers
+  - physics:vehicle-solver
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: UnlockShapesBlocking around the build
+    mod: ksacars
+    features:
+    - mods/ksacars/features/spawn-parked-craft
+    - mods/ksarmory/features/spawn-and-teleport-test-craft
+    technique: shapes-registry-lock
+    note: UnlockShapes throws during the step; UnlockShapesBlocking waits for EndVehicleUpdate.
+  - n: 2
+    title: Wait on JobSystems.VehicleSolver before mutating
+    mod: unscience
+    features:
+    - mods/unscience/features/doh-kitten-spawning
+    - mods/gatos/features/welds-vessel-anchoring
+    technique: job-barrier
+    note: Either wait for the solver or stage the operation like InputEvents.EvaSpawn; recover from constructors that throw
+      after registration.
+  - n: 3
+    title: Safe destruction from a frame hook
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/safe-vehicle-destruction-and-part-failure
+    technique: job-barrier
+    note: Wait for the solver, hold the shapes lock, then dispose; staged results must not land on a changed craft. (also
+      destroy-vehicles-and-fail-parts-safely) Deferred application, split-id lineage, fragment guard.
+  - n: 4
+    title: Prefix Universe.ExecuteNextVehicleSolvers
+    mod: unscience
+    features:
+    - mods/unscience/features/eternal-flame-resource-refill
+    technique: harmony-prefix
+    note: '[folded from write-state-where-the-vehicle-solver-sees-it: give it its own section] Run once per frame immediately
+      before the snapshot.'
+  - n: 5
+    title: Prefix Vehicle.PrepareWorker (double-buffered fields)
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/per-part-store-mass
+    - mods/ksarmory/features/prepareworker-prefix-command-window
+    technique: prepareworker-window
+    note: '[folded from write-state-where-the-vehicle-solver-sees-it: give it its own section] Per-vehicle window, known double-buffered
+      state, Unsafe write of ref readonly Props.'
+  - n: 6
+    title: Mole states are copy-on-write in the worker
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/holed-tank-leaks
+    technique: module-state-write
+    note: '[folded from write-state-where-the-vehicle-solver-sees-it: give it its own section] Write tank state in the window
+      where UpdateBulkStates will not overwrite it.'
+  - n: 7
+    title: Write the mass in the PrepareWorker window, derived not subtracted
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/per-part-store-mass
+    technique: unsafe-ref-write
+    note: '[folded from change-a-part-mass-at-runtime: give it its own section] Recompute from the roster every step so the
+      mass is idempotent.'
+  related:
+  - spawn-a-vehicle-at-runtime
+  - make-a-vehicle-indestructible
+  - refill-or-drain-resources
+  - take-control-of-another-vehicle
+  merged_from:
+  - create-or-dispose-vehicles-without-racing-the-solver
+  - destroy-vehicles-and-fail-parts-safely
+  - write-state-where-the-vehicle-solver-sees-it
+  - change-a-part-mass-at-runtime
+- slug: take-control-of-another-vehicle
+  title: 'Take control of another vehicle: switch the controlled craft or autopilot it from a mod'
+  kind: howto
+  group: vehicles
+  batch: vehicles-and-parts-1
+  summary: Switch Program.ControlledVehicle, route keys to it, open a spare viewport for its view, hand control back from
+    a seated or EVA kitten, or leave the player flying something else and fly another vehicle through its flight computer
+    (inertial pointing, throttle, pulse mode, input actions).
+  game_types:
+  - KSA.Program
+  - KSA.Vehicle
+  - KSA.ViewportRegistry
+  - KSA.KittenEva
+  - KSA.FlightComputer
+  - KSA.ManualControlInputs
+  engine_pointers:
+  - current/decomp/KSA/Program.cs ControlledVehicle
+  - current/decomp/KSA/ViewportRegistry.cs TryOpenSecondaryViewport
+  - current/decomp/KSA/FlightComputer.cs
+  - current/decomp/KSA/Vehicle.cs PrepareWorker
+  lifecycle:
+  - frame:draw-ui
+  - frame:viewports
+  - event:key
+  - frame:dispatch-solvers
+  approaches:
+  - n: 1
+    title: Set ControlledVehicle and restore the main view afterwards
+    mod: ksastructures
+    features:
+    - mods/ksastructures/features/computer-flies-nearest-craft
+    technique: viewport-borrow
+    note: Record the main view before the first write; restore mode, FOV and follow when done.
+  - n: 2
+    title: Custom attitude target and ProcessInput from a PrepareWorker prefix
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/fly-another-vehicle
+    - mods/ksarmory/features/prepareworker-prefix-command-window
+    technique: double-buffer-aware-writes
+    note: '[folded from autopilot-a-vehicle-from-a-mod: give it its own section] EclBody frame with carried roll reference;
+      queue from StarMap hooks, apply in the prefix.'
+  related:
+  - add-crew-seats-and-eva-doors
+  - change-vehicles-without-racing-the-solver
+  - command-engines-throttle-and-rcs-from-code
+  merged_from:
+  - autopilot-a-vehicle-from-a-mod
+- slug: make-a-vehicle-indestructible
+  title: Make a vehicle survive crashes and g-loads, or damage parts against crash tolerance
+  kind: howto
+  group: vehicles
+  batch: vehicles-and-parts-1
+  summary: 'KSA destroys vehicles through two paths, a crash-tolerance comparison and a structural failure detector. Veto
+    one with a prefix and neutralise the other with CrashTolerance, per craft rather than per template. Also covers: Damage
+    and dent individual parts against their crash tolerance. Also covers filtering only the g-load read for chosen vessels
+    and keeping the per-vessel setting across saves by stable identity.'
+  game_types:
+  - KSA.Part
+  - KSA.PhysicsBubble
+  - KSA.PartFailureEvent
+  - KSA.FxDeformation
+  - KSA.PartStructuralLimits
+  - KSA.Universe
+  - KSA.StructuralLoad
+  - KSA.Vehicle
+  - KSA.GameSave
+  engine_pointers:
+  - current/decomp/KSA/Part.cs CrashTolerancePascals
+  - current/decomp/KSA/PhysicsBubble.cs DetectStructuralFailure
+  - current/decomp/KSA/FxDeformation.cs ReportContact
+  - current/decomp/KSA/PartStructuralLimits.cs
+  - current/decomp/KSA/PartContactLoad.cs
+  - current/decomp/KSA/Universe.cs DestroyVehicleFromEvent
+  lifecycle:
+  - physics:vehicle-solver
+  - frame:apply-solvers
+  - event:vehicle-destroyed
+  - frame:after-on-frame
+  - physics:bepu
+  - event:save
+  - event:load
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: XML CrashTolerance plus a crash-veto prefix for one kind of craft
+    mod: ksacars
+    features:
+    - mods/ksacars/features/crash-veto
+    technique: harmony-prefix
+    note: 'Pascals; NaN or <= 0 derives from mass over collider volume, clamped 0.1..100 MPa. Also (merged from physics/make-a-vessel-indestructible
+      approach 2, "Veto Universe.DestroyVehicleFromEvent and set part crash tolerance"): Two destruction paths: veto the main-thread
+      event and raise CrashTolerance for the other. Pascals; non-positive derived from mass over collider volume, clamped
+      to 0.1..100 MPa.'
+  - n: 2
+    title: Per-vessel registration with a getter prefix and detector pair
+    mod: unscience
+    features:
+    - mods/unscience/features/the-tick-vessel-indestructibility
+    technique: harmony-prefix
+    note: 'Prefix Part.CrashTolerancePascals; prefix and postfix on DetectStructuralFailure discard only the event just created;
+      no template mutation. Also (merged from physics/make-a-vessel-indestructible approach 1, "Prefixes on CrashTolerancePascals
+      and DetectStructuralFailure"): Per-instance override in a worker-safe registry; prefix and postfix pair on the detector.'
+  - n: 3
+    title: Filter only the g-load read with a guarded transpiler
+    mod: unscience
+    features:
+    - mods/unscience/features/kitchen-sink-g-load-protection
+    technique: harmony-transpiler
+    note: 'Folded from physics/make-a-vessel-indestructible approach 3: Insert a static filter after the single StructuralLoad.GLoadFraction
+      getter; require exactly one match. Sub-step (give it a section on persisting the setting by vessel identity): Sidecar
+      keyed on vessel identity. Rebind references after load without ambiguity.'
+  - n: 4
+    title: Blast damage against engine-derived strength with a weak-keyed health ledger
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/blast-damage-and-part-health
+    technique: weak-keyed-ledger
+    note: '[folded from damage-parts-against-crash-tolerance: give it its own section] Cube-root blast law re-anchored to
+      the reference strength; dents honour the player dent setting.'
+  related:
+  - change-vehicles-without-racing-the-solver
+  - write-worker-thread-safe-solver-patches
+  merged_from:
+  - damage-parts-against-crash-tolerance
+  - make-a-vessel-indestructible
+  - persist-vessel-references-across-save-and-load
+- slug: scale-a-vessel-or-its-parts-at-runtime
+  title: Scale a vessel or its parts at runtime and lift the editor scale limits
+  kind: howto
+  group: vehicles
+  batch: vehicles-and-parts-1
+  summary: 'Resize rendering, physics and colliders independently, scale parts per axis with captured baselines so scaling
+    is non-cumulative, and understand what non-uniform part scale does and does not affect. Also covers: Remove the vehicle
+    editor''s part-scale limits. Also covers scaling only how a vessel or EVA kitten is drawn, around its live centre of mass,
+    while leaving colliders and mass alone.'
+  game_types:
+  - KSA.Part
+  - KSA.IRescale
+  - KSA.Vehicle
+  - KSA.PartTree
+  - KSA.VehicleEditor
+  - KSA.PartTreeRenderData
+  engine_pointers:
+  - current/decomp/KSA/IRescale.cs
+  - current/decomp/KSA/Part.cs Scale, ScaleFactors
+  - current/decomp/KSA/VehicleEditor.cs scale bounds and snapping helpers
+  - current/decomp/KSA/Part.cs Scale
+  - current/decomp/KSA/Vehicle.cs GetWorldMatrix
+  lifecycle:
+  - frame:prepare
+  - frame:draw-ui
+  - frame:render
+  - editor:on-frame
+  - frame:pre-render
+  - frame:input
+  - frame:viewports
+  approaches:
+  - n: 1
+    title: Whole-vessel scaling with Smart and Basic modes and three channels
+    mod: unscience
+    features:
+    - mods/unscience/features/godzilla-vessel-scaling
+    - mods/unscience/features/godzilla-visual-scaling
+    technique: harmony-transpiler
+    note: 'Separate render, physics and collider scaling. Also (merged from rendering/visually-scale-a-vessel approach 1,
+      "Part-tree draw-matrix patches and a GetWorldMatrix postfix about the centre of mass"): Visual channel separate from
+      the collider channel; also enlarges the render cull radius.'
+  - n: 2
+    title: Recursive Part.Scale and avatar Core.Scale cheats
+    mod: gatos
+    features:
+    - mods/gatos/features/scale-and-force-render-cheats
+    technique: harmony-prefix
+    note: 'Folded from rendering/visually-scale-a-vessel approach 2: Simple route that also affects what the game believes
+      about the part.'
+  - n: 3
+    title: Per-axis part scaling with captured baselines
+    mod: unscience
+    features:
+    - mods/unscience/features/garrys-torch-per-axis-part-scaling
+    technique: harmony-postfix
+    note: Part.Scale with exact restore; ScaleFactors collapses double3 to the largest axis for connectors, mass and IRescale.
+  - n: 4
+    title: Skipping prefixes plus a postfix on the bounds method
+    mod: unscience
+    features:
+    - mods/unscience/features/dont-stifle-me-editor-free-scaling
+    technique: harmony-prefix
+    note: '[folded from unclamp-editor-part-scaling: give it its own section] AccessTools.MethodDelegate to private static
+      editor helpers; fall back to stock on error.'
+  related:
+  - weld-one-vessel-to-another
+  - customize-parachute-materials-and-limits
+  - keep-vessels-rendered-at-any-distance
+  merged_from:
+  - unclamp-editor-part-scaling
+  - visually-scale-a-vessel
+- slug: define-a-part-with-game-data
+  title: Define a part with its own game data and GLB model
+  kind: howto
+  group: parts
+  batch: vehicles-and-parts-1
+  summary: Split a new part into an Assets bundle (GLB art with PBR materials, subparts) and a GameData bundle (mass shape,
+    colliders, connectors, editor tags, optional real RCS thrusters, seats), list both in mod.toml, and know which XML elements
+    the part templates accept. Includes how to add your own editor category and how to choose a mass template and colliders
+    knowing terrain friction is fixed.
+  game_types:
+  - KSA.PartTemplate
+  - KSA.PartGameDataReference
+  - KSA.SubPartGameDataReference
+  - KSA.EditorTagDefinition
+  - KSA.ModLibrary
+  engine_pointers:
+  - current/decomp/KSA/PartTemplate.cs
+  - current/decomp/KSA/EditorTagDefinition.cs
+  - current/Content/Core/CoreCommandAGameData.xml and CoreEditorTagsGameData.xml (stock GameData examples)
+  - current/decomp/KSA/ModLibrary.cs AttachGameData
+  lifecycle:
+  - startup:asset-load
+  - startup:all-mods-loaded
+  approaches:
+  - n: 1
+    title: One part per car with colliders, mass shape and a custom editor category
+    mod: ksacars
+    features:
+    - mods/ksacars/features/car-part-gamedata
+    technique: xml-asset
+    note: Whole-craft part with box and wheel colliders, MassShape choice for inertia, EditorTagDef for a new category, and
+      the fixed 0.95 terrain friction for non-kitten pairs.
+  - n: 2
+    title: Inert weapon parts split into Assets and GameData with real RCS thrusters on subparts
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/weapon-part-definitions-xml
+    technique: xml-asset
+    note: Art and subparts in one bundle, mass, colliders, connectors, editor tags and subpart thrusters in another; no behaviour
+      in XML because C# finds the part by Id.
+  - n: 3
+    title: Furniture parts as single-part craft with seat game data
+    mod: ksastructures
+    features:
+    - mods/ksastructures/features/office-furniture-craft
+    technique: xml-asset
+    note: Minimal GameData for a static prop part that doubles as a craft; pairs with the single-part craft and seats topics.
+  related:
+  - ship-ready-made-craft
+  - add-crew-seats-and-eva-doors
+  - define-and-animate-subparts
+  - evolve-a-shipped-part-without-breaking-saves
+- slug: ship-ready-made-craft
+  title: Ship whole-vehicle presets and single-part craft with a part mod
+  kind: howto
+  group: parts
+  batch: vehicles-and-parts-1
+  summary: Provide whole-vehicle presets as VehicleSaveData files so players find your craft in the stock or user vehicle
+    library, know where the user library lives, and make a single part launchable as a complete craft (root-part whitelist
+    tag, a connector, a control module, no surface connectors).
+  game_types:
+  - KSA.VehicleSave
+  - KSA.VehicleSaves
+  - KSA.DefaultVehicleSaves
+  - KSA.PartTemplate
+  - KSA.VehicleEditor
+  - KSA.EditorTagDefinition
+  engine_pointers:
+  - current/decomp/KSA/VehicleSaves.cs
+  - current/decomp/KSA/DefaultVehicleSaves.cs
+  - current/decomp/KSA/VehicleSave.cs
+  - current/decomp/KSA/VehicleEditor.cs RootPartWhitelist handling
+  - current/decomp/KSA/EditorTagDefinition.cs
+  lifecycle:
+  - startup:asset-load
+  approaches:
+  - n: 1
+    title: VehicleSaveData preset files beside the mod
+    mod: ksacars
+    features:
+    - mods/ksacars/features/vehicle-library-presets
+    technique: xml-asset
+    note: Format of the saved craft, where the stock and user libraries are scanned from, and keeping part Ids stable.
+  - n: 2
+    title: RootPartWhitelist tag on a car part
+    mod: ksacars
+    features:
+    - mods/ksacars/features/car-part-gamedata
+    technique: xml-asset
+    note: '[folded from make-a-single-part-a-whole-craft: give it its own section] RootPartWhitelist tag, at least one connector,
+      no surface connectors, a Control module.'
+  - n: 3
+    title: Furniture part as a one-part craft
+    mod: ksastructures
+    features:
+    - mods/ksastructures/features/office-furniture-craft
+    technique: xml-asset
+    note: '[folded from make-a-single-part-a-whole-craft: give it its own section] Same rule applied to props that are never
+      meant to be built upon.'
+  related:
+  - spawn-a-vehicle-at-runtime
+  - define-a-part-with-game-data
+  merged_from:
+  - make-a-single-part-a-whole-craft
+- slug: add-crew-seats-and-eva-doors
+  title: Add crew seats and EVA doors to a part
+  kind: howto
+  group: parts
+  batch: vehicles-and-parts-1
+  summary: Declare IVASeat entries and EVADoor modules on mesh-less hidden subparts, pair them by SeatId, understand the eye
+    offset and the 1 m boarding reach, and keep kittens in an open craft visible when another vehicle is the controlled one.
+  game_types:
+  - KSA.IVASeat
+  - KSA.EVADoor
+  - KSA.EVADoorTemplate
+  - KSA.KittenEva
+  - KSA.Vehicle
+  engine_pointers:
+  - current/decomp/KSA/IVASeat.cs
+  - current/decomp/KSA/EVADoor.cs
+  - current/decomp/KSA/Vehicle.cs UpdateSeatedCrewRenderData
+  lifecycle:
+  - startup:asset-load
+  - frame:render
+  approaches:
+  - n: 1
+    title: IVASeat in PartGameData plus EVADoor on a hidden subpart
+    mod: ksacars
+    features:
+    - mods/ksacars/features/seats-and-eva-doors
+    technique: xml-asset
+    note: Position is the eye point (model drawn 0.63 m lower); door SeatId names the seat.
+  - n: 2
+    title: Seat and door for furniture
+    mod: ksastructures
+    features:
+    - mods/ksastructures/features/office-furniture-craft
+    technique: xml-asset
+    note: Same schema on a chair part; shows the minimum viable seat and door.
+  related:
+  - define-a-part-with-game-data
+  - spawn-an-eva-kitten-from-code
+  - take-control-of-another-vehicle
+  - animate-and-draw-seated-kitten-crew
+  note: 'Approaches merged into other topics: "Draw seated crew on craft that are not being flown" -> animate-and-draw-seated-kitten-crew.'
+- slug: evolve-a-shipped-part-without-breaking-saves
+  title: Change a shipped part without breaking saves
+  kind: howto
+  group: parts
+  batch: vehicles-and-parts-1
+  summary: Subparts are paired by position when a save loads, so removing or reordering them crashes old saves. Follow append-only
+    subpart lists and fixed part Ids, and repair saves at startup when a mistake already shipped. Also covers scanning the
+    player's saves and craft library at StarMapAllModsLoaded and rewriting only the offending lines, with a backup and an
+    offline twin for authors.
+  game_types:
+  - KSA.PartTree
+  - KSA.PartTemplate
+  - KSA.VehicleSave
+  - KSA.PartInstance
+  - KSA.VehicleSaveData
+  - KSA.VehicleSaves
+  - KSA.GameSaves
+  - KSA.SaveDirectory
+  engine_pointers:
+  - current/decomp/KSA/PartTree.cs Deserialize (SubPartRefs paired by index)
+  - current/decomp/KSA/GameSaves.cs SaveFolderPath
+  - current/decomp/KSA/VehicleSaves.cs SaveFolderPath
+  lifecycle:
+  - startup:all-mods-loaded
+  - startup:asset-load
+  approaches:
+  - n: 1
+    title: Append-only subpart lists and fixed part Ids
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/weapon-part-definitions-xml
+    technique: xml-asset
+    note: The authoring rule; derived from PartTree.Deserialize.
+  - n: 2
+    title: Rewrite saves and library craft at AllModsLoaded
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/startup-save-repair
+    technique: regex-xml-surgery
+    note: 'Trim surplus SubPartRefs from saves before any load is possible; offline twin script. Also (merged from persistence/repair-saves-and-craft-files-at-startup
+      approach 1, "Line-level text repair of universe.xml and vehicle.xml with a .bak, plus a Python twin"): Pure, unit-tested
+      SaveRepair.Repair, subpart matching by canonicalised names, refusal when stateful entries would be dropped, BOM preservation,
+      and the tools/repair-saves.py report-only default. This feature is also approach 2 of evolve-a-shipped-part-without-breaking-saves
+      in the vehicles plan; keep the mechanism here and the authoring rule there.'
+  related:
+  - define-a-part-with-game-data
+  - define-and-animate-subparts
+  - choose-where-a-mod-stores-its-files
+  - load-and-unload-part-mods-at-runtime
+  merged_from:
+  - repair-saves-and-craft-files-at-startup
+- slug: define-and-animate-subparts
+  title: Define articulated subparts and mounts, animate and hide them from code
+  kind: howto
+  group: parts
+  batch: vehicles-and-parts-1
+  summary: 'Export one SubPart per moving body recentred on its pivot, then write the parent-relative transform every frame
+    (and reset cached matrices) for wheels, arms, turrets, mounts and gimbals. Covers chains XML cannot nest, rate limits
+    and roll-nod pointing. Also covers: Hide subparts and fly them as projectiles of their launcher.'
+  game_types:
+  - KSA.Part
+  - KSA.SubPartTemplate
+  - KSA.PartTree
+  - KSA.SubPart
+  engine_pointers:
+  - current/decomp/KSA/Part.cs PositionParentAsmb, Asmb2ParentAsmb, ResetCachedPosMatrixValues
+  - current/decomp/KSA/SubPartTemplate.cs
+  - current/decomp/KSA/Part.cs Scale, PositionParentAsmb
+  lifecycle:
+  - startup:asset-load
+  - frame:draw-ui
+  - frame:after-on-frame
+  - frame:celestials
+  - frame:viewports
+  - frame:render
+  approaches:
+  - n: 1
+    title: Pose wheels, arms and blades from StarMapAfterGui with a hidden-UI fallback
+    mod: ksacars
+    features:
+    - mods/ksacars/features/pose-subparts-at-runtime
+    - mods/ksacars/features/car-part-assets-glb-pbr
+    technique: starmap-lifecycle
+    note: 'Author the subparts in the GLB/XML, then FrameLatch plus StarMapAfterOnFrame fallback; hiding a subpart. Also (merged
+      from rendering/animate-subparts-from-code approach 1, "Write transforms and reset caches from StarMapAfterGui with a
+      frame latch"): Wheels, coil-overs, steering wheel, iris blades; FrameLatch with a StarMapAfterOnFrame fallback when
+      the HUD is hidden.'
+  - n: 2
+    title: Articulated turret mounts, rate-limited, with sibling chains
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/articulated-mount-subparts
+    technique: subpart-transform-write
+    note: Pods and arrays are siblings composed by the mod; latch on refusal.
+  - n: 3
+    title: Optical director heads with roll-nod gimbals
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/optical-director-heads
+    technique: gimbal-geometry
+    note: Roll about the centreline, nod within it, keyhole kept out of the command.
+  - n: 4
+    title: Scale-to-hide and parent-frame transform writes
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/rounds-as-hidden-launcher-subparts
+    - mods/ksarmory/features/articulated-mount-subparts
+    technique: scale-to-hide
+    note: '[folded from hide-show-and-fly-subparts-as-projectiles: give it its own section] Anchor to the tube and add travel
+      since launch. Also (merged from rendering/animate-subparts-from-code approach 2, "Projectiles as hidden launcher subparts
+      placed at the simulated position"): Transform in Ego relative to the tube plus travel since launch; sim/render split.'
+  related:
+  - ray-cast-against-vessel-meshes-and-terrain
+  - evolve-a-shipped-part-without-breaking-saves
+  - hide-parts-or-subparts-from-rendering
+  - choose-a-render-frame-and-anchor-effects
+  merged_from:
+  - hide-show-and-fly-subparts-as-projectiles
+  - animate-subparts-from-code
+- slug: load-and-unload-part-mods-at-runtime
+  title: Load, validate and unload part mods in a running game
+  kind: howto
+  group: parts
+  batch: vehicles-and-parts-1
+  summary: 'Replay the boot asset pipeline for one mod folder after startup (parse, register, load files, GPU bind, attach
+    game data, thumbnails), reserving shared mesh buffer headroom up front and writing the mod folder from inside the game.
+    Also covers: Unload runtime-registered parts without leaving dangling references; Validate part XML against the game''s
+    silent failure modes.'
+  game_types:
+  - KSA.ModLibrary
+  - KSA.AssetBundle
+  - KSA.DeviceMeshInterleaved
+  - KSA.Mod
+  - KSA.PartTemplate
+  - KSA.MeshReference
+  - KSA.SubPartTemplate
+  engine_pointers:
+  - current/decomp/KSA/ModLibrary.cs PrepareAll, LoadAll, AttachGameData, Bind
+  - current/decomp/KSA/ModLibrary.cs registries
+  - current/decomp/KSA/PartTemplate.cs
+  lifecycle:
+  - startup:all-mods-loaded
+  - frame:draw-ui
+  - thread:background
+  approaches:
+  - n: 1
+    title: One loader state per frame from the pre-GUI hook
+    mod: unscience
+    features:
+    - mods/unscience/features/parts-now-runtime-part-loading
+    - mods/unscience/features/parts-now-mesh-headroom-reservation
+    - mods/unscience/features/parts-now-paste-xml-mod-writer
+    technique: reflection
+    note: Incremental game-data attach; headroom inflation before ModLibrary.Bind; atomic mod folder writes.
+  - n: 2
+    title: Fail-closed safety gate and ordered purge
+    mod: unscience
+    features:
+    - mods/unscience/features/parts-now-runtime-unload-purge
+    technique: reflection
+    note: '[folded from unload-runtime-parts-safely: give it its own section] Purge deferred to the pre-GUI hook.'
+  - n: 3
+    title: Fifteen pure validation rules over the parsed bundle
+    mod: unscience
+    features:
+    - mods/unscience/features/parts-now-bundle-validation
+    technique: xml-serializer
+    note: '[folded from validate-part-xml-before-loading: give it its own section] GLB mesh-name read from the JSON chunk;
+      XmlHelper.Serializers overrides.'
+  related:
+  - define-a-part-with-game-data
+  merged_from:
+  - load-part-mods-at-runtime
+  - unload-runtime-parts-safely
+  - validate-part-xml-before-loading
+- slug: read-live-part-module-state
+  title: 'Read live part module state: engines, tanks, propellant, batteries, panels, docking ports'
+  kind: howto
+  group: modules-and-resources
+  batch: vehicles-and-parts-1
+  summary: 'Use PartTree module lists and ModuleStateful state lists to read engines, tanks, batteries, generators, thrusters,
+    solar panels, decouplers and docking ports, and enumerate the active stage''s engines, caching structural links safely.
+    Also covers: Read remaining propellant and capacity from tanks and solid motors.'
+  game_types:
+  - KSA.PartTree
+  - KSA.ModuleList
+  - KSA.ModuleStateful
+  - KSA.EngineController
+  - KSA.SequenceList
+  - KSA.Tank
+  - KSA.Battery
+  - KSA.Mole
+  - KSA.MoleState
+  - KSA.SolidMotor
+  engine_pointers:
+  - current/decomp/KSA/PartTree.cs Modules
+  - current/decomp/KSA/EngineController.cs
+  - current/decomp/KSA/SequenceList.cs ActiveSequence
+  - current/decomp/KSA/Tank.cs
+  - current/decomp/KSA/Mole.cs GetStoredMass
+  - current/decomp/KSA/SolidMotor.cs
+  lifecycle:
+  - frame:viewports
+  - frame:draw-ui
+  - frame:after-on-frame
+  approaches:
+  - n: 1
+    title: Parts.Modules.Get<T>() plus ModuleStateful.TryGetFrom, cached per vehicle
+    mod: gatos
+    features:
+    - mods/gatos/features/part-module-state-reads
+    technique: conditional-weak-table-cache
+    note: ConditionalWeakTable keyed by Vehicle, rebuilt on count change; immutable snapshots. (also read-propellant-remaining)
+      SRB grain is not a Tank.
+  - n: 2
+    title: Tank shape and liquid level
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/holed-tank-leaks
+    technique: reflection
+    note: '[folded from read-propellant-remaining: give it its own section] Tank._template by reflection plus a sorted point
+      cloud for the fill surface.'
+  related:
+  - get-part-points-in-vehicle-and-world-frames
+  - command-engines-throttle-and-rcs-from-code
+  - refill-or-drain-resources
+  merged_from:
+  - read-propellant-remaining
+- slug: refill-or-drain-resources
+  title: Refill, drain or top up a vehicle's propellant and batteries
+  kind: howto
+  group: modules-and-resources
+  batch: vehicles-and-parts-1
+  summary: Add or remove tank contents and battery charge from a mod, and keep mass properties and the flight computer coherent
+    afterwards.
+  game_types:
+  - KSA.Vehicle
+  - KSA.Tank
+  - KSA.Mole
+  - KSA.MoleState
+  - KSA.Battery
+  engine_pointers:
+  - current/decomp/KSA/Vehicle.cs RefillConsumables
+  - current/decomp/KSA/Battery.cs Refill
+  - current/decomp/KSA/Mole.cs ConsumeStored
+  lifecycle:
+  - frame:dispatch-solvers
+  - frame:viewports
+  - frame:input
+  approaches:
+  - n: 1
+    title: Vehicle.RefillConsumables and Battery.Refill before the solver snapshot
+    mod: unscience
+    features:
+    - mods/unscience/features/eternal-flame-resource-refill
+    technique: harmony-prefix
+    note: Infinite fuel and charge on every vehicle.
+  - n: 2
+    title: One-shot refuel cheat in the solver window
+    mod: gatos
+    features:
+    - mods/gatos/features/debug-cheats-teleport-refuel-warp
+    technique: command-queue
+    note: Same calls triggered from a menu.
+  - n: 3
+    title: Drain a tank through its mole states and recompute mass
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/holed-tank-leaks
+    technique: module-state-write
+    note: Mole.ConsumeStored, the bookkeeping DepleteConsumables does, then Vehicle.Props and FlightComputer.ReadUpdatedVehicleConf.
+  related:
+  - change-vehicles-without-racing-the-solver
+  - read-live-part-module-state
+- slug: command-engines-throttle-and-rcs-from-code
+  title: Switch engines on and off, set throttle and RCS commands, and choose which RCS jets fire
+  kind: howto
+  group: modules-and-resources
+  batch: vehicles-and-parts-1
+  summary: 'Drive EngineController activation, minimum throttle, manual throttle and RCS translation/rotation flags from a
+    mod, including the private fields that have no public setter. Also covers: Choose which RCS jets fire for a translation
+    or rotation.'
+  game_types:
+  - KSA.EngineController
+  - KSA.ManualControlInputs
+  - KSA.ThrusterMapFlags
+  - KSA.Vehicle
+  - KSA.InputEvents
+  - KSA.ThrusterController
+  engine_pointers:
+  - current/decomp/KSA/EngineController.cs SetIsActive
+  - current/decomp/KSA/ManualControlInputs.cs
+  - current/decomp/KSA/ThrusterMapFlags.cs
+  - current/decomp/KSA/ThrusterController.cs
+  lifecycle:
+  - frame:viewports
+  - frame:draw-ui
+  - frame:dispatch-solvers
+  - frame:input
+  - frame:apply-solvers
+  - physics:vehicle-solver
+  approaches:
+  - n: 1
+    title: Engine actuators through input-event buffers (activate, min throttle)
+    mod: gatos
+    features:
+    - mods/gatos/features/ignition-staging-and-module-actuators
+    technique: input-event-buffer
+    note: MarkDerivedDirty after writing min throttle.
+  - n: 2
+    title: Boxed-struct reflection write to Vehicle._manualControlInputs
+    mod: gatos
+    features:
+    - mods/gatos/features/manual-throttle-and-rcs-inputs
+    technique: reflection
+    note: Box, set, write back; RCSMode and attitude hold gate the flags. Also used to show a throttle on stock gauges.
+  - n: 3
+    title: Buffered EngineController.SetIsActive to animate a grid of engines
+    mod: unscience
+    features:
+    - mods/unscience/features/blinky-scroll-animation-and-patterns
+    technique: input-event-buffer
+    note: Engines as pixels of a dot-matrix display.
+  - n: 4
+    title: Axis groups or LP jet selection from a live wrench table
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/rcs-thruster-allocation
+    technique: custom-physics
+    note: '[folded from allocate-rcs-thrusters: give it its own section] Both selection methods and their trade-offs.'
+  related:
+  - stage-a-vehicle-from-code
+  - add-parts-to-a-live-vessel
+  merged_from:
+  - allocate-rcs-thrusters
+- slug: add-parts-to-a-live-vessel
+  title: Create and attach parts to a live vessel and feed runtime engines from tanks
+  kind: howto
+  group: modules-and-resources
+  batch: vehicles-and-parts-1
+  summary: Build real parts on a vessel that is already in flight, wire TreeParent and TreeChildren by hand, batch many additions
+    into one tree rebuild, wire RocketCore.FeedConnectors so propellant reaches the new engines, and walk the resource graph
+    (ConsumptionOrder flow levels) to find the tanks an engine can reach.
+  game_types:
+  - KSA.Part
+  - KSA.PartTree
+  - KSA.Vehicle
+  - KSA.RocketCore
+  - KSA.PlumbedCore
+  - KSA.ResourceManager
+  - KSA.Tank
+  engine_pointers:
+  - current/decomp/KSA/PartTree.cs CreateFromNewPartTree
+  - current/decomp/KSA/RocketCore.cs FeedConnectors
+  - current/decomp/KSA/PlumbedCore.cs
+  - current/decomp/KSA/ResourceManager.cs ConsumptionOrder
+  lifecycle:
+  - frame:draw-ui
+  - frame:prepare
+  - event:load
+  - editor:draw-ui
+  approaches:
+  - n: 1
+    title: NxM engine grid with a single PartTree rebuild
+    mod: unscience
+    features:
+    - mods/unscience/features/blinky-runtime-part-grid-builder
+    technique: runtime-part-creation
+    note: Manual wiring and CreateFromNewPartTree.
+  - n: 2
+    title: Wire FeedConnectors after the grid build
+    mod: unscience
+    features:
+    - mods/unscience/features/blinky-engine-pixel-feed-wiring
+    technique: resource-graph-wiring
+    note: '[folded from feed-runtime-engines-from-tanks: give it its own section] ConsumptionOrder to verify. (also find-tanks-an-engine-can-draw-from)
+      Why a runtime-created engine finds no propellant.'
+  - n: 3
+    title: PlumbedCore.ResourceManager.ConsumptionOrder FlowOrder levels
+    mod: kitten-engineer-redux
+    features:
+    - mods/kitten-engineer-redux/features/custom-stage-delta-v-estimator
+    technique: stage-model-recompute
+    note: '[folded from find-tanks-an-engine-can-draw-from: give it its own section] Feed a custom delta-v model.'
+  related:
+  - command-engines-throttle-and-rcs-from-code
+  - spawn-a-vehicle-at-runtime
+  - read-staged-delta-v-from-the-game
+  merged_from:
+  - feed-runtime-engines-from-tanks
+  - find-tanks-an-engine-can-draw-from
+- slug: customize-parachute-materials-and-limits
+  title: 'Customise parachutes: swap canopy materials and lift the diameter limits'
+  kind: howto
+  group: modules-and-resources
+  batch: vehicles-and-parts-1
+  summary: Create runtime GPU material entries and substitute the canopy's material indices in the ChuteRenderable draw, and
+    widen the vehicle-editor diameter slider bounds and setter clamp reversibly, re-clamping on load.
+  game_types:
+  - KSA.ChuteRenderable
+  - KSA.MaterialData
+  - KSA.Parachute
+  - KSA.ChuteTuning
+  - KSA.VehicleEditor
+  - KSA.PartMenu
+  engine_pointers:
+  - current/decomp/KSA/ChuteRenderable.cs Draw
+  - current/decomp/KSA/Parachute.cs ApplySaveData
+  - current/decomp/KSA/ChuteTuning.cs
+  lifecycle:
+  - startup:all-mods-loaded
+  - frame:draw-ui
+  - event:load
+  - render:prepass
+  - editor:draw-ui
+  - event:save
+  - event:unload
+  approaches:
+  - n: 1
+    title: Prefix ChuteRenderable.Draw and edit MaterialIndices
+    mod: unscience
+    features:
+    - mods/unscience/features/free-fallin-canopy-material-substitution
+    technique: harmony-prefix
+    note: New MaterialData appended to the GPU material buffer.
+  - n: 2
+    title: Patch slider bounds and setter clamp; sidecar the override
+    mod: unscience
+    features:
+    - mods/unscience/features/dont-stifle-me-parachute-diameter-unclamp
+    technique: harmony-prefix
+    note: '[folded from tune-parachutes-beyond-the-editor-limits: give it its own section] Bounds are not saved; ApplySaveData
+      re-clamps DiameterM against template bounds.'
+  related:
+  - scale-a-vessel-or-its-parts-at-runtime
+  merged_from:
+  - substitute-parachute-canopy-material
+  - tune-parachutes-beyond-the-editor-limits
+- slug: read-staged-delta-v-from-the-game
+  title: Read staged delta-v, thrust and Isp from the game or from your own stage model
+  kind: howto
+  group: staging-and-engines
+  batch: vehicles-and-parts-1
+  summary: Reuse KSA's own SequencePerformance model instead of rewriting it, understand when the cache is fresh and avoid
+    racing the vehicle solver, or build a stage model yourself from reachable propellant, engine vacuum performance and the
+    rocket equation, and know when to prefer it.
+  game_types:
+  - KSA.PartTree
+  - KSA.SequencePerformanceList
+  - KSA.SequencePerformance
+  - KSA.SequenceList
+  - KSA.RocketControllerData
+  - KSA.EngineController
+  - KSA.PlumbedCore
+  engine_pointers:
+  - current/decomp/KSA/SequencePerformanceList.cs
+  - current/decomp/KSA/SequencePerformance.cs Phases
+  - current/decomp/KSA/PartTree.cs PerformanceSequences
+  - current/decomp/KSA/RocketControllerData.cs ComputeFromCores
+  - current/decomp/KSA/EngineController.cs VacuumData
+  lifecycle:
+  - frame:draw-ui
+  - editor:draw-ui
+  - frame:dispatch-solvers
+  approaches:
+  - n: 1
+    title: PartTree.PerformanceSequences paired by index with SequenceList.Sequences
+    mod: kitten-engineer-redux
+    features:
+    - mods/kitten-engineer-redux/features/native-stage-performance-readout
+    technique: game-simulator-reuse
+    note: Volatile publish; cache freshness differs between editor and flight.
+  - n: 2
+    title: Private SequencePerformanceList with change-gated recompute
+    mod: ksa-deltavmap
+    features:
+    - mods/ksa-deltavmap/features/vehicle-staged-dv-readout
+    technique: change-gating
+    note: RecomputeForFlight vs RecomputeIfDirty, check dirty flags so the UI does not race the solver.
+  - n: 3
+    title: Phases as constant-thrust stages for guidance
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/stage-model-from-staging-simulator
+    technique: game-simulator-reuse
+    note: Coalesce artificial phase splits; correct double registration of engines under several sequences.
+  - n: 4
+    title: Per-stage recompute from tanks and engine cores
+    mod: kitten-engineer-redux
+    features:
+    - mods/kitten-engineer-redux/features/custom-stage-delta-v-estimator
+    technique: stage-model-recompute
+    note: '[folded from estimate-stage-delta-v-yourself: give it its own section] Thrust and mass flow from VacuumData or
+      ComputeFromCores.'
+  related:
+  - compute-engine-thrust-at-ambient-pressure
+  - stage-a-vehicle-from-code
+  - add-parts-to-a-live-vessel
+  merged_from:
+  - estimate-stage-delta-v-yourself
+- slug: compute-engine-thrust-at-ambient-pressure
+  title: Compute engine thrust, Isp and mass flow at ambient pressure and invert for throttle
+  kind: howto
+  group: staging-and-engines
+  batch: vehicles-and-parts-1
+  summary: 'Evaluate an engine at a given pressure using the game''s model, distinguish throttleable engines from solid motors,
+    and mirror the structural g-load throttle cap. Also covers: Find the throttle that delivers a requested thrust.'
+  game_types:
+  - KSA.EngineController
+  - KSA.RocketControllerData
+  - KSA.FlightComputer
+  - KSA.SolidMotor
+  engine_pointers:
+  - current/decomp/KSA/EngineController.cs ComputeActivePerformance
+  - current/decomp/KSA/RocketControllerData.cs ComputeFromCores
+  - current/decomp/KSA/FlightComputer.cs SolveGLoadThrottleCap
+  - current/decomp/KSA/EngineController.cs
+  lifecycle:
+  - frame:dispatch-solvers
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: EngineController.ComputeActivePerformance with core-type checks
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/engine-performance-and-throttle-inversion
+    technique: engine-model-reuse
+    note: Core types Combustor/ThermalCore vs SolidMotor; g-load cap applies in Manual. (also find-the-throttle-for-a-thrust-demand)
+      Bracket, then Illinois; cache per vehicle.
+  - n: 2
+    title: ComputeFromCores or VacuumData in a delta-v estimator
+    mod: kitten-engineer-redux
+    features:
+    - mods/kitten-engineer-redux/features/custom-stage-delta-v-estimator
+    technique: stage-model-recompute
+    note: Pressure-dependent thrust inside a stage-by-stage burn model.
+  related:
+  - read-staged-delta-v-from-the-game
+  - command-engines-throttle-and-rcs-from-code
+  merged_from:
+  - find-the-throttle-for-a-thrust-demand
+- slug: stage-a-vehicle-from-code
+  title: Ignite engines, activate the next stage, fire a decoupler or undock from code
+  kind: howto
+  group: staging-and-engines
+  batch: vehicles-and-parts-1
+  summary: 'Fire the next staging sequence and the main ignition from a mod, either through KSA''s input-event buffers or
+    in the PrepareWorker window without racing the worker. Also covers: Fire one decoupler or undock a docking port from code.'
+  game_types:
+  - KSA.Vehicle
+  - KSA.SequenceList
+  - KSA.InputEvents
+  - KSA.Decoupler
+  - KSA.DockingPort
+  engine_pointers:
+  - current/decomp/KSA/SequenceList.cs ActivateNextSequence
+  - current/decomp/KSA/InputEvents.cs ApplyInputEvents
+  - current/decomp/KSA/Decoupler.cs
+  - current/decomp/KSA/DockingPort.cs
+  - current/decomp/KSA/Vehicle.cs Split
+  lifecycle:
+  - frame:input
+  - frame:dispatch-solvers
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: Vehicle.SetEnum(MainIgnite) and SequenceList.ActivateNextSequence via input buffers
+    mod: gatos
+    features:
+    - mods/gatos/features/ignition-staging-and-module-actuators
+    technique: input-event-buffer
+    note: IActivateInputBuffer applied in ApplyInputEvents next PrepareFrame. (also fire-a-decoupler-or-undock-from-code)
+      InputEvents.VehicleDockingInputBuffer.
+  - n: 2
+    title: Stage in the PrepareWorker window
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/fly-another-vehicle
+    - mods/ksarmory/features/prepareworker-prefix-command-window
+    technique: prepareworker-window
+    note: RecomputeForFlight walk, safe against the worker.
+  - n: 3
+    title: Find and fire the decoupler that holds a launcher, then follow the split
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/launcher-separation-at-decoupler
+    technique: input-buffer-activation
+    note: '[folded from fire-a-decoupler-or-undock-from-code: give it its own section] Roster entries move with the part across
+      the split.'
+  related:
+  - stage-automatically
+  - anchor-to-parts-across-vehicle-changes
+  merged_from:
+  - fire-a-decoupler-or-undock-from-code
+- slug: stage-automatically
+  title: Stage automatically on burnout, drop spent boosters early, and delay ignition and decoupling
+  kind: howto
+  group: staging-and-engines
+  batch: vehicles-and-parts-1
+  summary: 'Detect burnout from settled solver results, activate the next sequence without losing a running Auto burn, cascade
+    through empty rows, and optionally predict and drop spent boosters while the core still burns. Also covers: Delay engine
+    ignition and decoupling after a stage.'
+  game_types:
+  - KSA.Vehicle
+  - KSA.SequenceList
+  - KSA.FlightComputer
+  - KSA.Universe
+  - KSA.Decoupler
+  - KSA.EngineController
+  - KSA.PartMenu
+  engine_pointers:
+  - current/decomp/KSA/Universe.cs ApplyVehicleSolvers
+  - current/decomp/KSA/Vehicle.cs Split
+  - current/decomp/KSA/Decoupler.cs
+  - current/decomp/KSA/PartMenu.cs
+  lifecycle:
+  - frame:apply-solvers
+  - frame:input
+  - frame:dispatch-solvers
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: Sample before and act after ApplyVehicleSolvers, keeping Auto burns alive
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/automatic-staging
+    technique: harmony-postfix
+    note: Take back the out-of-propellant stop while new engines light.
+  - n: 2
+    title: Predict jettisoned parts and drop spent boosters early
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/spent-stage-drop
+    technique: custom-physics
+    note: Mirror Vehicle.Split on the sequence decouplers; refuse when crossfeed propellant would be cut.
+  - n: 3
+    title: Hold modules and a part-window postfix with TOML overrides
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/staging-delays
+    technique: harmony-postfix
+    note: '[folded from delay-ignition-and-decoupling-after-staging: give it its own section] Per-vehicle overrides saved
+      in TOML.'
+  related:
+  - stage-a-vehicle-from-code
+  merged_from:
+  - delay-ignition-and-decoupling-after-staging

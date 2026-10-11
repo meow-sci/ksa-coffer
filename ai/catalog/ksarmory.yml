@@ -1,0 +1,1212 @@
+mod: ksarmory
+repo: KSArmory
+ref: cbd63d6d84da7a48a13641a641d3557bad216435
+summary: "KSArmory (LaurensDeV) adds weapon parts, sensors and projectiles to the KSA spacecraft sandbox as reusable machinery: a closest-point-of-approach search sensor, fire control, articulated mounts, rounds the mod integrates itself to sub-frame accuracy with analytic fuses, guided and ballistic guidance, a ballistic computer that flies player-built rockets, per-part blast damage through the engine's failure and dent paths, nine compute-shader effects recorded before bloom, borrowed and secondary-viewport cameras, an ImGui operator panel and data-only weapon packs. It binds to the game through six StarMap hooks and six Harmony patches, keeps all simulation in a game-free Sim/ folder that a headless test suite links, and ships extensive build, scenario and statistics tooling."
+features:
+  - id: mods/ksarmory/features/analytic-subframe-fuses
+    title: "Analytic sub-frame fuses by closest approach"
+    category: physics
+    submod: null
+    summary: "Proximity, contact, timed, height and ground fuses are solved in closed form inside each sub-step, so fast rounds cannot tunnel through the trigger and the burst instant is known within the frame."
+    novelty: high
+    techniques: ["custom-physics", "analytic-closest-approach", "sim-boundary"]
+    lifecycle: ["frame:draw-ui", "frame:celestials", "frame:after-on-frame"]
+    hooks: ["starmap StarMapAfterGui", "harmony-prefix KSA.Program.OnFrameCelestials", "starmap StarMapAfterOnFrame"]
+    game_types: ["KSA.Vehicle", "KSA.Universe", "KSA.Program"]
+    key_paths: ["src/KSArmory/Sim/Vec.cs", "src/KSArmory/Sim/ContactSweep.cs", "src/KSArmory/Sim/Interceptor.cs", "src/KSArmory/Sim/Slug.cs", "src/KSArmory/Sim/Warhead.cs"]
+    howto_topics:
+      - {slug: tunnel-free-hit-detection, title: "Tunnel-free hit detection for fast objects", note: "t = -r.v/v.v clamped to the step"}
+      - {slug: proximity-trigger-between-frames, title: "Proximity triggers against once-per-frame samples", note: "back-date samples before differencing"}
+  - id: mods/ksarmory/features/api-surface-tracking
+    title: "Record the exact KSA API a mod binds to from its compiled metadata"
+    category: testing-and-tooling
+    submod: null
+    summary: "A System.Reflection.Metadata tool lists every external KSA type and member the built mod references into a generated, CI-checked document; never-called pin methods put reflected Harmony targets into it, and a script intersects it with a decompiled diff after an update."
+    novelty: high
+    techniques: ["metadata-reader", "generated-docs", "decompiled-diff", "signature-pinning"]
+    lifecycle: []
+    hooks: []
+    game_types: ["KSA.Vehicle", "KSA.Program", "KSA.SunbloomRenderer", "KSA.PartModelRenderer"]
+    key_paths: ["tools/apisurface/Program.cs", "tools/api-surface.sh", "docs/KSA-API-SURFACE.md", "tools/ksa-api-diff.sh", "tools/decompile-assemblies.sh", "tools/apidump/Program.cs"]
+    howto_topics:
+      - {slug: list-the-game-api-your-mod-uses, title: "List every game API your mod depends on", note: "read TypeRef and MemberRef tables of your own DLL"}
+      - {slug: make-harmony-targets-compile-time-checked, title: "Turn a reflected Harmony target into a compile-time dependency", note: "never-called pin method"}
+      - {slug: diff-decompiled-game-between-builds, title: "Diff the decompiled game between builds", note: "pinned ilspycmd"}
+  - id: mods/ksarmory/features/armoury-pack-registration-api
+    title: "A three-member, text-only registration API for code packs, with a generated contract record"
+    category: external-io
+    submod: null
+    summary: "KSArmory exposes Armoury.Register(string, string) so a dependent StarMap mod can add weapons from its entry point using only KSArmory.dll, returns faults instead of throwing, closes the door at StarMapAllModsLoaded, and guards the contract with a generated surface file that CI diffs"
+    novelty: high
+    techniques: ["inter-mod-api", "assembly-load-context", "starmap-lifecycle", "api-surface-record", "result-not-exception"]
+    lifecycle: ["startup:starmap-before-main", "startup:all-mods-loaded"]
+    hooks: ["starmap StarMapBeforeMain (in the pack)", "starmap StarMapAllModsLoaded"]
+    game_types: []
+    key_paths: ["src/KSArmory/Sim/Armoury.cs", "src/KSArmory/Sim/Catalogue.cs", "src/KSArmory/Sim/PackResult.cs", "src/KSArmory/Sim/PackFault.cs", "tools/pack-api.py", "docs/PACK-API-SURFACE.md"]
+    howto_topics:
+      - {slug: inter-mod-registration-api, title: "Expose a registration API other mods can call", note: "three text-only members so a pack needs no game assemblies"}
+      - {slug: generated-api-contract-record, title: "Record and check the API other mods bind to", note: "pack-api.py writes and diffs a contract document"}
+      - {slug: declare-starmap-mod-dependency, title: "Order a dependent mod before your own load hook", note: "code packs register from their entry point before StarMapAllModsLoaded"}
+  - id: mods/ksarmory/features/articulated-mount-subparts
+    title: "Articulated turrets by rewriting subpart transforms every frame"
+    category: vehicles-and-parts
+    submod: null
+    summary: "A single editor part traverses, elevates, recoils and spins its barrels because the mod finds named subparts at runtime and writes their parent-relative position, rotation and scale from rate-limited drives each frame"
+    novelty: high
+    techniques: ["subpart-transform-write", "rate-limited-drive", "sim-ksa-split", "latch-on-refusal"]
+    lifecycle: ["frame:draw-ui", "frame:celestials"]
+    hooks: ["starmap StarMapAfterGui", "harmony-prefix KSA.Program.OnFrameCelestials"]
+    game_types: ["KSA.Part", "KSA.Vehicle", "KSA.PartTree", "KSA.PartTreeRenderData", "KSA.Program"]
+    key_paths: ["src/KSArmory/Ksa/LauncherPart.cs", "src/KSArmory/Sim/Turret.cs", "src/KSArmory/Sim/TubeGeometry.cs", "src/KSArmory/Ksa/WeaponSystem.cs", "src/KSArmory/Sim/DriveStatus.cs", "src/KSArmory/Sim/PointingDrive.cs"]
+    howto_topics:
+      - {slug: animate-subparts-from-code, title: "Move subparts from code every frame", note: "write the subpart transform, then ResetCachedPosMatrixValues"}
+      - {slug: compose-sibling-subpart-chains, title: "Chain subparts that the XML cannot nest", note: "pods and arrays are siblings of the turret, composed by the mod"}
+      - {slug: movable-subparts, title: "Author subparts that rotate about their own pivot", note: "meshes recentred on the pivot, offset restored with Position"}
+  - id: mods/ksarmory/features/blast-damage-and-part-health
+    title: "Blast damage per part against the engine's crash tolerance, with health and engine dents"
+    category: vehicles-and-parts
+    submod: null
+    summary: "A burst judges every part of every craft on its own distance and the engine-derived Part.CrashTolerancePascals, charges a persistent per-part health ledger, queues the parts that break, and hands the loads short of breaking to KSA's own dent system when the blast front arrives"
+    novelty: high
+    techniques: ["custom-physics", "sim-boundary", "weak-keyed-ledger", "deferred-application", "engine-dent-api"]
+    lifecycle: ["frame:draw-ui", "frame:celestials", "frame:after-on-frame", "physics:vehicle-solver"]
+    hooks: ["starmap StarMapAfterGui", "harmony-prefix KSA.Program.OnFrameCelestials", "starmap StarMapAfterOnFrame"]
+    game_types: ["KSA.Part", "KSA.PartStructuralLimits", "KSA.FxDeformation", "KSA.PartFailure", "KSA.Vehicle", "KSA.GameSettings", "KSA.VehicleUpdateState", "KSA.PhysicsBubble"]
+    key_paths: ["src/KSArmory/Sim/Warhead.cs", "src/KSArmory/Sim/BlastSweep.cs", "src/KSArmory/Sim/BlastDamage.cs", "src/KSArmory/Sim/PartHealth.cs", "src/KSArmory/Sim/BlastWave.cs", "src/KSArmory/Sim/BlastAltitude.cs"]
+    howto_topics:
+      - {slug: part-crash-tolerance, title: "Read a part's crash tolerance", note: "damage judged against the engine-derived strength"}
+      - {slug: predict-structural-failure, title: "Decide which parts break under a load", note: "cube-root blast law re-anchored to the reference strength"}
+      - {slug: dent-parts-through-engine-impact-path, title: "Dent parts through the engine impact path", note: "FxDeformation.ReportContact honours the player dent setting"}
+      - {slug: per-part-health-ledger, title: "Keep cumulative damage per part", note: "weak references to Part, never saved"}
+  - id: mods/ksarmory/features/blast-shove-impulse
+    title: "Push a craft with a blast wind by writing an impulse into its physics state"
+    category: physics
+    submod: null
+    summary: "Each part the blast front reaches adds a drag-style push and a torque about the centre of mass, saturated so nothing outruns the wind, and the summed impulse is written into the vehicle's kinematic state from the PrepareWorker prefix the way Vehicle.Split does it"
+    novelty: high
+    techniques: ["harmony-prefix", "custom-physics", "impulse-write", "per-part-drag", "saturation", "readback-probe"]
+    lifecycle: ["frame:draw-ui", "frame:dispatch-solvers"]
+    hooks: ["harmony-prefix KSA.Vehicle.PrepareWorker", "starmap StarMapAfterGui (via StepOnce)"]
+    game_types: ["KSA.Vehicle", "KSA.PhysicsStates", "KSA.KinematicStates", "KSA.VehicleProperties", "KSA.MassProperties", "KSA.FlightPlan", "KSA.Part", "BepuUtilities.Symmetric3x3"]
+    key_paths: ["src/KSArmory/Sim/BlastShove.cs", "src/KSArmory/Ksa/BlastArrivals.cs", "src/KSArmory/Ksa/VehicleCommand.cs", "src/KSArmory/Ksa/AttitudeHook.cs"]
+    howto_topics:
+      - {slug: apply-custom-forces-to-a-vehicle, title: "Push a craft from outside the solver", note: "impulse written into the physics state, off rails, orbit rebuilt"}
+      - {slug: write-vehicle-physics-state-safely, title: "Write vehicle physics state at a safe moment", note: "written from the PrepareWorker prefix window"}
+      - {slug: blast-wave-physics-for-games, title: "Model blast overpressure and wind", note: "Kinney-Graham overpressure and wind behind the front"}
+  - id: mods/ksarmory/features/blender-model-pipeline-and-checks
+    title: "Headless Blender model generation and offline GLB checks"
+    category: assets
+    submod: null
+    summary: "Three parts are generated by a headless Blender script into one palette-textured GLB atlas, and Python checkers that need neither Blender nor the game catch z-fighting, zero-area UVs, unpaired node names, swept collisions and launch geometry that has drifted from the C# profiles"
+    novelty: medium
+    techniques: ["glb-model", "xml-asset", "headless-blender", "palette-atlas", "generated-geometry-contract", "offline-asset-validation"]
+    lifecycle: ["startup:asset-load"]
+    hooks: ["mod.toml assets (KSA asset-bundle loader)"]
+    game_types: ["KSA.MeshAtlasFileReference", "KSA.MeshReference", "KSA.ModLibrary", "KSA.MeshViewModule", "KSA.Part"]
+    key_paths: ["tools/model/build.sh", "tools/model/pantsir.py", "tools/model/palette.py", "tools/model/checkmesh.py", "tools/model/checkswept.py", "tools/validate-parts.py"]
+    howto_topics:
+      - {slug: find-z-fighting-in-glb, title: "Find z-fighting and degenerate UVs in a GLB", note: "plane bucketing and UV-area test without Blender or the game"}
+      - {slug: export-glb-from-blender-for-ksa, title: "Export a GLB from Blender that KSA reads", note: "export_yup off, node name equals mesh name, _VM twins"}
+      - {slug: generate-parts-with-headless-blender, title: "Generate part geometry from a headless Blender script", note: "primitives with skin and seeded jitter, palette swatches"}
+      - {slug: validate-asset-xml-references, title: "Validate asset XML against the files it names", note: "mesh Ids against the atlas, case-exact paths, mod.toml listing"}
+  - id: mods/ksarmory/features/borrow-main-view-camera
+    title: "Borrow the player's main view and hand it back"
+    category: camera
+    submod: null
+    summary: "Mod camera owners borrow KSA's main view by recording its follow target, mode and field first, ranking claims with a pure ViewClaim ladder, standing down when the player changes either half, and restoring the halves separately"
+    novelty: high
+    techniques: ["view-claim-ladder", "state-record-and-restore", "orbit-angle-nudge", "reflection"]
+    lifecycle: ["frame:draw-ui", "frame:celestials", "frame:viewports", "event:save-load"]
+    hooks: ["starmap StarMapAfterGui (via StepOnce)", "harmony-prefix KSA.Program.OnFrameCelestials (via StepOnce, HUD hidden)", "starmap StarMapAfterOnFrame (via StepOnce, fallback)", "harmony-postfix KSA.Program.OnGameLoaded (save load, consumed in StepOnce)", "starmap StarMapUnload"]
+    game_types: ["KSA.Program", "KSA.Camera", "KSA.GameViewport", "KSA.IGameViewport", "KSA.CameraMode", "KSA.FixedController", "KSA.OrbitController", "KSA.OrbitView", "KSA.IFollowable", "KSA.Vehicle", "KSA.Universe", "KSA.WreckageMarker"]
+    key_paths: ["src/KSArmory/Sim/ViewClaim.cs", "src/KSArmory/Ksa/KsaWorld.cs", "src/KSArmory/Ksa/SightCamera.cs", "src/KSArmory/Ksa/ChaseCamera.cs", "src/KSArmory/Ksa/WatchCamera.cs", "src/KSArmory/Ksa/KSArmoryMod.cs"]
+    howto_topics:
+      - {slug: borrow-and-return-main-camera, title: "Borrow the main camera and hand it back", note: "record mode, follow and field of view; restore only what the player did not change"}
+      - {slug: camera-ownership-arbitration, title: "Arbitrate several features that want the camera", note: "a claim ladder where the loser yields instead of restoring"}
+      - {slug: drive-main-camera-fixed-mode, title: "Drive the main camera in Fixed mode", note: "set CameraRotation before the mode; Fixed has no player exit"}
+      - {slug: override-camera-fov, title: "Zoom past the player FOV clamp", note: "SetFieldOfView takes degrees, GetFieldOfView answers radians"}
+  - id: mods/ksarmory/features/build-deploy-package-release
+    title: "Deploy into the KSA mods folder, package a clean archive and cut releases from commits"
+    category: testing-and-tooling
+    submod: null
+    summary: "Scripts build and install the mod with manifest.toml registration and a developer marker, package an archive that refuses any DLL but the mod's own, and semantic-release drafts a GitHub release, attaches the archive and republishes it to SpaceDock."
+    novelty: medium
+    techniques: ["deploy-script", "manifest-registration", "release-automation", "conventional-commits"]
+    lifecycle: []
+    hooks: []
+    game_types: []
+    key_paths: ["tools/deploy.sh", "tools/package.sh", "tools/ksa-user-dir.sh", ".releaserc.json", ".github/workflows/release.yml", ".github/workflows/spacedock.yml"]
+    howto_topics:
+      - {slug: deploy-a-mod-for-development, title: "Deploy and register a mod in the KSA user folder", note: "manifest.toml entry is mandatory"}
+      - {slug: package-a-mod-release, title: "Package a mod release that ships no game files", note: "foreign-DLL and pdb gates"}
+      - {slug: automate-mod-releases, title: "Automate mod releases to GitHub and SpaceDock", note: "semantic-release draft then publish after the archive is attached"}
+      - {slug: developer-only-features-via-marker-file, title: "Enable developer-only features on dev installs", note: "marker file written by deploy"}
+  - id: mods/ksarmory/features/bullet-hole-decals
+    title: "Shell holes held in the struck sub-part's frame and painted from depth"
+    category: shaders
+    submod: null
+    summary: "Shell hits found with Part.RayCastEgo are stored in the struck sub-part's own frame and carried to the camera through the matrix the engine draws that sub-part with, and the newest 400 are painted as procedural holes and soot by one tile-gathered compute dispatch before bloom"
+    novelty: high
+    techniques: ["harmony-prefix", "glsl-shader", "vulkan-pipeline", "vulkan-buffer", "reflection", "post-processing", "depth-buffer-projection", "part-frame-anchor", "tile-bitmask-gather"]
+    lifecycle: ["frame:draw-ui", "frame:celestials", "render:bloom"]
+    hooks: ["starmap StarMapAfterGui", "harmony-prefix KSA.Program.OnFrameCelestials", "harmony-prefix KSA.SunbloomRenderer.Render", "reflection Core.KSADeviceContextEx.Allocator"]
+    game_types: ["KSA.Part", "KSA.Vehicle", "KSA.PartTree", "KSA.Camera", "KSA.SunbloomRenderer", "KSA.Rendering.ComputePipelineWrapper", "Core.KSADeviceContextEx", "Core.Renderer", "KSA.KsaVmaAllocator", "Brutal.VulkanApi.Abstractions.IBufferAllocator", "Brutal.VulkanApi.Abstractions.MappedMemory", "KSA.Program"]
+    key_paths: ["src/KSArmory/Ksa/BulletHoles.cs", "src/KSArmory/Ksa/KsaWorld.cs", "src/KSArmory/Sim/HoleLook.cs", "src/KSArmory/Ksa/CloudPass.cs", "src/KSArmory/Shaders/KSArmoryHole.comp", "src/KSArmory/Ksa/WeaponSystem.cs"]
+    howto_topics:
+      - {slug: projected-decals-on-hulls-and-terrain, title: "Paint decals from the depth buffer", note: "one dispatch per hole over its own screen patch"}
+      - {slug: raycast-against-vessel-mesh, title: "Ray cast against a vessel mesh", note: "Part.RayCastEgo answers in the struck subpart"}
+      - {slug: anchor-points-to-subpart-frame, title: "Keep a mark attached to a moving subpart", note: "stored in subpart frame, drawn through the engine draw matrix"}
+  - id: mods/ksarmory/features/burst-flash-and-view-shake
+    title: "A burst's whiteout and a blast front's view shake, painted into the scene image instead of moving the camera"
+    category: shaders
+    submod: null
+    summary: "A nuclear flash whites out the view on an eye-adaptation model (suns at the eye, log response, driven by the rise, day or night recovery, off-axis floor), and a front reaching the camera strikes a rattle sized by overpressure. Both are stepped on the simulated clock and written into KSA's HDR scene before bloom: the whiteout as a flash-only mode of the cloud shader, the shake as the shock pass moving the picture. No camera member is written, and both survive F2 and screenshots."
+    novelty: high
+    techniques: ["harmony-prefix", "glsl-shader", "vulkan-pipeline", "post-processing", "specialization-constants", "screen-space-shake", "sim-boundary"]
+    lifecycle: ["frame:draw-ui", "frame:celestials", "frame:after-on-frame", "render:bloom"]
+    hooks: ["starmap StarMapAfterGui", "harmony-prefix KSA.Program.OnFrameCelestials", "starmap StarMapAfterOnFrame", "harmony-prefix KSA.SunbloomRenderer.Render"]
+    game_types: ["KSA.Program", "KSA.IGameViewport", "KSA.GameViewport", "KSA.Camera", "KSA.Celestial", "KSA.SunbloomRenderer", "KSA.ScreenshotCapture", "KSA.InputAction", "KSA.Rendering.ComputePipelineWrapper", "KSA.GpuRegionExtensions"]
+    key_paths: ["src/KSArmory/Ksa/BurstFlash.cs", "src/KSArmory/Sim/FlashGlare.cs", "src/KSArmory/Ksa/BlastShake.cs", "src/KSArmory/Sim/ViewShake.cs", "src/KSArmory/Ksa/CloudPass.cs", "src/KSArmory/Shaders/KSArmoryCloud.comp", "src/KSArmory/Shaders/KSArmoryShock.comp", "src/KSArmory/Ksa/BurstSound.cs"]
+    howto_topics:
+      - {slug: screen-shake-without-moving-the-camera, title: "Shake the view by moving the rendered picture, not the camera", note: "translate, roll and zoom a scene copy in a compute pass; nothing to fight a camera controller over, and the HUD stays still"}
+      - {slug: full-screen-effects-that-survive-hidden-hud, title: "Draw full-screen effects that survive F2 and screenshots", note: "Program.DrawUI guards the whole ImGui pass and ScreenshotCapture clears it, so write into the scene image instead"}
+      - {slug: flash-blindness-eye-adaptation-model, title: "Model flash blindness and glare from light level and eye adaptation", note: "log response against adapted light, veil driven by the rise, recovery time from adaptation"}
+      - {slug: read-the-main-scene-camera-pose, title: "Read the main view's scene camera pose, including in map mode", note: "use MainViewport.BaseCamera, because GetMainCamera returns the map camera in map mode"}
+  - id: mods/ksarmory/features/burst-sound-at-blast-arrival
+    title: "The burst's bang, played when its blast front reaches the listener"
+    category: audio
+    submod: null
+    summary: "The mod's nuclear explosion preset omits Core's SoundEvent. BurstSound follows each burst's blast front out to the audio camera on the simulated step, using a speed of sound sqrt(gamma P0/rho0) from PhysicalAtmosphereReference and a Sedov-Taylor-then-sonic front. On arrival it plays Core's ExplosionBig MultiSound itself the way ExplosionSoundSystem does, pitched down by yield and as loud as the overpressure at the ear (heard from 50 Pa). Bursts close in time and place merge into one bang, and an air burst gets a second, ground-reflected report."
+    novelty: high
+    techniques: ["fmod-audio", "xml-asset", "starmap-lifecycle", "harmony-prefix", "ground-anchored-source", "live-front-arrival", "event-deduplication"]
+    lifecycle: ["startup:asset-load", "frame:draw-ui", "frame:celestials", "frame:after-on-frame"]
+    hooks: ["starmap StarMapAfterGui", "harmony-prefix KSA.Program.OnFrameCelestials", "starmap StarMapAfterOnFrame"]
+    game_types: ["KSA.GameAudio", "KSA.IChannel", "KSA.MultiChannelWrapper", "KSA.ClusterChannelWrapper", "KSA.ChannelWrapper", "KSA.SoundBehavior", "KSA.MultiSound", "KSA.SoundReference", "KSA.SoundEvent", "KSA.SpatialAudio", "KSA.KeyHash", "KSA.PhysicalAtmosphereReference", "KSA.AtmosphereReference", "KSA.ExplosionSoundSystem", "KSA.ExplosionSystem", "KSA.Rendering.Particles.ExplosionReference", "KSA.AssetBundle", "KSA.ModLibrary", "KSA.Camera", "KSA.Celestial", "KSA.Universe", "KSA.Program"]
+    key_paths: ["src/KSArmory/Ksa/BurstSound.cs", "src/KSArmory/Sim/BurstHearing.cs", "src/KSArmory/Sim/BlastFront.cs", "src/KSArmory/Sim/BlastAltitude.cs", "src/KSArmory/Sim/MushroomCloud.cs", "src/KSArmory/KSArmoryParticles.xml", "src/KSArmory/Ksa/NuclearClouds.cs"]
+    howto_topics:
+      - {slug: play-a-game-sound-from-a-mod, title: "Play one of the game's own sounds from mod code, placed in the world", note: "ModLibrary.Get<SoundBehavior>, Play startPaused, then SetSpatialAudio/SetParameter and re-place it every frame while GameAudio.IsStillActive"}
+      - {slug: replace-an-explosion-presets-sound, title: "Strip or replace the sound of an Explosion preset", note: "copy the <Explosion> without <SoundEvent> and play the sound yourself; ExplosionSystem plays it at the instant of the burst"}
+      - {slug: delay-a-sound-by-propagation-time, title: "Delay a world sound by the time sound takes to reach the listener", note: "follow a growing front against the live audio camera instead of a fixed delay"}
+      - {slug: explosion-sound-parameters, title: "Drive Core explosion sound layers with the Distance, Pressure and Intensity parameters", note: "ExplosionSoundSystem sets these itself; played by hand they read zero and the layers mix wrong"}
+      - {slug: deduplicate-coincident-events, title: "Merge coincident game events into one effect", note: "same body, at most 0.5 s apart, within 1 km, so the charges add up"}
+      - {slug: sound-and-timewarp, title: "How simulation speed affects mod-played sounds", note: "GameAudio.PlaySound refuses above 10x, and StopForSimSpeed stops channels above 10x unless SimSpeedRule is Ignore"}
+  - id: mods/ksarmory/features/chase-camera-on-a-round
+    title: "Chase camera riding a mod-simulated round"
+    category: camera
+    submod: null
+    summary: "The main view follows a round through a custom IFollowable that reports the round's drawn position, on a reflection-installed FixedController subclass that adds an up vector and re-solves the pose inside the engine's viewport pass"
+    novelty: high
+    techniques: ["reflection", "controller-subclass", "custom-ifollowable", "pose-source-in-viewport-pass", "imgui-drawlist"]
+    lifecycle: ["frame:input", "frame:viewports", "frame:draw-ui", "frame:celestials", "frame:controller", "frame:render"]
+    hooks: ["starmap StarMapAfterGui (via StepOnce)", "harmony-prefix KSA.Program.OnFrameCelestials (via StepOnce, HUD hidden)", "starmap StarMapAfterOnFrame (via StepOnce, fallback)", "reflection KSA.GameViewport.<FixedController>k__BackingField", "subclass-override KSA.FixedController.OnFrame", "starmap StarMapUnload"]
+    game_types: ["KSA.Camera", "KSA.FixedController", "KSA.Controller", "KSA.GameViewport", "KSA.IGameViewport", "KSA.IFollowable", "KSA.OrbitView", "KSA.CameraReferenceFrame", "KSA.CameraMode", "KSA.WreckageMarker", "KSA.OrbitController", "KSA.Program", "KSA.Vehicle"]
+    key_paths: ["src/KSArmory/Ksa/ChaseCamera.cs", "src/KSArmory/Ksa/RoundFollowable.cs", "src/KSArmory/Ksa/LevelHorizonController.cs", "src/KSArmory/Ksa/KsaWorld.cs", "src/KSArmory/Sim/ChaseView.cs", "src/KSArmory/Sim/ChaseOrbit.cs"]
+    howto_topics:
+      - {slug: chase-camera-for-projectile, title: "Chase a projectile with the main camera", note: "follow a mod object through a custom IFollowable"}
+      - {slug: replace-viewport-camera-controller, title: "Replace a viewport camera controller", note: "FixedController subclass installed through its backing field"}
+      - {slug: camera-roll-up-vector-control, title: "Control camera roll with an up vector", note: "stock FixedController up comes from the followed object type"}
+      - {slug: camera-pose-in-phase-with-frame, title: "Solve the camera pose in the viewport pass", note: "avoid a frame of latency from hooks that run after OnFrameViewports"}
+  - id: mods/ksarmory/features/compute-pass-before-bloom
+    title: "A mod compute pass recorded into KSA's frame just before bloom"
+    category: shaders
+    submod: null
+    summary: "One Harmony prefix on the public SunbloomRenderer.Render hands the mod KSA's command buffer while the HDR scene colour is in a storage layout and depth is sampleable, and the mod dispatches its own Shader-asset compute pipelines there through KSA's ComputePipelineWrapper"
+    novelty: high
+    techniques: ["harmony-prefix", "vulkan-pipeline", "vulkan-buffer", "glsl-shader", "post-processing", "xml-asset", "reflection", "gpu-profiling"]
+    lifecycle: ["startup:asset-load", "startup:all-mods-loaded", "render:bloom"]
+    hooks: ["harmony-prefix KSA.SunbloomRenderer.Render", "reflection Core.Renderer.Allocator", "reflection KSA.FileReference.DoLoad"]
+    game_types: ["KSA.SunbloomRenderer", "KSA.Rendering.ComputePipelineWrapper", "KSA.ShaderReference", "KSA.Rendering.BarrierBatch", "KSA.Rendering.ImageBarrierInfo", "KSA.Rendering.RenderImage", "KSA.Program", "Core.Renderer", "KSA.GpuProfiler", "KSA.ProfilerTag", "KSA.FileReference"]
+    key_paths: ["src/KSArmory/Ksa/CloudPassHook.cs", "src/KSArmory/Ksa/CloudPass.cs", "src/KSArmory/Ksa/CloudPassCost.cs", "src/KSArmory/KSArmoryParticles.xml", "src/KSArmory/Shaders/KSArmoryCloud.comp", "src/KSArmory/Sim/ShaderTunables.cs"]
+    howto_topics:
+      - {slug: compute-pass-before-bloom, title: "Record a compute pass just before bloom", note: "prefix on SunbloomRenderer.Render with the frame command buffer"}
+      - {slug: inject-draw-into-ksa-render-pass, title: "Inject GPU work into the game render", note: "reuse the engine descriptor and pipeline wrappers"}
+      - {slug: ship-compute-shader-as-asset, title: "Ship a compute shader as a mod Shader asset", note: "KSA compiles Shader assets out of any mod folder"}
+  - id: mods/ksarmory/features/compute-shell-tracers
+    title: "Gun tracers added into the scene by one tiled compute dispatch"
+    category: shaders
+    submod: null
+    summary: "Gun rounds are projected on the CPU into screen-space segments in a host-visible storage buffer when the pass records, and one compute dispatch gathers them per 16x16 tile and adds depth-tested tracer streaks before bloom, with gizmo lines as the fallback"
+    novelty: high
+    techniques: ["harmony-prefix", "glsl-shader", "vulkan-pipeline", "vulkan-buffer", "reflection", "post-processing", "tiled-light-culling", "host-visible-ring-buffer"]
+    lifecycle: ["frame:draw-ui", "frame:celestials", "render:bloom"]
+    hooks: ["starmap StarMapAfterGui", "harmony-prefix KSA.Program.OnFrameCelestials", "harmony-prefix KSA.SunbloomRenderer.Render", "reflection Core.KSADeviceContextEx.Allocator"]
+    game_types: ["KSA.SunbloomRenderer", "KSA.Camera", "KSA.Universe", "KSA.Program", "KSA.KsaVmaAllocator", "Core.Renderer", "Core.KSADeviceContextEx", "Brutal.VulkanApi.Abstractions.IBufferAllocator", "Brutal.VulkanApi.Abstractions.BufferEx", "Brutal.VulkanApi.Abstractions.MappedMemory", "KSA.Rendering.ComputePipelineWrapper", "KSA.GizmosRenderer"]
+    key_paths: ["src/KSArmory/Ksa/ShellTracers.cs", "src/KSArmory/Sim/TracerLook.cs", "src/KSArmory/Ksa/CloudPass.cs", "src/KSArmory/Shaders/KSArmoryTracer.comp", "src/KSArmory/Ksa/Visuals.cs", "src/KSArmory/Ksa/WeaponSystem.cs"]
+    howto_topics:
+      - {slug: draw-many-streaks-with-tiled-compute, title: "Draw thousands of streaks in one compute dispatch", note: "segments gathered per 16x16 tile, added before bloom"}
+      - {slug: project-world-point-to-screen, title: "Project world points to screen on the CPU", note: "resolved when the pass records"}
+      - {slug: compute-pass-before-bloom, title: "Record a compute pass just before bloom", note: "the pass the tracers ride"}
+  - id: mods/ksarmory/features/consume-applied-sim-step
+    title: "Integrate on the step KSA applied, consumed once"
+    category: physics
+    submod: null
+    summary: "Mod physics advances by Universe.GetLastSimStep, deduplicated on NextTime and widened to the span since the last integrated boundary, never by StarMap's player-time delta."
+    novelty: high
+    techniques: ["starmap-lifecycle", "custom-physics", "step-gate", "sim-clock"]
+    lifecycle: ["frame:draw-ui", "frame:celestials", "frame:after-on-frame"]
+    hooks: ["starmap StarMapAfterGui", "harmony-prefix KSA.Program.OnFrameCelestials", "starmap StarMapAfterOnFrame"]
+    game_types: ["KSA.Universe", "KSA.SimStep", "KSA.UniverseTime", "KSA.JobSystems", "KSA.App", "KSA.GameSettings"]
+    key_paths: ["src/KSArmory/Ksa/KsaWorld.cs", "src/KSArmory/Sim/StepGate.cs", "src/KSArmory/Sim/SimClock.cs", "src/KSArmory/Sim/SolverLoad.cs", "src/KSArmory/Sim/SmoothedStep.cs"]
+    howto_topics:
+      - {slug: use-simulation-time-not-player-time, title: "Advance mod simulation on KSA's simulated step", note: "pause and warp are correct by construction"}
+      - {slug: ksa-sim-step-and-elapsed-time, title: "GetLastSimStep", note: "verified contiguity and the two-frame delay"}
+      - {slug: measure-simulation-rate, title: "Measure simulated seconds per wall second", note: "GetAchivedSpeedFraction saturates"}
+  - id: mods/ksarmory/features/core-shader-library-include
+    title: "A generated include that reaches KSA's own shader library from a mod shader"
+    category: shaders
+    submod: null
+    summary: "At StarMapImmediateLoad the mod writes Shaders/Content/CoreAtmosphere.glsl with absolute includes of the install's Global, AtmosphereLuts and TextureSet headers, so its compute shaders compile against KSA's atmosphere code without copying it, and a glslang script checks them offline the same way"
+    novelty: medium
+    techniques: ["starmap-lifecycle", "glsl-shader", "xml-asset", "generated-include", "offline-shader-check"]
+    lifecycle: ["startup:immediate-load", "startup:asset-load"]
+    hooks: ["starmap StarMapImmediateLoad"]
+    game_types: ["KSA.ShaderReference", "KSA.AssetReloader.ShaderReloader", "RenderCore.Shaders.ShaderCompilerResolve", "Brutal.ShaderCApi.ShaderC", "KSA.Mod", "KSA.ModLibrary"]
+    key_paths: ["src/KSArmory/Ksa/CoreShaderInclude.cs", "src/KSArmory/Ksa/KSArmoryMod.cs", "src/KSArmory/Shaders/KSArmoryCloud.comp", "src/KSArmory/Shaders/KSArmoryFireLight.comp", "tools/check-shaders.sh"]
+    howto_topics:
+      - {slug: include-ksa-shader-library-from-mod, title: "Include the game's shader library from a mod shader", note: "a generated absolute include written at load"}
+      - {slug: validate-glsl-offline, title: "Compile mod shaders offline", note: "glslangValidator against the install shader library"}
+  - id: mods/ksarmory/features/countermeasure-dispensers
+    title: "Flare and chaff dispenser parts with simulated decoys"
+    category: vehicles-and-parts
+    submod: null
+    summary: "Radial ALE-47 dispenser parts throw mod-simulated flares and chaff in timed salvos, by button or missile warning, and each decoy flies as a dragged point with a fading signature that feeds the radar's chaff notch and seekers that judge each decoy once"
+    novelty: medium
+    techniques: ["starmap-lifecycle", "harmony-prefix", "xml-asset", "part-id-lookup", "semi-implicit-drag", "reference-keyed-dictionary"]
+    lifecycle: ["frame:draw-ui", "frame:celestials", "frame:after-on-frame", "startup:asset-load"]
+    hooks: ["starmap StarMapAfterGui", "harmony-prefix KSA.Program.OnFrameCelestials", "starmap StarMapAfterOnFrame"]
+    game_types: ["KSA.Vehicle", "KSA.Part", "KSA.PartTree", "KSA.Celestial", "KSA.IParentBody", "KSA.Universe", "KSA.Program"]
+    key_paths: ["src/KSArmory/Ksa/Countermeasures.cs", "src/KSArmory/Sim/Dispenser.cs", "src/KSArmory/Sim/Decoy.cs", "src/KSArmory/Sim/ChaffNotch.cs", "src/KSArmory/Sim/Signature.cs", "src/KSArmory/Sim/RadarSignature.cs"]
+    howto_topics:
+      - {slug: simulate-decoys-flares-chaff, title: "Simulate flares and chaff as decoys", note: "dragged points with fading signatures read by seekers and radar"}
+      - {slug: part-behaviour-by-part-id, title: "Give an inert part behaviour by recognising its Id", note: "dispenser kind decided by which part is fitted"}
+  - id: mods/ksarmory/features/cpa-threat-classification
+    title: "Closest-point-of-approach threat classification"
+    category: vehicles-and-parts
+    submod: null
+    summary: "Contacts are classed as threats by where straight-line relative motion takes them within a horizon, not by closing speed, then ranked by time to closest approach, with a closing-only rule for munitions and a median-filtered acceleration kept beside each track"
+    novelty: medium
+    techniques: ["starmap-lifecycle", "harmony-prefix", "closed-form-geometry", "relative-frame-math", "median-filter"]
+    lifecycle: ["frame:draw-ui", "frame:celestials", "frame:after-on-frame"]
+    hooks: ["starmap StarMapAfterGui", "harmony-prefix KSA.Program.OnFrameCelestials", "starmap StarMapAfterOnFrame"]
+    game_types: ["KSA.Vehicle", "KSA.KinematicMeasurements", "KSA.Universe"]
+    key_paths: ["src/KSArmory/Sim/ThreatModel.cs", "src/KSArmory/Sim/Vec.cs", "src/KSArmory/Sim/TrackState.cs", "src/KSArmory/Sim/AccelerationEstimate.cs", "src/KSArmory/Sim/RadarSignature.cs", "src/KSArmory/Ksa/Radar.cs"]
+    howto_topics:
+      - {slug: closest-point-of-approach, title: "Classify threats by closest point of approach", note: "engage targets passing by, not only those closing head-on"}
+      - {slug: ecl-vs-ego-reference-frames, title: "Difference positions in one frame", note: "relative motion taken from paired samples"}
+  - id: mods/ksarmory/features/cursor-ray-world-click-tools
+    title: "Cursor-ray picking and world click tools"
+    category: ui
+    submod: null
+    summary: "The ImGui cursor becomes an Ecl ray through the viewport under it (Camera.ScreenToEgoRay), hit-tested against hulls (Part.RayCastEgo) and terrain, driving fire-at-spot, shift-click lock and test-burst tools guarded by WantCaptureMouse and still run when the UI is hidden"
+    novelty: medium
+    techniques: ["starmap-lifecycle", "harmony-prefix", "cursor-ray", "mesh-raycast", "imgui-input", "terrain-sampling"]
+    lifecycle: ["frame:draw-ui", "frame:celestials", "frame:after-on-frame"]
+    hooks: ["starmap StarMapAfterGui", "harmony-prefix KSA.Program.OnFrameCelestials", "starmap StarMapAfterOnFrame"]
+    game_types: ["KSA.Camera", "KSA.IGameViewport", "KSA.ViewportRegistry", "KSA.Part", "KSA.Vehicle", "KSA.Celestial", "KSA.Program", "Brutal.ImGuiApi.ImGui", "Brutal.ImGuiApi.ImGuiIO"]
+    key_paths: ["src/KSArmory/Ksa/KsaWorld.cs", "src/KSArmory/Sim/CursorAim.cs", "src/KSArmory/Sim/Picking.cs", "src/KSArmory/Sim/TerrainRay.cs", "src/KSArmory/Ksa/Designator.cs", "src/KSArmory/Ksa/TargetLock.cs"]
+    howto_topics:
+      - {slug: cursor-to-world-ray, title: "Turn the cursor into a world ray", note: "Camera.ScreenToEgoRay with viewport offset and framebuffer scale"}
+      - {slug: raycast-parts-and-terrain, title: "Hit-test parts and terrain under the cursor", note: "Part.RayCastEgo and a terrain march"}
+      - {slug: imgui-input-focus-and-game-input, title: "Ignore clicks that ImGui owns", note: "WantCaptureMouse gate"}
+      - {slug: draw-ui-while-hud-hidden, title: "Keep click tools working with the HUD hidden", note: "run from the simulation step when the UI pass is skipped"}
+  - id: mods/ksarmory/features/depth-painted-ground-rings
+    title: "Targeting rings painted on the depth buffer"
+    category: shaders
+    submod: null
+    summary: "Sight, reach, designation and ICBM target rings are collected in the UI pass anchored to their body and painted before bloom by one compute dispatch per ring that rebuilds the scene point from depth and draws an exact circle or ellipse with a fixed pixel-width line"
+    novelty: high
+    techniques: ["harmony-prefix", "glsl-shader", "vulkan-pipeline", "post-processing", "depth-buffer-projection", "octahedral-packing", "screen-tile-dispatch", "body-fixed-anchor"]
+    lifecycle: ["frame:draw-ui", "render:bloom"]
+    hooks: ["starmap StarMapAfterGui", "harmony-prefix KSA.SunbloomRenderer.Render"]
+    game_types: ["KSA.SunbloomRenderer", "KSA.Celestial", "KSA.Astronomical", "KSA.Universe", "KSA.CelestialSystem", "KSA.Camera", "KSA.ViewProjection", "KSA.IViewport", "KSA.Rendering.ComputePipelineWrapper", "KSA.Rendering.ImageBarrierInfo", "KSA.Program"]
+    key_paths: ["src/KSArmory/Ksa/GroundRings.cs", "src/KSArmory/Ksa/CloudPass.cs", "src/KSArmory/Shaders/KSArmoryRing.comp", "src/KSArmory/Ksa/KsaWorld.cs", "src/KSArmory/Ksa/IcbmOverlay.cs"]
+    howto_topics:
+      - {slug: paint-shapes-on-depth-buffer, title: "Paint shapes on whatever the depth buffer holds", note: "reconstruct the scene point from depth; fixed pixel width"}
+      - {slug: projected-decals, title: "Project decals onto terrain and hulls", note: "circle or ellipse per dispatch over its own patch"}
+      - {slug: draw-body-fixed-object, title: "Anchor overlay points to a rotating body", note: "body-fixed storage, ecliptic only when the pass records"}
+  - id: mods/ksarmory/features/detect-save-load-ongameloaded
+    title: "Detect a save load with a postfix on Program.OnGameLoaded"
+    category: persistence
+    submod: null
+    summary: "A postfix on Program.OnGameLoaded (called only after Universe.DeserializeSave) latches a flag that the next step consumes to discard every system, effect and clock boundary of the replaced world."
+    novelty: medium
+    techniques: ["harmony-postfix", "deferred-reset", "signature-pinning"]
+    lifecycle: ["startup:all-mods-loaded", "startup:game-loaded", "event:save-load", "frame:draw-ui"]
+    hooks: ["starmap StarMapAllModsLoaded", "harmony-postfix KSA.Program.OnGameLoaded", "starmap StarMapAfterGui"]
+    game_types: ["KSA.Program", "KSA.Universe", "KSA.UncompressedSave", "KSA.GameSaves", "KSA.GameSave", "KSA.CelestialSystem", "KSA.Popup"]
+    key_paths: ["src/KSArmory/Ksa/WorldReloadHook.cs", "src/KSArmory/Ksa/KSArmoryMod.cs"]
+    howto_topics:
+      - {slug: detect-save-load, title: "Detect when the player loads a save", note: "StarMap has no hook; OnGameLoaded is the single call site"}
+      - {slug: reset-mod-state-on-load, title: "Reset mod state across a save load", note: "latch then reset; Discard vs Clear"}
+  - id: mods/ksarmory/features/director-camera-window
+    title: "Director camera windows on leased secondary viewports"
+    category: camera
+    submod: null
+    summary: "An optical director leases one of KSA's four spare viewports, aims its unfollowed Fixed camera with LookAt from the GUI hook, hides KSA's own window by reflection and shows the viewport texture in a mod ImGui window with pod controls"
+    novelty: high
+    techniques: ["reflection", "imgui-window", "viewport-lease", "direct-camera-write", "per-viewport-shader-data"]
+    lifecycle: ["frame:draw-ui", "frame:celestials", "frame:viewports", "frame:render", "render:imgui"]
+    hooks: ["starmap StarMapAfterGui (via StepOnce)", "starmap StarMapAfterGui", "harmony-prefix KSA.Program.OnFrameCelestials (via StepOnce, HUD hidden)", "reflection KSA.ViewportBase.OptionFlags (protected setter)"]
+    game_types: ["KSA.ViewportRegistry", "KSA.GameViewport", "KSA.IGameViewport", "KSA.IViewport", "KSA.ViewportBase", "KSA.ViewportPresets", "KSA.ViewportOptionFlags", "KSA.ViewportType", "KSA.Camera", "KSA.CameraMode", "KSA.FixedController", "KSA.Program", "KSA.DockingPort", "Brutal.ImGuiApi.ImGui"]
+    key_paths: ["src/KSArmory/Ksa/Ui/DirectorWindow.cs", "src/KSArmory/Ksa/KSArmoryMod.cs", "src/KSArmory/Ksa/KsaWorld.cs", "src/KSArmory/Ksa/Ui/UiOptic.cs"]
+    howto_topics:
+      - {slug: borrow-a-secondary-viewport, title: "Lease one of the spare viewports", note: "four spare viewports built at startup"}
+      - {slug: secondary-viewport-camera, title: "Aim a secondary viewport camera", note: "LookAt then Camera.OnFrame to rebuild the matrix"}
+      - {slug: show-runtime-image-in-imgui, title: "Show a viewport image in your own ImGui window", note: "the viewport texture inside a mod window"}
+      - {slug: hide-ksa-viewport-window, title: "Hide the game's own viewport window", note: "ViewportBase.OptionFlags non-public setter by reflection"}
+  - id: mods/ksarmory/features/dual-hook-simulation-step
+    title: "One simulation step per frame from whichever hook runs first"
+    category: patching
+    submod: null
+    summary: "A frame latch lets the AfterGui postfix, a by-name prefix on private Program.OnFrameCelestials (for F2 and screenshot frames) or the OnFrame postfix run the step exactly once, before the render whenever possible."
+    novelty: high
+    techniques: ["starmap-lifecycle", "harmony-prefix", "reflection", "frame-latch", "graceful-degradation"]
+    lifecycle: ["startup:all-mods-loaded", "frame:draw-ui", "frame:celestials", "frame:after-on-frame"]
+    hooks: ["starmap StarMapAfterGui", "starmap StarMapAfterOnFrame", "harmony-prefix KSA.Program.OnFrameCelestials", "reflection KSA.Program.OnFrameCelestials"]
+    game_types: ["KSA.Program", "KSA.ScreenshotCapture", "KSA.GizmosRenderer", "KSA.GameViewport", "KSA.Camera"]
+    key_paths: ["src/KSArmory/Sim/FrameLatch.cs", "src/KSArmory/Ksa/PreRenderHook.cs", "src/KSArmory/Ksa/KSArmoryMod.cs"]
+    howto_topics:
+      - {slug: keep-running-when-hud-hidden, title: "Keep per-frame mod work running when F2 hides the UI", note: "the DrawUI guard skips GUI hooks"}
+      - {slug: pre-render-hook-without-ui, title: "Run code before the render on every frame", note: "prefix on OnFrameCelestials"}
+      - {slug: patch-private-method-with-fallback, title: "Patch a private engine method and degrade safely", note: "AccessTools by name and a Trouble flag"}
+  - id: mods/ksarmory/features/ecliptic-frames-and-epochs
+    title: "One ecliptic frame and one epoch for everything simulated and drawn"
+    category: physics
+    submod: null
+    summary: "All mod state is kept in Ecl at GetElapsedTime(); targets are back-dated to the sub-step instant, and overlays and bursts are anchored to Camera.GetPositionEgo rather than the analytic position."
+    novelty: high
+    techniques: ["custom-physics", "draw-anchor", "epoch-backdating", "frame-conversion"]
+    lifecycle: ["frame:draw-ui", "frame:celestials", "frame:after-on-frame"]
+    hooks: ["starmap StarMapAfterGui", "harmony-prefix KSA.Program.OnFrameCelestials"]
+    game_types: ["KSA.Vehicle", "KSA.Celestial", "KSA.CelestialSystem", "KSA.IParentBody", "KSA.Camera", "KSA.StateVectors", "KSA.Orbit", "KSA.CelestialUpdateTask", "KSA.PhysicsBubble", "KSA.KinematicStates", "KSA.Universe"]
+    key_paths: ["src/KSArmory/Sim/DrawAnchor.cs", "src/KSArmory/Sim/InFrame.cs", "src/KSArmory/Ksa/KsaWorld.cs", "src/KSArmory/Ksa/WeaponSystem.cs", "src/KSArmory/Ksa/KSArmoryMod.cs"]
+    howto_topics:
+      - {slug: ksa-coordinate-frames-ecl-ego, title: "KSA coordinate frames (Ecl, Ego, Cci, Cce)", note: "conversions and the 29.8 km/s carrier"}
+      - {slug: draw-at-rendered-vehicle-position, title: "Draw overlays where KSA renders a craft", note: "GetPositionEgo vs GetPositionEcl in a physics bubble"}
+      - {slug: sample-epochs-in-ksa-frame, title: "Which instant engine samples belong to", note: "one parent-first walk in ApplyVehicleSolvers"}
+  - id: mods/ksarmory/features/file-command-bridge-and-mcp
+    title: "Drive a running game from outside through a file command bridge and an MCP server"
+    category: testing-and-tooling
+    submod: null
+    summary: "A developer-only bridge polls a folder beside the mod log for JSON commands (pause, step, burst, camera, capture, shader reload, spawn, fly), answers atomically in another folder, and a stdlib Python MCP server exposes it as tools returning captures inline."
+    novelty: high
+    techniques: ["file-ipc", "mcp-server", "reflection", "shader-hot-reload", "screenshot-capture"]
+    lifecycle: ["frame:after-on-frame"]
+    hooks: ["starmap StarMapAfterOnFrame", "reflection KSA.Program._screenshotCapture", "reflection KSA.FileReference.DoLoad"]
+    game_types: ["KSA.ScreenshotCapture", "KSA.Program", "KSA.FileReference", "KSA.ShaderReference", "KSA.ModLibrary", "KSA.Constants"]
+    key_paths: ["src/KSArmory/Ksa/Bridge.cs", "src/KSArmory/Sim/BridgeCommand.cs", "src/KSArmory/Ksa/KsaWorld.cs", "tools/ksa-mcp/server.py", "tools/vis/vis.py"]
+    howto_topics:
+      - {slug: remote-control-the-game-for-testing, title: "Remote-control a running KSA from scripts or agents", note: "file inbox/outbox polled from the frame postfix"}
+      - {slug: take-screenshots-from-a-mod, title: "Request KSA screenshots from code", note: "Program._screenshotCapture by reflection"}
+      - {slug: hot-reload-mod-shaders, title: "Hot-reload a mod's shaders", note: "ShaderReloader only maps Content paths; invoke FileReference.DoLoad"}
+      - {slug: mcp-server-for-a-game-mod, title: "Expose a game mod to an AI agent through MCP", note: "stdlib JSON-RPC over stdio"}
+  - id: mods/ksarmory/features/fire-control-and-target-allocation
+    title: "Fire control ladder and per-craft target allocation"
+    category: vehicles-and-parts
+    submod: null
+    summary: "Each weapon system decides once per simulated step whether to launch through an ordered ladder of named gates (platform, magazine, lock, drives, IFF, gimbal, salvo, envelope) that also reports why it holds, counting rounds per target per craft from what is in the air"
+    novelty: medium
+    techniques: ["starmap-lifecycle", "harmony-prefix", "gate-ladder", "reference-keyed-dictionary", "frame-ordering"]
+    lifecycle: ["frame:draw-ui", "frame:celestials", "frame:after-on-frame"]
+    hooks: ["starmap StarMapAfterGui", "harmony-prefix KSA.Program.OnFrameCelestials", "starmap StarMapAfterOnFrame"]
+    game_types: ["KSA.Vehicle", "KSA.Universe", "KSA.Program"]
+    key_paths: ["src/KSArmory/Ksa/WeaponSystem.cs", "src/KSArmory/Sim/FireLadder.cs", "src/KSArmory/Sim/FireGate.cs", "src/KSArmory/Sim/Turret.cs", "src/KSArmory/Ksa/Armaments.cs", "src/KSArmory/Sim/TargetAllocation.cs"]
+    howto_topics:
+      - {slug: explainable-gate-ladder, title: "Report why an automated action is holding", note: "ordered named gates, first refusal shown"}
+      - {slug: share-targets-across-weapons, title: "Coordinate several weapons on one craft", note: "per-craft tally keyed on the target handle"}
+  - id: mods/ksarmory/features/fireball-light-injection
+    title: "Fireball light through LightDebug, filled in where the light pre-pass dropped it"
+    category: shaders
+    submod: null
+    summary: "A nuclear fireball's point light is pushed into KSA's light system through the public LightDebug list, and a compute dispatch before bloom adds its diffuse term on craft and structures the clustered pre-pass culled beyond about 3 km, found by reading the pre-pass irradiance image by reflection"
+    novelty: high
+    techniques: ["harmony-prefix", "reflection", "glsl-shader", "vulkan-pipeline", "post-processing", "lightdebug-light-injection", "screen-space-relighting"]
+    lifecycle: ["frame:draw-ui", "frame:celestials", "render:bloom"]
+    hooks: ["starmap StarMapAfterGui", "harmony-prefix KSA.Program.OnFrameCelestials", "harmony-prefix KSA.SunbloomRenderer.Render", "reflection KSA.Rendering.Lighting.ClusteredLightSystem._diffuseIrradianceImage"]
+    game_types: ["KSA.Rendering.Lighting.LightDebug", "KSA.Rendering.Lighting.Light", "KSA.Rendering.Lighting.ClusteredLightSystem", "KSA.PrePassRenderer", "KSA.PrePassData", "KSA.GpuTextureSystem", "KSA.AstronomicalTemplate", "KSA.HapkeScatteringReference", "KSA.Celestial", "KSA.Rendering.ComputePipelineWrapper", "KSA.Rendering.BarrierBatch", "KSA.SunbloomRenderer", "KSA.Program"]
+    key_paths: ["src/KSArmory/Ksa/Fireball.cs", "src/KSArmory/Ksa/NuclearClouds.cs", "src/KSArmory/Ksa/CloudPass.cs", "src/KSArmory/Shaders/KSArmoryFireLight.comp", "docs/BLOCKED-ON-KSA.md"]
+    howto_topics:
+      - {slug: read-light-prepass-results, title: "Read the engine light pre-pass", note: "fill in a light the pre-pass dropped beyond about 3 km"}
+      - {slug: submit-dynamic-lights-per-viewport, title: "Submit a dynamic light from a mod", note: "LightDebug push sized like an exhaust light"}
+  - id: mods/ksarmory/features/fly-another-vehicle
+    title: "Fly any vehicle from a mod through its flight computer and input actions"
+    category: vehicles-and-parts
+    submod: null
+    summary: "Points a craft with the flight computer's Custom attitude target in the engine's own frame, drives engines, throttle and translation through Vehicle.ProcessInput, stages via the sequence list and hands it back, writing attitude, pulse mode and staging from the PrepareWorker prefix so the worker snapshot sees them."
+    novelty: high
+    techniques: ["harmony-prefix", "input-injection", "reflection", "double-buffer-aware-writes"]
+    lifecycle: ["frame:draw-ui", "frame:dispatch-solvers"]
+    hooks: ["harmony-prefix KSA.Vehicle.PrepareWorker", "starmap StarMapAfterGui", "reflection KSA.Vehicle._manualControlInputs"]
+    game_types: ["KSA.Vehicle", "KSA.FlightComputer", "KSA.VehicleReferenceFrameEx", "KSA.SequenceList", "KSA.VehicleUpdateState", "KSA.VehicleUpdateData", "KSA.InputAction", "KSA.PhysicsStates"]
+    key_paths: ["src/KSArmory/Ksa/VehicleCommand.cs", "src/KSArmory/Ksa/AttitudeHook.cs", "src/KSArmory/Ksa/KsaWorld.cs", "src/KSArmory/Ksa/IcbmComputer.cs"]
+    howto_topics:
+      - {slug: autopilot-a-vehicle-from-a-mod, title: "Autopilot a vehicle from a mod", note: "Custom attitude target plus ProcessInput"}
+      - {slug: point-a-vehicle-at-a-direction, title: "Point a vehicle along an inertial direction", note: "EclBody frame and a carried roll reference"}
+      - {slug: write-flight-computer-state-safely, title: "Write flight computer state where the physics worker sees it", note: "double-buffered across the frame; prefix PrepareWorker"}
+      - {slug: stage-a-vehicle-from-code, title: "Stage a vehicle from code", note: "SequenceList.ActivateNextSequence in the PrepareWorker window"}
+      - {slug: throttle-while-ui-has-keyboard, title: "Keep throttle commands alive while ImGui has the keyboard", note: "PrepareWorker clears held input on the controlled craft"}
+  - id: mods/ksarmory/features/gizmo-world-overlays
+    title: "World-anchored overlays through KSA's gizmo renderer"
+    category: rendering
+    submod: null
+    summary: "Radar cones, track markers, round trails, shell streaks and placement markers drawn as GizmosRenderer spheres and lines from the StarMap GUI postfix, anchored to the engine's own render position for the platform"
+    novelty: low
+    techniques: ["starmap-lifecycle", "gizmo-draw", "ego-anchor"]
+    lifecycle: ["frame:draw-ui", "render:scene-opaque"]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: ["KSA.GizmosRenderer", "KSA.Program", "KSA.Camera", "KSA.Vehicle"]
+    key_paths: ["src/KSArmory/Ksa/Visuals.cs", "src/KSArmory/Ksa/KsaWorld.cs", "src/KSArmory/Sim/DrawAnchor.cs", "src/KSArmory/Ksa/KSArmoryMod.cs"]
+    howto_topics:
+      - {slug: draw-gizmo-lines-in-world, title: "Draw lines and shapes in the world with gizmos", note: "submitted in the UI pass between gizmo reset and render"}
+      - {slug: draw-overlay-attached-to-vehicle, title: "Keep an overlay on a moving craft", note: "two-instant draw anchor against GetPositionEgo"}
+      - {slug: ecl-vs-ego-reference-frames, title: "Convert between Ecl and Ego", note: "Ego is a pure translation of Ecl"}
+  - id: mods/ksarmory/features/ground-target-designation-and-reach
+    title: "Designate a place on the ground that moves with the planet, and show what a falling store can still reach"
+    category: flight-and-orbits
+    submod: null
+    summary: "A click on terrain becomes a Ground aimpoint stored in the body's own fixed frame and re-read into ecliptic position and velocity (orbit plus spin) every frame, and a falling guided store's remaining reach is flown and drawn so a click is either a correction or the next aim"
+    novelty: high
+    techniques: ["body-fixed-anchor", "per-frame-resample", "cursor-ray", "flown-reach", "imgui-input"]
+    lifecycle: ["frame:draw-ui"]
+    hooks: ["starmap StarMapAfterGui (via StepOnce and the GUI pass)"]
+    game_types: ["KSA.Celestial", "KSA.Astronomical", "Brutal.ImGuiApi.ImGuiIOPtr"]
+    key_paths: ["src/KSArmory/Sim/Aimpoint.cs", "src/KSArmory/Ksa/KsaWorld.cs", "src/KSArmory/Ksa/Designator.cs", "src/KSArmory/Ksa/WeaponSystem.cs", "src/KSArmory/Ksa/StoreReach.cs", "src/KSArmory/Sim/StoreRetarget.cs"]
+    howto_topics:
+      - {slug: designate-ground-point-on-rotating-planet, title: "Store a ground point that moves with the planet", note: "body-fixed anchor re-read into ecliptic position and velocity each frame"}
+      - {slug: pick-terrain-under-cursor, title: "Pick the terrain under the cursor", note: "cursor ray to the first place it goes under the ground"}
+      - {slug: flown-reachability-envelope, title: "Compute what a guided object can still reach", note: "fly probe trajectories rather than a closed-form bound"}
+  - id: mods/ksarmory/features/guided-bomb-tail-kit-and-sight
+    title: "Guided bomb tail kit and a flown bomb sight"
+    category: flight-and-orbits
+    submod: null
+    summary: "A falling store steers by predicting its own landing and pushing square to its airflow to move that landing onto a ground designation, while the bomb sight flies a throwaway copy of the same round in a ground-carried frame and draws the arc and impact ring"
+    novelty: high
+    techniques: ["predicted-impact-guidance", "flown-prediction", "ground-carried-frame", "imgui-drawlist", "rate-limited-solve", "platform-relative-cache"]
+    lifecycle: ["frame:draw-ui", "frame:celestials", "render:bloom", "render:imgui"]
+    hooks: ["starmap StarMapAfterGui (via StepOnce: store steering and sight solve; then the sight draw)", "harmony-prefix KSA.Program.OnFrameCelestials (via StepOnce, HUD hidden)", "harmony-prefix KSA.SunbloomRenderer.Render (impact ring painted by the ring pass)"]
+    game_types: ["KSA.Vehicle", "KSA.Celestial", "KSA.IParentBody", "KSA.Program", "KSA.Camera", "Brutal.ImGuiApi.ImGui", "Brutal.ImGuiApi.ImDrawListPtr"]
+    key_paths: ["src/KSArmory/Sim/TailKit.cs", "src/KSArmory/Sim/Slug.cs", "src/KSArmory/Sim/BombSight.cs", "src/KSArmory/Ksa/BombSightOverlay.cs", "src/KSArmory/Sim/CoarseGroundTest.cs", "src/KSArmory/Ksa/KsaWorld.cs"]
+    howto_topics:
+      - {slug: predicted-impact-guidance, title: "Steer a falling object by its predicted impact", note: "push square to the airflow to move the landing onto the aim"}
+      - {slug: predict-landing-on-rotating-planet, title: "Predict where a dropped object lands on a rotating planet", note: "fly a throwaway copy in a ground-carried frame"}
+      - {slug: draw-predicted-arc-on-screen, title: "Draw a predicted arc with ImGui", note: "background draw list, break the line behind the camera"}
+      - {slug: rate-limit-expensive-solves, title: "Rate-limit an expensive per-frame solve", note: "wall-clock interval so timewarp does not defeat it"}
+  - id: mods/ksarmory/features/gunner-sight-overlay
+    title: "Gunner's sight painted over a borrowed view or a camera window"
+    category: ui
+    submod: null
+    summary: "The gunner's sight is drawn with ImGui draw-list strokes over whichever view a director drives, picking the background, platform-viewport foreground or window list per surface, projecting through that view's camera and zooming by magnification"
+    novelty: medium
+    techniques: ["imgui-drawlist", "fov-magnification", "per-surface-draw-list", "world-to-screen-projection"]
+    lifecycle: ["frame:draw-ui", "frame:viewports"]
+    hooks: ["starmap StarMapAfterGui", "starmap StarMapAfterGui (via StepOnce)", "subclass-override KSA.FixedController.OnFrame (field of view set from the pose source)"]
+    game_types: ["KSA.Camera", "KSA.GameViewport", "KSA.IGameViewport", "KSA.IViewport", "KSA.ViewportRegistry", "KSA.Program", "RenderCore.ReverseDepthBufferUtils", "Brutal.ImGuiApi.ImGui", "Brutal.ImGuiApi.ImDrawListExtensions", "Brutal.ImGuiApi.ImDrawListPtr"]
+    key_paths: ["src/KSArmory/Ksa/Sight.cs", "src/KSArmory/Ksa/SightSurface.cs", "src/KSArmory/Sim/SightPicture.cs", "src/KSArmory/Sim/SightZoom.cs", "src/KSArmory/Sim/Reticle.cs", "src/KSArmory/Ksa/KsaWorld.cs"]
+    howto_topics:
+      - {slug: fullscreen-hud-overlay-on-foreground-drawlist, title: "Paint a HUD over the view", note: "background list for the main view, foreground list for a camera window"}
+      - {slug: paint-on-detached-imgui-viewport, title: "Paint over a window torn off to another monitor", note: "resolve the platform viewport of the camera window"}
+      - {slug: per-viewport-ego-transforms, title: "Project into a secondary camera", note: "Ego belongs to the camera that sampled it"}
+      - {slug: offscreen-target-indicator, title: "Point at targets off the edge of the view", note: "edge cue from the bearing, not a projection"}
+  - id: mods/ksarmory/features/high-altitude-burst-sky
+    title: "What a high or airless burst lights in the sky, chosen by the air at the burst"
+    category: shaders
+    submod: null
+    summary: "The air density at a nuclear burst decides which sky effects start: an X-ray glow layer, auroral curtains at both ends of a spin-axis dipole field line, a thin-air debris shell or field-held bubble, and Teak's red wave. Each is an analytic full-screen dispatch in the cloud compute pass, marked by a negative bound and a kind id in the push constants and capped per kind, keeping the newest. An airless body gets one-shot Burst particle emitters (debris shell and ballistic ejecta) that KSA's particle physics flies."
+    novelty: high
+    techniques: ["harmony-prefix", "glsl-shader", "post-processing", "xml-asset", "push-constant-kind-tag", "per-kind-dispatch-cap", "dipole-field-model", "column-calibrated-layers", "pooled-resource"]
+    lifecycle: ["startup:all-mods-loaded", "frame:draw-ui", "frame:celestials", "frame:pre-render", "frame:render", "render:particles", "render:bloom"]
+    hooks: ["starmap StarMapAllModsLoaded", "starmap StarMapAfterGui", "harmony-prefix KSA.Program.OnFrameCelestials", "harmony-prefix KSA.SunbloomRenderer.Render"]
+    game_types: ["KSA.SunbloomRenderer", "KSA.Program", "KSA.Camera", "KSA.Celestial", "KSA.Astronomical", "KSA.AtmosphericBody", "KSA.PhysicalAtmosphereReference", "KSA.Universe", "KSA.BubbleOrigin", "KSA.BubbleFrame", "KSA.ExplosionSystem", "KSA.GameSettings", "KSA.Rendering.Particles.ParticleSystem", "KSA.Rendering.Particles.ParticleEmitter", "KSA.Rendering.Particles.EmitterSpawnMode"]
+    key_paths: ["src/KSArmory/Ksa/NuclearClouds.cs", "src/KSArmory/Ksa/CloudPass.cs", "src/KSArmory/Shaders/KSArmoryCloud.comp", "src/KSArmory/Sim/SkyDispatch.cs", "src/KSArmory/Sim/XRayGlow.cs", "src/KSArmory/Sim/Aurora.cs", "src/KSArmory/Sim/RedWave.cs", "src/KSArmory/Sim/DebrisShell.cs", "src/KSArmory/Sim/DebrisBubble.cs", "src/KSArmory/Sim/BodyAir.cs", "src/KSArmory/Ksa/BurstEjecta.cs", "src/KSArmory/Sim/AirlessBurst.cs", "src/KSArmory/KSArmory/Bodies.xml"]
+    howto_topics:
+      - {slug: analytic-sky-effects-in-a-compute-pass, title: "Draw analytic sky shells and curtains over the planet in a compute pass", note: "uses KSA's global.lighting planet block; only valid for the camera's NearbyCelestial AtmosphericBody"}
+      - {slug: multiplex-effects-through-one-push-constant-block, title: "Run several effects through one compute pipeline using a tag in the push constants", note: "negative bound plus a kind float; protect the contract with a shader-text unit test"}
+      - {slug: read-atmosphere-density-and-boundary, title: "Read a body's air density, scale height and boundary from PhysicalAtmosphereReference", note: "isothermal exp profile; the boundary is the larger of density 1e-9 and pressure 1e-4 Pa"}
+      - {slug: one-shot-burst-particle-emitters-on-a-celestial, title: "Fire one-shot Burst particle emitters anchored to a body's rotating frame", note: "copies the ExplosionSystem.FireStage order; Burst emitters release themselves"}
+      - {slug: vacuum-ballistic-particles, title: "Get ballistic particle arcs on airless bodies for free", note: "ApplyAtmosphereResponse treats ambient pressure under 100 Pa as no air (full gravity, no drag)"}
+      - {slug: per-body-mod-data-via-xml, title: "Describe per-body traits the game lacks in an XML file any mod can ship", note: "root-element dispatch in a scanned mod subfolder, read at StarMapAllModsLoaded"}
+      - {slug: cap-full-screen-dispatches-per-kind, title: "Cap full-screen effect dispatches per kind, keeping the newest so the choice stays stable", note: "brightness ranking made the drawn curtain jump between fading and new bursts"}
+  - id: mods/ksarmory/features/holed-tank-leaks
+    title: "Holed tanks that drain through the engine's mole states and throw a painted stream"
+    category: vehicles-and-parts
+    submod: null
+    summary: "Shell holes under a tank's liquid level drain at an orifice rate. The level comes from the felt acceleration and a Halton point cloud of the tank shape, read from Tank._template. The mass is paid through Mole.ConsumeStored in a Vehicle.PrepareWorker prefix, followed by the bookkeeping Vehicle.DepleteConsumables does (fill fraction, ValuesUpdated, stage performance, mass properties, flight computer). The 16 biggest leaks throw a ballistically flown stream that a tile-gathered compute dispatch paints before bloom."
+    novelty: high
+    techniques: ["harmony-prefix", "reflection", "glsl-shader", "vulkan-buffer", "post-processing", "double-buffer-aware-writes", "module-state-write", "ref-readonly-mutation", "tile-bitmask-gather"]
+    lifecycle: ["frame:draw-ui", "frame:celestials", "frame:dispatch-solvers", "render:bloom"]
+    hooks: ["starmap StarMapAfterGui", "harmony-prefix KSA.Program.OnFrameCelestials", "harmony-prefix KSA.Vehicle.PrepareWorker", "harmony-prefix KSA.SunbloomRenderer.Render", "reflection KSA.Tank._template", "reflection Core.KSADeviceContextEx.Allocator"]
+    game_types: ["KSA.Tank", "KSA.Mole", "KSA.MoleState", "KSA.MoleGlobalState", "KSA.Liquid", "KSA.ModuleStateful", "KSA.PartTree", "KSA.ResourceManager", "KSA.SequencePerformanceList", "KSA.Vehicle", "KSA.VehicleProperties", "KSA.FlightComputer", "KSA.VehicleUpdateData", "KSA.Rocket", "KSA.AsmbTankTemplate", "KSA.CylindricalTankTemplate", "KSA.ConicalTankTemplate", "KSA.SphericalTankTemplate", "KSA.FxDeformation", "KSA.Deformation.Dent", "KSA.Part", "KSA.Camera", "KSA.Rendering.ComputePipelineWrapper", "KSA.SunbloomRenderer"]
+    key_paths: ["src/KSArmory/Ksa/Leaks.cs", "src/KSArmory/Sim/TankLeak.cs", "src/KSArmory/Sim/LeakStream.cs", "src/KSArmory/Shaders/KSArmoryLeak.comp", "src/KSArmory/Ksa/CloudPass.cs", "src/KSArmory/Ksa/AttitudeHook.cs", "src/KSArmory/Ksa/KsaWorld.cs"]
+    howto_topics:
+      - {slug: drain-or-add-tank-resources-at-runtime, title: "Drain or add a tank's resources from a mod", note: "Mole.ConsumeStored on the live state, then the bookkeeping calls DepleteConsumables makes"}
+      - {slug: write-part-module-state-without-worker-overwrite, title: "Write part module state so the vehicle worker does not overwrite it", note: "mole states are copy-on-write in the worker and copied back by UpdateBulkStates; write in a PrepareWorker prefix"}
+      - {slug: recompute-vehicle-mass-after-changes, title: "Recompute a craft's mass properties and flight computer after a mass change", note: "Unsafe.AsRef on the ref readonly Vehicle.Props, then FlightComputer.ReadUpdatedVehicleConfiguration"}
+      - {slug: read-tank-geometry-and-fill-level, title: "Read a tank's shape and liquid level", note: "Tank._template by reflection plus a sorted point cloud for a tilted fill surface"}
+      - {slug: draw-screen-space-ribbons-from-a-storage-buffer, title: "Paint lines or ribbons into the scene from a storage buffer in a compute pass", note: "segments projected on the CPU, one dispatch over their bounds, a per-tile gather in shared memory"}
+  - id: mods/ksarmory/features/hull-triangle-hit-test
+    title: "Per-triangle hull hit test with the engine's part ray cast"
+    category: physics
+    submod: null
+    summary: "After a sphere broad phase, a shell's step segment is cast against the craft's part meshes with KSA's watertight Part.RayCastEgo, using a round-centred metres-scale matrix from GetMatrixAsmb2Ego(separation)."
+    novelty: high
+    techniques: ["custom-physics", "engine-raycast", "sim-boundary"]
+    lifecycle: ["frame:draw-ui", "frame:celestials", "frame:after-on-frame"]
+    hooks: ["starmap StarMapAfterGui", "harmony-prefix KSA.Program.OnFrameCelestials", "starmap StarMapAfterOnFrame"]
+    game_types: ["KSA.Part", "KSA.Ray", "KSA.Vehicle", "KSA.PartTree", "KSA.MeshReference", "KSA.MeshViewModule"]
+    key_paths: ["src/KSArmory/Ksa/HullTest.cs", "src/KSArmory/Sim/IHullTest.cs", "src/KSArmory/Sim/ContactSweep.cs"]
+    howto_topics:
+      - {slug: raycast-against-part-meshes, title: "Ray cast against a vehicle's part meshes", note: "Part.RayCastEgo with a caller-chosen ego origin"}
+      - {slug: precision-safe-geometry-queries, title: "Keep geometry queries in a local metres frame", note: "pass the separation as the ego origin"}
+  - id: mods/ksarmory/features/icbm-ballistic-computer
+    title: "A ballistic computer that flies any player-built rocket to a latitude and longitude"
+    category: flight-and-orbits
+    submod: null
+    summary: "A per-craft computer samples the vehicle in the parent body's inertial frame, solves universal-variable Lambert over flight time against a spinning-planet target, steers by velocity-to-be-gained, times cutoff to the frame boundary and checks itself against a flown impact prediction"
+    novelty: high
+    techniques: ["custom-physics", "sim-boundary", "lambert-universal-variables", "velocity-to-be-gained", "timed-cutoff", "flown-prediction", "harmony-prefix", "headless-flight-rig"]
+    lifecycle: ["frame:draw-ui", "frame:dispatch-solvers"]
+    hooks: ["starmap StarMapAfterGui (via StepOnce)", "harmony-prefix KSA.Vehicle.PrepareWorker"]
+    game_types: ["KSA.Vehicle", "KSA.Celestial", "KSA.IParentBody", "KSA.CelestialFrameMath", "KSA.FlightComputer", "KSA.ActiveEnginePerformance", "KSA.StructuralLoad"]
+    key_paths: ["src/KSArmory/Ksa/IcbmComputer.cs", "src/KSArmory/Sim/IcbmProgram.cs", "src/KSArmory/Sim/Lambert.cs", "src/KSArmory/Sim/BallisticArc.cs", "src/KSArmory/Sim/BurnoutGuidance.cs", "src/KSArmory/Sim/ImpactPredictor.cs"]
+    howto_topics:
+      - {slug: lambert-transfer-solver, title: "Solve Lambert's problem for a transfer", note: "universal variables over flight time"}
+      - {slug: velocity-to-be-gained-guidance, title: "Guide a burn by velocity to be gained", note: "re-solved against the actual state, so ascent errors cost fuel not accuracy"}
+      - {slug: command-attitude-through-flight-computer, title: "Point a craft through the flight computer", note: "Custom attitude target written in the PrepareWorker window"}
+      - {slug: time-engine-cutoff-to-frame, title: "Cut an engine off on the right frame", note: "countdown solved a few times a second, stepped per frame"}
+  - id: mods/ksarmory/features/iff-teams-and-allegiance
+    title: "IFF teams, alliances and the per-frame team roster"
+    category: vehicles-and-parts
+    submod: null
+    summary: "KSA has no sides, so the mod keeps its own team names, puts a craft on a team through the flag on its panel row, rebuilds a reference-keyed craft-to-team roster every simulated step, and classifies every contact as friendly, hostile, neutral or unknown against per-team rules of engagement"
+    novelty: medium
+    techniques: ["starmap-lifecycle", "harmony-prefix", "imgui-window", "reference-keyed-dictionary", "per-frame-census"]
+    lifecycle: ["frame:draw-ui", "frame:celestials", "frame:after-on-frame"]
+    hooks: ["starmap StarMapAfterGui", "harmony-prefix KSA.Program.OnFrameCelestials", "starmap StarMapAfterOnFrame"]
+    game_types: ["KSA.Vehicle", "KSA.Universe", "KSA.Program"]
+    key_paths: ["src/KSArmory/Sim/Iff.cs", "src/KSArmory/Sim/TeamRules.cs", "src/KSArmory/Sim/TeamRoster.cs", "src/KSArmory/Sim/Config.cs", "src/KSArmory/Ksa/KSArmoryMod.cs", "src/KSArmory/Ksa/KsaWorld.cs"]
+    howto_topics:
+      - {slug: teams-and-allegiance-for-craft, title: "Put craft on teams and classify contacts", note: "team rules per team, roster declared each frame"}
+      - {slug: identify-craft-without-names, title: "Identify whose a craft is without trusting its name", note: "reference-keyed roster rebuilt each step, never parsed from names"}
+  - id: mods/ksarmory/features/in-game-bug-reports
+    title: "File bug reports from an ImGui form through a guarded issue service"
+    category: external-io
+    submod: null
+    summary: "An ImGui report window posts a summary, details and the mod log's tail to a self-hosted service that files GitHub issues, from a background task only on Send and only when the running KSA build matches the built-for build."
+    novelty: medium
+    techniques: ["imgui-window", "background-thread", "http-client", "reflection"]
+    lifecycle: ["frame:draw-ui", "thread:background"]
+    hooks: ["starmap StarMapAfterGui", "thread Task.Run (FeedbackClient.Send)"]
+    game_types: ["KSA.Vehicle"]
+    key_paths: ["src/KSArmory/Ksa/Ui/UiReport.cs", "src/KSArmory/Ksa/FeedbackClient.cs", "src/KSArmory/Sim/ReportDraft.cs", "services/feedback/Program.cs", "services/feedback/Guard.cs"]
+    howto_topics:
+      - {slug: http-from-a-mod-off-the-frame-thread, title: "Make an HTTP request from a mod without blocking the frame", note: "Task.Run plus polled status fields"}
+      - {slug: in-game-bug-report-form, title: "Add an in-game bug report form", note: "ImGui form"}
+      - {slug: bcl-missingmethod-in-mod-load-context, title: "Work around MissingMethodException on BCL members in a mod", note: "read HttpResponseMessage.StatusCode by reflection"}
+  - id: mods/ksarmory/features/jit-warmup-kill-path
+    title: "JIT-compile the mod and the engine's destroy path on a background thread at load"
+    category: getting-started
+    submod: null
+    summary: "At StarMapAllModsLoaded a Task.Run walks every method of the mod assembly and six engine types and calls RuntimeHelpers.PrepareMethod, so the first kill of a session no longer pays tens of milliseconds of JIT in one frame"
+    novelty: medium
+    techniques: ["starmap-lifecycle", "background-thread", "jit-prewarm", "reflection"]
+    lifecycle: ["startup:all-mods-loaded", "thread:background"]
+    hooks: ["starmap StarMapAllModsLoaded"]
+    game_types: ["KSA.Universe", "KSA.PartFailure", "KSA.ExplosionSystem", "KSA.ExplosionVolumeSystem", "KSA.ExplosionFlashSystem", "KSA.Vehicle"]
+    key_paths: ["src/KSArmory/Ksa/JitWarmup.cs", "src/KSArmory/Ksa/KSArmoryMod.cs", "docs/BLOCKED-ON-KSA.md"]
+    howto_topics:
+      - {slug: jit-warmup-on-background-thread, title: "Pre-compile hot code paths at load", note: "RuntimeHelpers.PrepareMethod on a background task so the first kill does not hitch"}
+      - {slug: precompute-slow-work-off-render-thread, title: "Move one-off work off the frame", note: "warm-up started from StarMapAllModsLoaded"}
+  - id: mods/ksarmory/features/ksa-assemblies-lock
+    title: "Pin the KSA build with a hashed assemblies lock file"
+    category: testing-and-tooling
+    submod: null
+    summary: "A committed lock of SHA-256 digests per referenced game DLL keeps local builds, a private CI mirror and the running game on one KSA build; MSBuild stamps the lock's build into the mod so it can compare against the running game at load."
+    novelty: high
+    techniques: ["assembly-lock-file", "msbuild-property-functions", "assembly-metadata", "ci-private-dependency"]
+    lifecycle: ["startup:immediate-load"]
+    hooks: ["starmap StarMapImmediateLoad"]
+    game_types: ["KSA.Vehicle"]
+    key_paths: ["ksa-assemblies.lock", "tools/check-assemblies.sh", "Directory.Build.props", "src/KSArmory/KSArmory.csproj", "src/KSArmory/Ksa/Build.cs", ".github/workflows/ci.yml"]
+    howto_topics:
+      - {slug: pin-game-assemblies-for-ci, title: "Build a code mod in CI without redistributing game DLLs", note: "private mirror with a deploy key plus a digest lock"}
+      - {slug: resolve-game-assemblies-in-msbuild, title: "Resolve the KSA install from MSBuild on any OS", note: "tiered KsaDllDir with an explicit error target"}
+      - {slug: detect-game-build-mismatch-at-runtime, title: "Detect that the running KSA build differs from the one you compiled against", note: "AssemblyMetadata stamped from the lock vs KSA.dll version"}
+      - {slug: survive-a-ksa-update, title: "Upgrade a mod to a new KSA build", note: "lock"}
+  - id: mods/ksarmory/features/ksa-explosions-from-a-point
+    title: "Set off KSA's own explosion at an arbitrary point, anchored on the planet"
+    category: rendering
+    submod: null
+    summary: "A burst in mid-air with no vehicle to host it calls ExplosionSystem.SpawnPreset with a BubbleOrigin fixed in the body's rotating frame, real ambient pressure for the pressure-gated stages, and a preset chosen by fireball size because KSA floors explosion intensity"
+    novelty: medium
+    techniques: ["engine-explosion-preset", "body-fixed-anchor", "xml-asset", "preset-by-size"]
+    lifecycle: ["startup:asset-load", "startup:all-mods-loaded", "frame:draw-ui"]
+    hooks: ["starmap StarMapAfterGui (via StepOnce)", "starmap StarMapAllModsLoaded (preset check)"]
+    game_types: ["KSA.ExplosionSystem", "KSA.ExplosionContext", "KSA.BubbleOrigin", "KSA.BubbleFrame", "KSA.ExplosionReference", "KSA.Rendering.ExplosionIntensity", "KSA.Celestial", "KSA.PhysicalAtmosphereReference", "KSA.ModLibrary", "KSA.GameSettings", "KSA.Universe"]
+    key_paths: ["src/KSArmory/Ksa/Detonation.cs", "src/KSArmory/Sim/WarheadExplosion.cs", "src/KSArmory/KSArmoryParticles.xml", "src/KSArmory/Ksa/KsaWorld.cs", "src/KSArmory/Ksa/WeaponSystem.cs", "src/KSArmory/Ksa/BurstTool.cs"]
+    howto_topics:
+      - {slug: spawn-explosion-at-point, title: "Set off the game's explosion effect anywhere", note: "ExplosionSystem presets chosen by fireball size"}
+      - {slug: draw-body-fixed-object, title: "Anchor an effect to the ground it happened over", note: "anchored to the body rather than the target"}
+  - id: mods/ksarmory/features/launcher-separation-at-decoupler
+    title: "Separate a launcher from its stack by firing the decoupler on its own joint"
+    category: vehicles-and-parts
+    submod: null
+    summary: "Find the Decoupler module on the one connection holding a part on, ask whether the player's next stage would fire it, and fire it directly with Decoupler.SetIsActive so the split goes through KSA's input buffer on the next frame"
+    novelty: medium
+    techniques: ["part-module-lookup", "staging-inspection", "input-buffer-activation", "latch-on-request"]
+    lifecycle: ["frame:draw-ui", "frame:input"]
+    hooks: ["starmap StarMapAfterGui (via StepOnce)"]
+    game_types: ["KSA.Decoupler", "KSA.Part", "KSA.PartTree", "KSA.SequenceList", "KSA.Sequence", "KSA.InputEvents", "KSA.Vehicle"]
+    key_paths: ["src/KSArmory/Ksa/LauncherSeparation.cs", "src/KSArmory/Ksa/IcbmComputer.cs", "src/KSArmory/Ksa/WeaponSystemRoles.cs"]
+    howto_topics:
+      - {slug: fire-a-specific-decoupler, title: "Fire one decoupler from code", note: "the decoupler on the joint holding the launcher"}
+      - {slug: follow-part-across-decouple, title: "Follow a part to the craft it ends up on", note: "roster entries move with the part across a split"}
+  - id: mods/ksarmory/features/mirv-bus-trim-and-release
+    title: "A MIRV post-boost bus that trims with RCS, re-points between releases and lets its warheads go"
+    category: flight-and-orbits
+    submod: null
+    summary: "After cutoff the bus nulls its velocity error against the propagated burnout solution one translation axis at a time in pulse mode, waits out the split, re-points so each tube lies on the release line, releases on a cost-of-holding rule, then goes quiet so KSA can put it back on rails"
+    novelty: high
+    techniques: ["custom-physics", "sim-boundary", "harmony-prefix", "input-injection", "closed-loop-trim", "rails-management", "vehicle-disposal"]
+    lifecycle: ["frame:draw-ui", "frame:dispatch-solvers", "physics:vehicle-solver"]
+    hooks: ["starmap StarMapAfterGui (via StepOnce)", "harmony-prefix KSA.Vehicle.PrepareWorker"]
+    game_types: ["KSA.Vehicle", "KSA.FlightComputer", "KSA.PhysicsBubble", "KSA.VehicleProperties", "KSA.Celestial", "KSA.Universe", "KSA.InputAction"]
+    key_paths: ["src/KSArmory/Sim/BusTrim.cs", "src/KSArmory/Ksa/IcbmComputer.cs", "src/KSArmory/Sim/PostBoostAim.cs", "src/KSArmory/Sim/CoastQuiet.cs", "src/KSArmory/Sim/StageDisposal.cs", "src/KSArmory/KSArmoryGameData.xml"]
+    howto_topics:
+      - {slug: rcs-translation-trim, title: "Trim velocity with RCS translation", note: "one direction at a time on the control axes"}
+      - {slug: adopt-separated-stage, title: "Identify the stage a craft just shed", note: "bounded and refusable among new vehicles"}
+      - {slug: release-payloads-sequentially, title: "Release several payloads along one line", note: "release pointing and per-round focus"}
+  - id: mods/ksarmory/features/mod-simulated-rounds
+    title: "Mod-simulated rounds integrated in sub-steps inside the frame"
+    category: physics
+    submod: null
+    summary: "Missiles, shells and bombs are plain C# objects (IProjectile) the mod integrates itself in fixed sub-steps across the applied sim step, through one RoundDriver seam shared with the headless rig; they are published as contacts and reaped by trajectory or age."
+    novelty: high
+    techniques: ["starmap-lifecycle", "harmony-prefix", "custom-physics", "consume-sim-step", "sim-boundary"]
+    lifecycle: ["frame:draw-ui", "frame:celestials", "frame:after-on-frame"]
+    hooks: ["starmap StarMapAfterGui", "harmony-prefix KSA.Program.OnFrameCelestials", "starmap StarMapAfterOnFrame"]
+    game_types: ["KSA.Universe", "KSA.Vehicle", "KSA.Celestial", "KSA.CelestialSystem", "KSA.Astronomical", "KSA.Program"]
+    key_paths: ["src/KSArmory/Sim/IProjectile.cs", "src/KSArmory/Sim/RoundDriver.cs", "src/KSArmory/Sim/Interceptor.cs", "src/KSArmory/Sim/Slug.cs", "src/KSArmory/Sim/RoundReach.cs", "src/KSArmory/Ksa/WeaponSystem.cs", "src/KSArmory/Ksa/KSArmoryMod.cs"]
+    howto_topics:
+      - {slug: simulate-projectiles-outside-the-vehicle-system, title: "Simulate fast projectiles without spawning vehicles", note: "rounds never touch the save or the solver"}
+      - {slug: sub-step-integration-inside-a-frame-hook, title: "Sub-step your own integrator across the applied sim step", note: "fixed 5 ms sub-steps with a faithful-step clamp"}
+      - {slug: sample-world-at-consistent-epoch, title: "Read vehicle and celestial state at a consistent epoch", note: "end-of-step samples and back-dating"}
+  - id: mods/ksarmory/features/operator-panel-imgui
+    title: "Operator panel in ImGui with a menu-bar entry and ModMenu registration"
+    category: ui
+    submod: null
+    summary: "A multi-window Dear ImGui operator panel (craft switcher with drawn icon buttons, tabbed per-craft window, weapons switcher, pop-out panes, reopen button) drawn from the after-GUI hook, plus a menu from the before-GUI hook and a copied attribute that lets ModMenu list the mod"
+    novelty: medium
+    techniques: ["starmap-lifecycle", "imgui-window", "imgui-menu", "imgui-drawlist", "inter-mod-api", "reflection"]
+    lifecycle: ["frame:draw-ui"]
+    hooks: ["starmap StarMapBeforeGui", "starmap StarMapAfterGui"]
+    game_types: ["KSA.Program", "Brutal.ImGuiApi.ImGui", "Brutal.ImGuiApi.ImDrawListExtensions", "KSA.Universe"]
+    key_paths: ["src/KSArmory/Ksa/Ui/Ui.cs", "src/KSArmory/Ksa/Ui/ModMenuEntry.cs", "src/KSArmory/Ksa/Ui/UiSystem.cs", "src/KSArmory/Ksa/Ui/UiTuning.cs", "src/KSArmory/Ksa/Ui/UiWeapons.cs", "src/KSArmory/Ksa/Ui/UiSession.cs"]
+    howto_topics:
+      - {slug: imgui-tabbed-window, title: "Build a tabbed ImGui panel", note: "per-craft window with tabs and pop-out panes"}
+      - {slug: add-items-to-game-menu-bar, title: "Add an entry to the game's menu bar", note: "from StarMapBeforeGui before KSA fills it"}
+      - {slug: register-with-modmenu, title: "List a mod in ModMenu without depending on it", note: "a copied, inert attribute"}
+      - {slug: draw-icons-with-drawlist-primitives, title: "Draw icon buttons with draw-list primitives", note: "no textures needed"}
+  - id: mods/ksarmory/features/optical-director-heads
+    title: "Optical director heads with mast and roll-nod gimbals"
+    category: vehicles-and-parts
+    submod: null
+    summary: "Optical directors are inert parts whose head and pod roll collar are subparts slewed by a rate-limited drive, clamped to a mast elevation band or a roll-nod annulus with a keyhole, and resolved into an eye, sight line and roll for camera and laser"
+    novelty: high
+    techniques: ["subpart-transform-writes", "rate-limited-drive", "gimbal-geometry", "part-roster-by-ordinal", "xml-asset"]
+    lifecycle: ["frame:draw-ui", "frame:celestials", "frame:viewports", "frame:render"]
+    hooks: ["starmap StarMapAfterGui (via StepOnce)", "harmony-prefix KSA.Program.OnFrameCelestials (via StepOnce, HUD hidden)", "subclass-override KSA.FixedController.OnFrame (view re-solved through SightCamera.TryPose)"]
+    game_types: ["KSA.Part", "KSA.Vehicle", "KSA.PartTree"]
+    key_paths: ["src/KSArmory/Ksa/OpticalHead.cs", "src/KSArmory/Ksa/OpticalHeads.cs", "src/KSArmory/Ksa/OpticParts.cs", "src/KSArmory/Sim/OpticGeometry.cs", "src/KSArmory/Sim/OpticProfile.cs", "src/KSArmory/Sim/OpticConfig.cs"]
+    howto_topics:
+      - {slug: roll-nod-gimbal-pointing, title: "Point a roll-nod gimbal", note: "roll about the centreline, nod within it, keyhole kept out of the command"}
+      - {slug: animate-subparts-from-code, title: "Drive a pointing head subpart", note: "head and base posed from the mount frame"}
+      - {slug: mount-a-camera-on-a-part, title: "Look through a camera mounted on a part", note: "the head drives the main view or a camera window"}
+  - id: mods/ksarmory/features/own-log-file-and-developer-switch
+    title: "Own log file, build stamps and a developer marker file"
+    category: getting-started
+    submod: null
+    summary: "A batched, locked mod log in KSA's logs folder with previous-session rotation and a timer flush, version and KSA-build stamps read from assembly metadata, and developer tools enabled by an empty developer file beside the DLL."
+    novelty: medium
+    techniques: ["file-logging", "assembly-metadata", "marker-file"]
+    lifecycle: ["startup:immediate-load", "startup:all-mods-loaded", "thread:background"]
+    hooks: ["starmap StarMapImmediateLoad", "starmap StarMapAllModsLoaded", "starmap StarMapUnload", "thread System.Threading.Timer log flush"]
+    game_types: ["KSA.Constants", "KSA.Program", "KSA.Vehicle"]
+    key_paths: ["src/KSArmory/Ksa/Log.cs", "src/KSArmory/Ksa/Build.cs", "src/KSArmory/KSArmory.csproj", "tools/deploy.sh"]
+    howto_topics:
+      - {slug: mod-log-file, title: "Write a mod log file beside KSA's logs", note: "use Constants.LogsFolderPath instead of guessing"}
+      - {slug: stamp-build-info-into-mod, title: "Stamp the target KSA build into a mod assembly", note: "AssemblyMetadata from MSBuild"}
+      - {slug: developer-only-features, title: "Gate developer tools without a separate build", note: "marker file written by the deploy script"}
+  - id: mods/ksarmory/features/per-craft-settings-json-sidecar
+    title: "Per-craft settings as a JSON sidecar inside the save folder"
+    category: persistence
+    submod: null
+    summary: "Per-system settings are written as a flat DTO to saves/<save>/KSArmory/systems.json keyed by craft name, read when a system is crewed and written when universe.xml's modification time shows the game saved."
+    novelty: medium
+    techniques: ["json-config", "save-sidecar", "file-timestamp-polling"]
+    lifecycle: ["frame:draw-ui", "frame:celestials", "frame:after-on-frame", "event:save"]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: ["KSA.GameSaves", "KSA.GameSave", "KSA.UncompressedSave", "KSA.SaveDirectory", "KSA.UniverseData", "KSA.Vehicle"]
+    key_paths: ["src/KSArmory/Ksa/SettingsStore.cs", "src/KSArmory/Sim/SystemSettings.cs", "src/KSArmory/Ksa/WeaponSystems.cs", "src/KSArmory/Ksa/KsaWorld.cs"]
+    howto_topics:
+      - {slug: persist-mod-state-with-save, title: "Store mod state next to a KSA save", note: "the save folder is wiped on every write in 5554"}
+      - {slug: detect-game-save, title: "Notice when the player saves", note: "universe.xml timestamp polling"}
+  - id: mods/ksarmory/features/per-part-store-mass
+    title: "Launcher parts get lighter as their stores leave"
+    category: vehicles-and-parts
+    submod: null
+    summary: "Each frame the mod works out how much a launcher or dispenser part has shed in fired rounds, then rescales that part's inert mass through KSA's per-part InertMass slot and recomputes the craft's mass properties inside a Harmony prefix on Vehicle.PrepareWorker, before the physics worker copies them"
+    novelty: medium
+    techniques: ["harmony-prefix", "prepareworker-window", "unsafe-ref-write", "sim-ksa-split"]
+    lifecycle: ["frame:draw-ui", "frame:dispatch-solvers"]
+    hooks: ["starmap StarMapAfterGui", "harmony-prefix KSA.Vehicle.PrepareWorker"]
+    game_types: ["KSA.Part", "KSA.InertMass", "KSA.PartTree", "KSA.Vehicle", "KSA.VehicleProperties", "KSA.VehicleUpdateState", "KSA.FlightComputer", "KSA.OffsetMassProperties"]
+    key_paths: ["src/KSArmory/Ksa/StoreMass.cs", "src/KSArmory/Sim/StoreLoad.cs", "src/KSArmory/Ksa/KSArmoryMod.cs", "src/KSArmory/Ksa/AttitudeHook.cs", "src/KSArmory/Ksa/Countermeasures.cs", "tests/KSArmory.Tests/StoreLoadTests.cs"]
+    howto_topics:
+      - {slug: change-part-mass-at-runtime, title: "Change a part's mass at runtime", note: "the engine's per-part mass slot, written in the PrepareWorker window"}
+      - {slug: write-state-the-vehicle-solver-sees, title: "Write state the vehicle solver will read", note: "derived from what is aboard, never subtracted"}
+  - id: mods/ksarmory/features/point-gravity-and-atmosphere-model
+    title: "Point gravity, body fall and one-reference air for mod-integrated bodies"
+    category: physics
+    submod: null
+    summary: "Rounds the mod integrates itself feel mu over r squared toward their body back-dated to the sub-step, plus the body's own fall toward its primary, and are dragged by air and water read from KSA's atmosphere and ocean against one fixed reference density, avoiding KSA's IsValid traps"
+    novelty: medium
+    techniques: ["custom-physics", "sim-boundary", "epoch-back-dating", "frame-conversion", "quadratic-drag"]
+    lifecycle: ["frame:draw-ui"]
+    hooks: ["starmap StarMapAfterGui (via StepOnce)"]
+    game_types: ["KSA.IParentBody", "KSA.Celestial", "KSA.Astronomical", "KSA.AtmosphereReference", "KSA.PhysicalAtmosphereReference", "KSA.Rendering.Water.Data.OceanReference", "KSA.DistanceReference", "KSA.StateVectors"]
+    key_paths: ["src/KSArmory/Sim/PointGravity.cs", "src/KSArmory/Sim/Medium.cs", "src/KSArmory/Sim/AmbientAir.cs", "src/KSArmory/Ksa/KsaWorld.cs", "src/KSArmory/Ksa/WeaponSystem.cs"]
+    howto_topics:
+      - {slug: gravity-and-air-for-custom-bodies, title: "Gravity and air density for mod-integrated bodies", note: "inverse square at the round instant plus the body fall"}
+      - {slug: sample-atmosphere-density, title: "Sample atmospheric density at a point", note: "against one fixed reference air for every body"}
+  - id: mods/ksarmory/features/pooled-particle-emitters
+    title: "Mod-authored particle emitters taken from KSA's shared pool and re-anchored each frame"
+    category: rendering
+    submod: null
+    summary: "Plumes, muzzle flashes, flares, chaff, flak smoke and blast dust are the mod's own ParticleEmitter assets taken by Id from the engine's fixed pool, anchored to a celestial's rotating frame, re-pointed each frame while following, and always Kill()ed before return"
+    novelty: medium
+    techniques: ["xml-asset", "pooled-resource", "emitter-reanchoring", "bounded-acquire"]
+    lifecycle: ["startup:asset-load", "frame:draw-ui", "frame:celestials", "frame:pre-render"]
+    hooks: ["starmap StarMapAfterGui", "harmony-prefix KSA.Program.OnFrameCelestials", "starmap StarMapUnload"]
+    game_types: ["KSA.Rendering.Particles.ParticleSystem", "KSA.Rendering.Particles.ParticleEmitter", "KSA.Rendering.Particles.ParticleEmitterReference", "KSA.Celestial", "KSA.BubbleOrigin", "KSA.Program", "KSA.Universe", "KSA.ExplosionSystem"]
+    key_paths: ["src/KSArmory/Ksa/EmitterPool.cs", "src/KSArmory/Ksa/MotorPlume.cs", "src/KSArmory/Ksa/MuzzleFlash.cs", "src/KSArmory/Ksa/DecoyEffects.cs", "src/KSArmory/Ksa/FlakPuff.cs", "src/KSArmory/Ksa/BlastPuff.cs"]
+    howto_topics:
+      - {slug: spawn-particle-effects, title: "Spawn particle effects from a mod", note: "ParticleEmitter assets taken by Id from the engine pool"}
+      - {slug: ksa-particle-system-internals, title: "Return pooled emitters correctly", note: "Kill() before handing an emitter back"}
+      - {slug: draw-body-fixed-object, title: "Keep an effect on a rotating body", note: "anchored to the celestial's rotating frame"}
+  - id: mods/ksarmory/features/prepareworker-prefix-command-window
+    title: "Command vehicles from a Vehicle.PrepareWorker prefix"
+    category: patching
+    submod: null
+    summary: "Attitude, pulse mode, throttle, staging, impulses, tank and mass writes are queued from StarMap hooks and performed in a prefix on Vehicle.PrepareWorker, just before KSA snapshots the vehicle (flight computer included) for the physics worker."
+    novelty: high
+    techniques: ["harmony-prefix", "reflection", "command-queue", "signature-pinning"]
+    lifecycle: ["startup:all-mods-loaded", "frame:dispatch-solvers"]
+    hooks: ["starmap StarMapAllModsLoaded", "harmony-prefix KSA.Vehicle.PrepareWorker", "reflection KSA.Vehicle._manualControlInputs"]
+    game_types: ["KSA.Vehicle", "KSA.FlightComputer", "KSA.VehicleUpdateState", "KSA.VehicleUpdateData", "KSA.Universe", "KSA.SimStep", "KSA.PhysicsStates", "KSA.VehicleProperties", "KSA.SequenceList", "KSA.ManualControlInputs", "KSA.KittenEva", "KSA.PhysicsBubble"]
+    key_paths: ["src/KSArmory/Ksa/AttitudeHook.cs", "src/KSArmory/Ksa/VehicleCommand.cs", "src/KSArmory/Ksa/KsaWorld.cs"]
+    howto_topics:
+      - {slug: command-flight-computer-from-mod, title: "Point a vehicle via the flight computer from a mod", note: "Custom track target in EclBody"}
+      - {slug: write-vehicle-state-before-worker-snapshot, title: "Write vehicle state where the physics worker sees it", note: "double buffer verified in 5554"}
+      - {slug: stage-vehicle-safely-from-mod, title: "Fire a stage without racing the vehicle worker", note: "RecomputeForFlight walk"}
+  - id: mods/ksarmory/features/proportional-navigation-guidance
+    title: "True proportional navigation for mod-flown missiles"
+    category: flight-and-orbits
+    submod: null
+    summary: "Guided rounds steer by true proportional navigation on a back-dated target sample, with gravity biased out, the command projected square to the airflow and clipped to an airframe g limit, and boost or sustain stages pushing along the velocity gained since release"
+    novelty: medium
+    techniques: ["custom-physics", "sim-boundary", "frame-invariant-signatures", "starmap-lifecycle"]
+    lifecycle: ["frame:draw-ui", "frame:celestials", "frame:after-on-frame"]
+    hooks: ["starmap StarMapAfterGui", "harmony-prefix KSA.Program.OnFrameCelestials", "starmap StarMapAfterOnFrame"]
+    game_types: ["KSA.Vehicle", "KSA.Celestial", "KSA.IParentBody", "KSA.Universe", "KSA.Program"]
+    key_paths: ["src/KSArmory/Sim/Interceptor.cs", "src/KSArmory/Sim/MunitionProfile.cs", "src/KSArmory/Sim/Arsenal.cs", "src/KSArmory/Ksa/WeaponSystem.cs", "src/KSArmory/Sim/FireGate.cs", "src/KSArmory/Sim/FinMixer.cs"]
+    howto_topics:
+      - {slug: proportional-navigation, title: "Guide a missile with proportional navigation", note: "true PN with gravity compensation, sub-stepped"}
+      - {slug: zero-effort-miss-guidance, title: "Steer on predicted miss", note: "lead a crossing target instead of chasing it"}
+      - {slug: animate-control-fins-from-commands, title: "Animate control fins from a steering command", note: "drawn deflection only, no aerodynamic feedback"}
+  - id: mods/ksarmory/features/radar-scope-and-relief-map
+    title: "Radar PPI scope and shaded-relief terrain map drawn with ImGui primitives"
+    category: ui
+    submod: null
+    summary: "A craft-centred polar radar scope and a 64x64 hill-shaded relief map are drawn only with window draw-list primitives in a north-up frame from the body's rotation axis, the heights resampled from the engine's height field only on movement, span change or every ten seconds"
+    novelty: medium
+    techniques: ["starmap-lifecycle", "imgui-window", "imgui-drawlist", "terrain-sampling", "cached-grid", "local-horizontal-frame"]
+    lifecycle: ["frame:draw-ui"]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: ["KSA.Celestial", "KSA.Vehicle", "Brutal.ImGuiApi.ImGui", "Brutal.ImGuiApi.ImDrawListExtensions", "KSA.Program", "KSA.Universe"]
+    key_paths: ["src/KSArmory/Ksa/Ui/UiScope.cs", "src/KSArmory/Sim/ScopeGeometry.cs", "src/KSArmory/Ksa/Ui/UiMap.cs", "src/KSArmory/Ksa/TerrainMapScan.cs", "src/KSArmory/Sim/TerrainMap.cs", "src/KSArmory/Ksa/TerrainHeights.cs"]
+    howto_topics:
+      - {slug: draw-a-chart-with-imdrawlist, title: "Draw an instrument with ImGui draw lists", note: "polar scope with primitives only"}
+      - {slug: terrain-relief-map-in-imgui, title: "Draw a shaded relief map of the terrain", note: "height grid cached and resampled on movement"}
+      - {slug: local-east-north-up-frame, title: "Build a north-up local frame on a body", note: "from the body's rotation axis, not the ecliptic"}
+  - id: mods/ksarmory/features/radar-search-and-lock
+    title: "Radar search cone, masking and lock dwell"
+    category: vehicles-and-parts
+    submod: null
+    summary: "A per-weapon radar rebuilt every simulated step from a once-per-pass vehicle census plus the mod's own rounds, filtered by range, cone, Doppler, clutter, planet, terrain, chaff and fireball, and held to a dwell time before a track becomes a firing solution"
+    novelty: medium
+    techniques: ["starmap-lifecycle", "harmony-prefix", "vehicle-census", "closed-form-geometry", "terrain-sampling"]
+    lifecycle: ["frame:draw-ui", "frame:celestials", "frame:after-on-frame"]
+    hooks: ["starmap StarMapAfterGui", "harmony-prefix KSA.Program.OnFrameCelestials", "starmap StarMapAfterOnFrame"]
+    game_types: ["KSA.Universe", "KSA.CelestialSystem", "KSA.Program", "KSA.Vehicle", "KSA.Part", "KSA.Celestial", "KSA.Astronomical", "KSA.KinematicMeasurements"]
+    key_paths: ["src/KSArmory/Ksa/Radar.cs", "src/KSArmory/Sim/SensorProfile.cs", "src/KSArmory/Ksa/KsaWorld.cs", "src/KSArmory/Sim/LineOfSight.cs", "src/KSArmory/Sim/TerrainMask.cs", "src/KSArmory/Ksa/TerrainHeights.cs"]
+    howto_topics:
+      - {slug: sensor-cone-and-lock, title: "Model a sensor cone with lock dwell", note: "range, cone, dwell and masking per profile"}
+      - {slug: terrain-line-of-sight, title: "Check line of sight over terrain", note: "mean sphere first, terrain samples only where needed"}
+  - id: mods/ksarmory/features/raymarched-mushroom-cloud
+    title: "A raymarched mushroom cloud, held body-fixed and drawn before bloom"
+    category: shaders
+    submod: null
+    summary: "Nuclear clouds are records in the planet's rotating frame, aged on the applied simulation step, with a Glasstone-based shape function giving their dimensions. Each frame those are packed into a 128-byte push constant and raymarched per pixel: a noise-eroded SDF torus, dome and column, lit by KSA's sky LUTs and weather shadows and hidden behind KSA's weather clouds. A reprojected temporal resolve composites the result into the HDR scene before bloom; burned ground and a fallout plume are painted from depth by the same shader."
+    novelty: high
+    techniques: ["harmony-prefix", "glsl-shader", "vulkan-pipeline", "post-processing", "reflection", "raymarching", "temporal-resolve", "push-constant-packing", "body-fixed-anchor", "gpu-profiling", "shader-constant-tests"]
+    lifecycle: ["startup:asset-load", "frame:draw-ui", "frame:celestials", "frame:after-on-frame", "render:bloom"]
+    hooks: ["starmap StarMapAfterGui", "harmony-prefix KSA.Program.OnFrameCelestials", "starmap StarMapAfterOnFrame", "harmony-prefix KSA.SunbloomRenderer.Render", "reflection KSA.Program._planetTransparenciesRenderer", "reflection KSA.Atmosphere.Rendering.CloudRenderer._upscaledCloudColorFlipTarget", "reflection KSA.Atmosphere.Rendering.CloudRenderer.writeHistoryToFlip", "reflection KSA.Atmosphere.Rendering.CloudShadowsRenderer.PlanetToCloudShadowData", "reflection KSA.Atmosphere.Rendering.CloudShadowRenderData._staticShadowDataBuffer"]
+    game_types: ["KSA.SunbloomRenderer", "KSA.Program", "KSA.Camera", "KSA.ViewProjection", "KSA.IViewport", "KSA.Celestial", "KSA.AtmosphereRenderer", "KSA.PlanetTransparenciesRenderer", "KSA.Atmosphere.Rendering.CloudRenderer", "KSA.Atmosphere.Rendering.CloudShadowsRenderer", "KSA.Atmosphere.Rendering.CloudShadowRenderData", "KSA.GameSettings", "KSA.Rendering.ComputePipelineWrapper", "KSA.Rendering.RenderImage", "KSA.GpuProfiler", "KSA.FixedController"]
+    key_paths: ["src/KSArmory/Ksa/NuclearClouds.cs", "src/KSArmory/Sim/MushroomCloud.cs", "src/KSArmory/Sim/CloudFlags.cs", "src/KSArmory/Ksa/CloudPass.cs", "src/KSArmory/Shaders/KSArmoryCloud.comp", "src/KSArmory/Shaders/KSArmoryCloudResolve.comp", "src/KSArmory/Ksa/KsaWorld.cs", "src/KSArmory/Sim/ScorchFootprint.cs", "src/KSArmory/Ksa/CloudWatch.cs", "src/KSArmory/Ksa/CloudPassCost.cs", "tests/KSArmory.Tests/MushroomCloudShaderTests.cs"]
+    howto_topics:
+      - {slug: raymarch-a-local-volume-in-a-compute-pass, title: "Raymarch a local volumetric effect into the scene from a compute pass", note: "bounding-sphere early-out, chord-proportional step count, golden-ratio jitter, write a layer then resolve"}
+      - {slug: temporal-reprojection-for-mod-effects, title: "Accumulate a dithered effect over frames with reprojection and neighbourhood clamping", note: "storage-image history ping-pong, reprojection shifted by the effect's own motion, hand-filtered bilinear"}
+      - {slug: anchor-world-effects-to-a-rotating-body, title: "Keep a world effect fixed to a planet's surface across spin and orbit", note: "convert to CCF once with GetCce2Ccf, convert back to Ecl at record time, difference against the camera in double"}
+      - {slug: pack-data-into-128-byte-push-constants, title: "Fit effect parameters into Vulkan's guaranteed 128-byte push constants", note: "octahedral unit vectors, exact integer flag sums with the sign as discriminator, derive what the global set already has"}
+      - {slug: light-mod-volumes-with-ksa-atmosphere-luts, title: "Light a mod's volume with KSA's sky ambient and aerial perspective", note: "GetAmbient and GetAerialPerspectiveForObjectInAtmosphere, LUT set from AtmosphereRenderer.GetAtmosphereLutsDescriptorSet"}
+      - {slug: occlude-mod-effects-behind-weather-clouds, title: "Hide a screen-space effect behind KSA's weather clouds, which write no depth", note: "CloudRenderer colour and distance images; build 5554 has public getters for the accumulated pair"}
+      - {slug: test-shader-constants-against-csharp, title: "Keep GLSL constants in sync with C# with a regex unit test", note: "MushroomCloudShaderTests reads const floats out of the .comp file"}
+      - {slug: measure-gpu-cost-with-ksa-profiler, title: "Measure a mod pass's GPU cost from KSA's profiler with a pinned camera", note: "TagRegion plus Profiler.Gpu frames; a fixed pose so runs compare"}
+  - id: mods/ksarmory/features/repo-static-checks
+    title: "One check script shared by the pre-push hook and CI"
+    category: testing-and-tooling
+    submod: null
+    summary: "A single check-all script runs about twenty textual and offline checks (Sim boundary, network egress, planet-agnostic code, XML, settings reachability, shader compile, documented numbers, tracked artefacts) from both the pre-push hook and CI, skipping game-dependent ones with a notice."
+    novelty: medium
+    techniques: ["textual-guard", "git-hooks", "ci-without-game-assemblies"]
+    lifecycle: []
+    hooks: []
+    game_types: []
+    key_paths: ["tools/check-all.sh", ".githooks/pre-push", "tools/check-network.sh", "tools/check-tunables.py", "tools/check-shaders.sh", "tools/check-bodies.sh"]
+    howto_topics:
+      - {slug: ci-for-mods-without-game-assemblies, title: "Run meaningful CI for a KSA mod without the game", note: "textual guards and skip-with-notice"}
+      - {slug: compile-mod-shaders-offline, title: "Compile mod GLSL against the game's shader library offline", note: "glslangValidator with the Core include path"}
+      - {slug: guarantee-no-unrequested-network-access, title: "Prove a mod only uses the network when asked", note: "textual egress check"}
+  - id: mods/ksarmory/features/round-body-draw-hooks
+    title: "Round bodies drawn past the engine's pixel cull and as part-model instances"
+    category: rendering
+    submod: null
+    summary: "A postfix on Vehicle.UpdateRenderData redraws a sub-pixel launcher while its rounds fly, and a prefix on PartModelRenderer.UpdateRenderData adds gun shells and the rounds of a destroyed launcher as extra instances of the engine's own part meshes, per viewport"
+    novelty: high
+    techniques: ["harmony-postfix", "harmony-prefix", "part-model-instancing"]
+    lifecycle: ["startup:all-mods-loaded", "frame:render"]
+    hooks: ["harmony-postfix KSA.Vehicle.UpdateRenderData", "harmony-prefix KSA.PartModelRenderer.UpdateRenderData"]
+    game_types: ["KSA.Vehicle", "KSA.PartModelRenderer", "KSA.PartModel", "KSA.PartTree", "KSA.Camera", "KSA.Program", "KSA.KittenEva"]
+    key_paths: ["src/KSArmory/Ksa/RoundBodyDrawHook.cs", "src/KSArmory/Ksa/LooseBodyDrawHook.cs", "src/KSArmory/Ksa/KSArmoryMod.cs", "src/KSArmory/Ksa/WeaponSystem.cs", "src/KSArmory/Ksa/LauncherPart.cs"]
+    howto_topics:
+      - {slug: draw-craft-past-pixel-cull, title: "Draw parts the engine culled as too small", note: "postfix on Vehicle.UpdateRenderData asks the pixel test again"}
+      - {slug: draw-mod-meshes-per-viewport, title: "Draw mod meshes in every viewport", note: "prefix on PartModelRenderer.UpdateRenderData"}
+      - {slug: reuse-part-meshes-in-other-renderers, title: "Draw a part model without its craft", note: "PartModel.AddInstance at any matrix"}
+  - id: mods/ksarmory/features/rounds-as-hidden-launcher-subparts
+    title: "Rounds drawn as hidden launcher subparts flown by transform writes"
+    category: rendering
+    submod: null
+    summary: "Each tube's missile is a pre-declared subpart of the launcher, seated in its tube or shrunk to a millimetre while unfired, then placed every rendered frame at the mod-simulated round's position and carried attitude by writing its parent-relative transform"
+    novelty: high
+    techniques: ["subpart-transform-write", "scale-to-hide", "xml-asset", "sim-ksa-split"]
+    lifecycle: ["startup:asset-load", "frame:draw-ui", "frame:celestials"]
+    hooks: ["starmap StarMapAfterGui", "harmony-prefix KSA.Program.OnFrameCelestials"]
+    game_types: ["KSA.Part", "KSA.Vehicle", "KSA.PartTemplate", "KSA.PartInstance", "KSA.PartModel", "KSA.ModLibrary", "KSA.PartTreeRenderData"]
+    key_paths: ["src/KSArmory/Ksa/WeaponSystem.cs", "src/KSArmory/Ksa/LauncherPart.cs", "src/KSArmory/Sim/TubeGeometry.cs", "src/KSArmory/Sim/Magazine.cs", "src/KSArmory/Sim/BodyAttitude.cs", "src/KSArmory/Sim/FireGeometry.cs"]
+    howto_topics:
+      - {slug: hide-a-subpart, title: "Hide and show subparts from code", note: "scaled to nothing until fired"}
+      - {slug: projectiles-as-subparts, title: "Draw projectiles as subparts of their launcher", note: "transform written each frame from the mod simulation"}
+      - {slug: ecl-vs-ego-reference-frames, title: "Place a mesh where the engine draws its craft", note: "anchor to the tube and add travel since launch"}
+  - id: mods/ksarmory/features/safe-vehicle-destruction-and-part-failure
+    title: "Destroy vehicles and break off parts safely from a frame hook"
+    category: vehicles-and-parts
+    submod: null
+    summary: "Kills are batched behind one JobSystems.VehicleSolver.Wait barrier, part losses are queued into the vehicle's private update state as a PartFailureEvent that the engine applies with its own crash damage, disposal uses DestroyVehicle under a shapes lock, and debris is recognised by KSA's split naming"
+    novelty: high
+    techniques: ["reflection", "job-barrier", "deferred-application", "engine-event-queue", "split-id-lineage", "fragment-guard"]
+    lifecycle: ["frame:draw-ui", "frame:apply-solvers"]
+    hooks: ["starmap StarMapAfterGui (via StepOnce)", "reflection KSA.Vehicle._threadWorkerUpdateState"]
+    game_types: ["KSA.Universe", "KSA.VehicleDestructionEvent", "KSA.CrewDisposition", "KSA.PartFailure", "KSA.PartFailureEvent", "KSA.VehicleUpdateState", "KSA.PhysicsBubble", "KSA.VehicleUpdateTask", "KSA.JobSystems", "KSA.ConstraintSim", "KSA.Vehicle"]
+    key_paths: ["src/KSArmory/Ksa/KsaWorld.cs", "src/KSArmory/Ksa/WeaponSystem.cs", "src/KSArmory/Sim/Wreckage.cs"]
+    howto_topics:
+      - {slug: create-or-dispose-vehicles-outside-frame-sync, title: "Destroy vehicles safely from a frame hook", note: "wait for the vehicle solver, then hold the shapes lock"}
+      - {slug: wait-for-solvers-before-mutating-physics, title: "Wait for the vehicle solver before mutating", note: "staged results must not land on a changed craft"}
+      - {slug: queue-part-failure, title: "Break off parts through the engine's failure queue", note: "write PartFailureEvent rather than splitting directly"}
+  - id: mods/ksarmory/features/seekers-uplink-and-laser-homing
+    title: "Seekers, command uplink and laser designation"
+    category: flight-and-orbits
+    submod: null
+    summary: "Guided rounds are broken by what they can see, so the mod models a seeker gimbal, decoy seduction judged once per decoy, a command uplink that dies with the launcher's track, anti-radiation homing with emission memory, and laser spots cast on meshes and terrain (not yet homed on)"
+    novelty: medium
+    techniques: ["custom-physics", "sim-boundary", "engine-raycast", "starmap-lifecycle"]
+    lifecycle: ["frame:draw-ui", "frame:celestials", "frame:after-on-frame"]
+    hooks: ["starmap StarMapAfterGui", "harmony-prefix KSA.Program.OnFrameCelestials", "starmap StarMapAfterOnFrame"]
+    game_types: ["KSA.Vehicle", "KSA.FlightComputer", "KSA.ActiveEnginePerformance", "KSA.Part", "KSA.PartTree", "KSA.Ray", "KSA.Celestial", "KSA.Universe", "KSA.Program"]
+    key_paths: ["src/KSArmory/Ksa/WeaponSystem.cs", "src/KSArmory/Sim/SeekerLock.cs", "src/KSArmory/Sim/Signature.cs", "src/KSArmory/Sim/Interceptor.cs", "src/KSArmory/Sim/MunitionProfile.cs", "src/KSArmory/Sim/ThreatModel.cs"]
+    howto_topics:
+      - {slug: seeker-gimbal-and-decoys, title: "Model seeker limits and decoy seduction", note: "each decoy judged once when it first outshines the target"}
+      - {slug: raycast-parts-and-terrain, title: "Cast a laser spot against meshes and terrain", note: "beam stops at the first craft mesh or ground"}
+  - id: mods/ksarmory/features/self-collision-travel-map
+    title: "Gun travel limits swept from the craft's own geometry with part ray casts"
+    category: vehicles-and-parts
+    submod: null
+    summary: "Each gun mount's traverse arc and per-bearing elevation band are discovered by ray-casting its barrel and line of fire against the other parts of its craft, on a budget of 50 rays and 1 ms a frame once the craft has held its shape for 60 frames"
+    novelty: high
+    techniques: ["part-ray-cast", "frame-budgeted-work", "coarse-to-fine-sampling", "sim-ksa-split"]
+    lifecycle: ["frame:draw-ui", "frame:celestials"]
+    hooks: ["starmap StarMapAfterGui", "harmony-prefix KSA.Program.OnFrameCelestials"]
+    game_types: ["KSA.Part", "KSA.Vehicle", "KSA.PartTree", "KSA.Ray", "KSA.MeshViewModule"]
+    key_paths: ["src/KSArmory/Ksa/TravelSweeps.cs", "src/KSArmory/Sim/TravelSweep.cs", "src/KSArmory/Sim/TravelMap.cs", "src/KSArmory/Sim/Turret.cs", "src/KSArmory/Sim/TubeGeometry.cs", "src/KSArmory/Ksa/KsaWorld.cs"]
+    howto_topics:
+      - {slug: raycast-against-vessel-mesh, title: "Ray cast against a craft's own parts", note: "engine part ray casts within a per-frame budget"}
+      - {slug: sweep-actuator-travel-limits, title: "Derive turret limits from the craft geometry", note: "coarse sweep, refined only where the answer changes"}
+  - id: mods/ksarmory/features/sensor-look-pass
+    title: "TV and thermal look for a camera window, recorded before bloom"
+    category: shaders
+    submod: null
+    summary: "A two-dispatch compute pass recorded from the SunbloomRenderer.Render prefix turns one secondary viewport's HDR scene into a TV or white-hot/black-hot picture mapped around its log-mean brightness, measured first into a 1x1 image, so bloom and the tonemap expose it normally"
+    novelty: high
+    techniques: ["harmony-prefix", "glsl-shader", "vulkan-pipeline", "post-processing", "per-viewport-pipeline-cache", "two-pass-reduction"]
+    lifecycle: ["frame:draw-ui", "frame:celestials", "render:bloom"]
+    hooks: ["starmap StarMapAfterGui", "harmony-prefix KSA.Program.OnFrameCelestials", "harmony-prefix KSA.SunbloomRenderer.Render"]
+    game_types: ["KSA.SunbloomRenderer", "KSA.IViewport", "KSA.Rendering.RenderTarget", "KSA.Rendering.RenderImage", "KSA.Rendering.ComputePipelineWrapper", "KSA.Rendering.BarrierBatch", "KSA.Rendering.ImageBarrierInfo", "KSA.ViewportOptionFlags", "KSA.Program"]
+    key_paths: ["src/KSArmory/Ksa/SensorPass.cs", "src/KSArmory/Shaders/KSArmorySensor.comp", "src/KSArmory/Ksa/CloudPassHook.cs", "src/KSArmory/Ksa/KSArmoryMod.cs", "src/KSArmory/Sim/SensorMode.cs", "src/KSArmory/Ksa/Ui/DirectorWindow.cs"]
+    howto_topics:
+      - {slug: thermal-tv-look-post-process, title: "Grade a viewport into a TV or thermal look", note: "map around the frame log-mean brightness"}
+      - {slug: compute-pass-before-bloom, title: "Record a compute pass before bloom", note: "for one secondary viewport only"}
+      - {slug: vulkan-pipeline-for-offscreen-target, title: "Rebuild GPU resources on resize", note: "rebuild on size change, not only on image change"}
+  - id: mods/ksarmory/features/shock-front-refraction
+    title: "The blast front drawn as a bend in the light, by copying the scene and writing it back at an offset"
+    category: shaders
+    submod: null
+    summary: "Each nuclear blast front comes from a per-burst BlastFront (Sedov-Taylor in the burst's own air) and is drawn as a refracting shell by two full-screen compute dispatches before bloom. The first copies KSA's HDR scene; the second writes each pixel back from the copy, displaced by a Gaussian-derivative lens where the view ray grazes the front's sphere."
+    novelty: high
+    techniques: ["harmony-prefix", "glsl-shader", "vulkan-pipeline", "post-processing", "screen-space-refraction", "scene-copy-then-displace", "analytic-ray-sphere-graze"]
+    lifecycle: ["frame:draw-ui", "frame:celestials", "frame:after-on-frame", "render:bloom"]
+    hooks: ["starmap StarMapAfterGui", "harmony-prefix KSA.Program.OnFrameCelestials", "starmap StarMapAfterOnFrame", "harmony-prefix KSA.SunbloomRenderer.Render"]
+    game_types: ["KSA.SunbloomRenderer", "KSA.Camera", "KSA.ViewProjection", "KSA.IViewport", "KSA.Program", "KSA.Celestial", "KSA.Rendering.ComputePipelineWrapper", "KSA.Rendering.RenderImage", "KSA.Rendering.BarrierBatch", "KSA.Rendering.ImageBarrierInfo", "KSA.GpuRegionExtensions", "RenderCore.ReverseDepthBufferUtils"]
+    key_paths: ["src/KSArmory/Ksa/CloudPass.cs", "src/KSArmory/Shaders/KSArmoryShock.comp", "src/KSArmory/Ksa/NuclearClouds.cs", "src/KSArmory/Sim/BlastFront.cs", "src/KSArmory/Sim/BlastAltitude.cs", "src/KSArmory/Sim/MushroomCloud.cs"]
+    howto_topics:
+      - {slug: screen-space-refraction-distortion, title: "Distort the rendered scene with a compute pass (heat haze, shock rings, lenses)", note: "copy the HDR scene to a storage image, then write pixels back from the copy at an offset; filter by hand"}
+      - {slug: analytic-sphere-shell-in-screen-space, title: "Draw an analytic sphere or shell against the depth buffer in a compute shader", note: "each view ray's closest approach to the centre, reverse-Z depth test, ground cut"}
+      - {slug: double-precision-camera-relative-push-constants, title: "Feed world positions to shaders camera-relative from double precision", note: "subtract camera PositionEcl in double, then narrow; project with the camera's row-vector MVP"}
+  - id: mods/ksarmory/features/shot-night-statistics
+    title: "Compare mod variants in flight with interleaved batches and rank statistics"
+    category: testing-and-tooling
+    submod: null
+    summary: "A batch harness builds every variant once, flies unattended shots in seeded interleaved order with the deployed DLL hashed per shot, and a report judges arms with exact Wilcoxon rank-sum and Hodges-Lehmann effects, plus within-run splits by craft or tube."
+    novelty: medium
+    techniques: ["interleaved-batches", "rank-statistics", "reproducible-builds", "within-run-split", "reflection"]
+    lifecycle: ["frame:draw-ui"]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: []
+    key_paths: ["tools/shot-batch.sh", "tools/shot-report.py", "tools/ab-shot.py", "src/KSArmory/Sim/ShotArms.cs", "docs/SHOT-PROTOCOL.md"]
+    howto_topics:
+      - {slug: ab-test-mod-behaviour-in-flight, title: "A/B test a mod change against noisy in-game results", note: "interleave arms"}
+      - {slug: within-run-variant-split, title: "Compare variants inside one run", note: "per-craft settings applied by field name"}
+  - id: mods/ksarmory/features/sim-boundary-headless-tests
+    title: "Headless tests enforced by a game-free Sim/ source boundary"
+    category: testing-and-tooling
+    submod: null
+    summary: "All simulation code lives in a folder that may not reference KSA types; the xUnit project links it wholesale against only the numerics assemblies, so the boundary self-enforces and whole engagements are flown headlessly with step-varying epoch tests."
+    novelty: high
+    techniques: ["source-linking", "architecture-boundary", "invariance-tests", "headless-harness"]
+    lifecycle: []
+    hooks: []
+    game_types: []
+    key_paths: ["tests/KSArmory.Tests/KSArmory.Tests.csproj", "tools/check-boundary.sh", "tools/test.sh", "tests/KSArmory.Tests/OffsetPhaseTests.cs", "tools/check-studies.py"]
+    howto_topics:
+      - {slug: unit-test-mod-logic-without-the-game, title: "Unit-test mod logic without launching KSA", note: "link a game-free folder into the test project"}
+      - {slug: test-frame-epoch-correctness, title: "Test frame and epoch handling by varying the step", note: "constant-dt tests cannot see phase errors"}
+      - {slug: enforce-an-architecture-boundary, title: "Enforce a code boundary with the build itself", note: "missing references fail the test build"}
+  - id: mods/ksarmory/features/spatial-gun-and-motor-sounds
+    title: "Spatialised gun and rocket-motor sounds driven by held FMOD channels"
+    category: audio
+    submod: null
+    summary: "Gun fire is an XML CompoundSound (spin-up, loop, tail) played once per firing system and moved every frame, a slow gun gets one pitched gunshot per round, and each burning mod-simulated rocket gets Core's engine loop with its Throttle parameter pinned open"
+    novelty: medium
+    techniques: ["fmod-audio", "xml-asset", "held-channel", "compound-sound", "sound-priority", "recording-cut-scripts"]
+    lifecycle: ["startup:asset-load", "frame:draw-ui", "event:starmap-unload"]
+    hooks: ["starmap StarMapAfterGui (via StepOnce)", "starmap StarMapUnload"]
+    game_types: ["KSA.SoundBehavior", "KSA.CompoundSound", "KSA.CompoundChannelWrapper", "KSA.SoundReference", "KSA.SpatialSoundData", "KSA.SpatialAudio", "KSA.IChannel", "KSA.GameAudio", "KSA.PhysicalAtmosphereReference", "KSA.Camera", "KSA.ModLibrary"]
+    key_paths: ["src/KSArmory/KSArmorySounds.xml", "src/KSArmory/Ksa/GunSound.cs", "src/KSArmory/Ksa/MotorSound.cs", "src/KSArmory/Ksa/SoundChannels.cs", "src/KSArmory/Ksa/KSArmoryMod.cs", "tools/cut-cannon.py"]
+    howto_topics:
+      - {slug: play-sound-at-world-position, title: "Play a sound at a world position", note: "held spatial channels moved each frame"}
+      - {slug: ship-custom-sounds-as-xml-assets, title: "Ship custom sounds as XML assets", note: "Sound, CompoundSound and SpatialSoundData"}
+      - {slug: use-game-fmod-system, title: "Use the game's FMOD system", note: "stop held channels on unload"}
+  - id: mods/ksarmory/features/spawn-and-teleport-test-craft
+    title: "Spawn test drones and teleport craft from the panel, a click or a script"
+    category: vehicles-and-parts
+    submod: null
+    summary: "Test drones are built from a stock or library craft save on an orbit solved backwards from the requested pass, created under the engine's shapes-registry lock and added to the parent body's children, while craft are moved by queuing the engine's own TeleportToLocation"
+    novelty: high
+    techniques: ["vehicle-spawn", "orbit-from-state-vector", "shapes-registry-lock", "teleport-input-buffer", "imgui-window", "cursor-ray"]
+    lifecycle: ["frame:draw-ui", "frame:celestials", "frame:after-on-frame", "frame:input", "frame:dispatch-solvers", "physics:vehicle-solver"]
+    hooks: ["starmap StarMapAfterGui (panel buttons and UpdateWorldClicks)", "harmony-prefix KSA.Program.OnFrameCelestials (UpdateWorldClicks via StepOnce, HUD hidden)", "starmap StarMapAfterOnFrame (bridge spawn and site commands)"]
+    game_types: ["KSA.Vehicle", "KSA.KittenEva", "KSA.Orbit", "KSA.ConstraintSim", "KSA.ShapesUnlock", "KSA.PartTree", "KSA.VehicleSave", "KSA.DefaultVehicleSaves", "KSA.VehicleSaves", "KSA.VehicleTemplate", "KSA.IParentBody", "KSA.Celestial", "KSA.CelestialSystem", "KSA.Universe", "KSA.InputEvents", "KSA.VehicleUpdateTask", "KSA.Program", "Brutal.ImGuiApi.ImGui"]
+    key_paths: ["src/KSArmory/Ksa/TestTarget.cs", "src/KSArmory/Ksa/CraftMover.cs", "src/KSArmory/Ksa/KsaWorld.cs", "src/KSArmory/Ksa/Ui/UiDebug.cs", "src/KSArmory/Ksa/Bridge.cs", "src/KSArmory/Ksa/KSArmoryMod.cs"]
+    howto_topics:
+      - {slug: spawn-vehicle-at-runtime, title: "Spawn a vehicle from a craft save at runtime", note: "CreateVehicle or KittenEva, then parent.Children.Add"}
+      - {slug: teleport-vehicle-to-surface, title: "Move a craft to a latitude and longitude", note: "Vehicle.TeleportToLocation queues an input event"}
+      - {slug: orbit-from-state-vectors, title: "Create an orbit from a state vector", note: "Orbit.CreateFromStateCci after an Ecl to CCI rotation"}
+      - {slug: create-or-dispose-vehicles-outside-frame-sync, title: "Build a vehicle without racing the solver", note: "ConstraintSim.UnlockShapesBlocking around the build"}
+  - id: mods/ksarmory/features/starmap-entry-and-fault-containment
+    title: "StarMap entry class with per-hook fault containment"
+    category: getting-started
+    submod: null
+    summary: "One [StarMapMod] class with six hooks; each frame hook has its own try/catch feeding a shared fault counter, and ten faults disable the mod and remove its patches. FrameBudget span timing and OverrunLog rate-limited warnings measure what the mod costs."
+    novelty: medium
+    techniques: ["starmap-lifecycle", "harmony-prefix", "harmony-postfix", "fault-containment", "frame-budget"]
+    lifecycle: ["startup:immediate-load", "startup:all-mods-loaded", "frame:draw-ui", "frame:after-on-frame", "event:starmap-unload"]
+    hooks: ["starmap StarMapImmediateLoad", "starmap StarMapAllModsLoaded", "starmap StarMapBeforeGui", "starmap StarMapAfterGui", "starmap StarMapAfterOnFrame", "starmap StarMapUnload"]
+    game_types: ["KSA.Program", "KSA.App", "KSA.Mod", "KSA.ModLibrary", "KSA.Universe"]
+    key_paths: ["src/KSArmory/Ksa/KSArmoryMod.cs", "src/KSArmory/Sim/FrameBudget.cs", "src/KSArmory/Sim/OverrunLog.cs", "src/KSArmory/mod.toml"]
+    howto_topics:
+      - {slug: contain-exceptions-in-starmap-hooks, title: "Keep mod exceptions out of KSA's frame loop", note: "StarMap Invoke and App.Run have no handler"}
+      - {slug: starmap-hook-firing-points, title: "Where each StarMap attribute fires", note: "verified table against StarMap and the 5554 decomp"}
+      - {slug: profile-mod-frame-cost, title: "Measure what a mod costs per frame", note: "nested spans with top-level totals and worst frame"}
+  - id: mods/ksarmory/features/startup-save-repair
+    title: "Repair saves at startup after removing a part's subparts"
+    category: persistence
+    submod: null
+    summary: "At AllModsLoaded the mod rewrites saves and library craft that list more SubPartRefs than the part now declares, because PartTree.Deserialize pairs subparts by position and a surplus crashes the load; an offline Python twin does the same."
+    novelty: medium
+    techniques: ["save-rewrite", "regex-xml-surgery", "starmap-lifecycle"]
+    lifecycle: ["startup:all-mods-loaded"]
+    hooks: ["starmap StarMapAllModsLoaded"]
+    game_types: ["KSA.PartTree", "KSA.PartInstance", "KSA.PartTemplate", "KSA.ModLibrary", "KSA.VehicleSaveData", "KSA.VehicleSaves", "KSA.GameSaves", "KSA.SaveDirectory"]
+    key_paths: ["src/KSArmory/Ksa/SaveRepairs.cs", "src/KSArmory/Sim/SaveRepair.cs", "tools/repair-saves.py"]
+    howto_topics:
+      - {slug: change-part-subparts-safely, title: "Change a shipped part's subparts without breaking saves", note: "append-only rule from PartTree.Deserialize"}
+      - {slug: migrate-saves-on-startup, title: "Migrate save files when the mod loads", note: "timed before any load is possible"}
+  - id: mods/ksarmory/features/terrain-ground-impact-test
+    title: "Terrain ground-impact test against the engine's height field"
+    category: celestials
+    submod: null
+    summary: "Rounds, sights and cursor rays find the ground through Celestial.GetTerrainHeightFromDirCce(accurate true) clamped to the sea, answered as a centre and a surface radius so a round can test its height at every sub-step for the cost of a subtraction"
+    novelty: medium
+    techniques: ["custom-physics", "terrain-query", "ray-march", "sim-boundary", "epoch-back-dating"]
+    lifecycle: ["frame:draw-ui", "frame:celestials", "frame:after-on-frame"]
+    hooks: ["starmap StarMapAfterGui", "harmony-prefix KSA.Program.OnFrameCelestials", "starmap StarMapAfterOnFrame"]
+    game_types: ["KSA.Celestial", "KSA.Astronomical", "KSA.CelestialSystem", "KSA.Universe", "KSA.IParentBody", "KSA.Rendering.Water.Data.OceanReference", "KSA.PhysicsEnvironment", "KSA.TerrainRadiusCache", "KSA.TerrainPatch", "KSA.TerrainImpactFinder"]
+    key_paths: ["src/KSArmory/Sim/IGroundTest.cs", "src/KSArmory/Ksa/GroundTest.cs", "src/KSArmory/Sim/Slug.cs", "src/KSArmory/Sim/Interceptor.cs", "src/KSArmory/Ksa/WeaponSystem.cs", "src/KSArmory/Ksa/KsaWorld.cs"]
+    howto_topics:
+      - {slug: query-terrain-height, title: "Query terrain height under a point", note: "engine height field, sampled per round"}
+      - {slug: accurate-vs-coarse-terrain-sampling, title: "Choose accurate or coarse terrain samples", note: "GetTerrainHeightFromDirCce with accurate true, clamped to the sea"}
+      - {slug: detect-ground-impact, title: "Detect when a moving point hits the ground", note: "answered as a centre and surface radius so each sub-step costs a subtraction"}
+  - id: mods/ksarmory/features/timewarp-policy-during-engagements
+    title: "Hold timewarp down while rounds or burns are in flight"
+    category: flight-and-orbits
+    submod: null
+    summary: "A control loop over Universe.SetSimulationSpeed slows the world until the applied step fits the fussiest round, settles across the two-frame actuator delay, yields to the player or auto-warp, and restores the speed when the sky is clear."
+    novelty: high
+    techniques: ["starmap-lifecycle", "control-loop", "sim-clock"]
+    lifecycle: ["frame:draw-ui", "frame:celestials", "frame:after-on-frame", "event:starmap-unload"]
+    hooks: ["starmap StarMapAfterGui", "harmony-prefix KSA.Program.OnFrameCelestials", "starmap StarMapAfterOnFrame", "starmap StarMapUnload"]
+    game_types: ["KSA.Universe", "KSA.SimSpeed", "KSA.Program", "KSA.InputEvents"]
+    key_paths: ["src/KSArmory/Sim/WarpPolicy.cs", "src/KSArmory/Ksa/KSArmoryMod.cs", "src/KSArmory/Ksa/KsaWorld.cs"]
+    howto_topics:
+      - {slug: control-simulation-speed-from-mod, title: "Set or limit timewarp from a mod", note: "field write"}
+      - {slug: coexist-with-player-timewarp, title: "Share the warp control with the player and auto-warp", note: "yield and restore rules"}
+  - id: mods/ksarmory/features/trail-renderer-smoke
+    title: "Motor and flare smoke through KSA's volumetric booster-trail renderer"
+    category: rendering
+    submod: null
+    summary: "Burning rounds and flares lay billowing body-fixed smoke by submitting one PlumeTrailEmitterState cursor each per frame to the engine's own VolumetricTrailRenderer, reached through one reflected private field, with each segment thrown back along the trail so it swells"
+    novelty: high
+    techniques: ["reflection", "volumetric-trail-emitter", "body-fixed-frame", "engine-renderer-reuse", "global-renderer-tuning"]
+    lifecycle: ["frame:draw-ui", "frame:celestials", "frame:pre-render", "render:atmosphere"]
+    hooks: ["starmap StarMapAfterGui (via StepOnce)", "harmony-prefix KSA.Program.OnFrameCelestials (via StepOnce, HUD hidden)", "reflection KSA.Program._volumetricTrailRenderer"]
+    game_types: ["KSA.Program", "KSA.VolumetricTrailRenderer", "KSA.PlumeTrailSegmentsManager", "KSA.PlumeTrailEmitterTracker", "KSA.PlumeEmitterGrouping", "KSA.PlumeTrailEmitterState", "KSA.PlumeTrailEmitterFrame", "KSA.PlumeSegmentStore", "KSA.PlumeTrailSettings", "KSA.PlumeTrailTemplate", "KSA.Vehicle", "KSA.Celestial", "KSA.IParentBody", "KSA.Universe"]
+    key_paths: ["src/KSArmory/Ksa/PlumeSmoke.cs", "src/KSArmory/Ksa/MotorSmoke.cs", "src/KSArmory/Ksa/DecoyEffects.cs", "src/KSArmory/Ksa/KSArmoryMod.cs", "src/KSArmory/Ksa/WeaponSystem.cs", "src/KSArmory/Sim/Config.cs"]
+    howto_topics:
+      - {slug: volumetric-smoke-trails, title: "Lay volumetric smoke through the booster trail renderer", note: "one PlumeTrailEmitterState per source, submitted each frame"}
+      - {slug: draw-rocket-plume-without-engine, title: "Draw a plume without a real engine", note: "isFlowing passed by the caller bypasses the nozzle gate"}
+      - {slug: reflection-with-visible-breakage, title: "Reach a private renderer field safely", note: "reflect once, warn once, degrade"}
+  - id: mods/ksarmory/features/unattended-scenario-runner
+    title: "Fly scripted scenarios unattended and report a pass or fail verdict"
+    category: testing-and-tooling
+    submod: null
+    summary: "A developer-only state machine reads a request file at load, loads a save, spawns targets and flies an engagement, drop, gunnery run or ballistic shot, writing tagged SCENARIO lines that a shell harness waits on, screenshots and converts into an exit code."
+    novelty: high
+    techniques: ["file-ipc", "state-machine", "log-protocol", "end-to-end-test"]
+    lifecycle: ["startup:all-mods-loaded", "frame:draw-ui", "frame:after-on-frame"]
+    hooks: ["starmap StarMapAllModsLoaded", "starmap StarMapAfterGui", "starmap StarMapAfterOnFrame", "reflection KSA.Popup.Popups"]
+    game_types: ["KSA.GameSaves", "KSA.Popup", "KSA.Program", "KSA.Universe"]
+    key_paths: ["src/KSArmory/Ksa/ScenarioRunner.cs", "src/KSArmory/Ksa/BallisticScenario.cs", "src/KSArmory/Ksa/DropScenario.cs", "src/KSArmory/Ksa/GunneryScenario.cs", "tools/scenario.sh"]
+    howto_topics:
+      - {slug: end-to-end-test-a-mod-in-game, title: "End-to-end test a mod in the running game", note: "request file"}
+      - {slug: load-a-save-from-code, title: "Load a save game from mod code", note: "GameSaves.LoadSaveGame"}
+      - {slug: close-ksa-popups-from-code, title: "Close KSA popups that block input", note: "Popup.Popups by reflection"}
+  - id: mods/ksarmory/features/unguided-ballistic-lead
+    title: "Ballistic lead for unguided shells, from a fixed-point solve to flying the shell"
+    category: physics
+    submod: null
+    summary: "A gun is laid by iterating time of flight to a tolerance against the target's relative motion and acceleration, then refined by flying simulated shells through drag, gravity and a turning ground with a Broyden-updated aim correction, with a halving search for targets beyond reach"
+    novelty: medium
+    techniques: ["custom-physics", "sim-boundary", "fixed-point-iteration", "shooting-method", "broyden-update", "frame-invariant-signatures"]
+    lifecycle: ["frame:draw-ui"]
+    hooks: ["starmap StarMapAfterGui (via StepOnce)"]
+    game_types: ["KSA.Vehicle", "KSA.KinematicMeasurements", "KSA.IParentBody", "KSA.Celestial"]
+    key_paths: ["src/KSArmory/Sim/BallisticLead.cs", "src/KSArmory/Sim/AccelerationEstimate.cs", "src/KSArmory/Sim/LeadError.cs", "src/KSArmory/Ksa/WeaponSystem.cs", "tests/KSArmory.Tests/FlownLeadTests.cs"]
+    howto_topics:
+      - {slug: ballistic-lead-solve, title: "Lead a moving target with an unguided round", note: "fly the shell through the same drag and gravity"}
+      - {slug: fly-prediction-instead-of-closed-form, title: "Fly a prediction instead of a closed form", note: "Broyden updates from turns already flown"}
+  - id: mods/ksarmory/features/weapon-packs-from-mod-folders
+    title: "Asset-only weapon packs read from a KSArmory folder in every installed mod"
+    category: assets
+    submod: null
+    summary: "At StarMapAllModsLoaded KSArmory walks KSA's mod manifest, reads every XML file in a KSArmory/ folder inside each mod (its own included), and registers weapon definitions through a strict, culture-invariant reader that refuses unknown attributes by name"
+    novelty: high
+    techniques: ["starmap-lifecycle", "xml-asset", "convention-folder-scan", "strict-xml-reader", "namespaced-keys", "post-load-audit"]
+    lifecycle: ["startup:all-mods-loaded"]
+    hooks: ["starmap StarMapAllModsLoaded"]
+    game_types: ["KSA.ModLibrary", "KSA.ModManifest", "KSA.ModEntry", "KSA.Mod", "KSA.PartTemplate"]
+    key_paths: ["src/KSArmory/Ksa/InstalledPacks.cs", "src/KSArmory/Sim/PackScan.cs", "src/KSArmory/Sim/PackReader.cs", "src/KSArmory/Sim/PackAudit.cs", "src/KSArmory/Ksa/DeclaredParts.cs", "src/KSArmory/KSArmory/Weapons.xml"]
+    howto_topics:
+      - {slug: data-only-addon-packs, title: "Let other mods add content as data files", note: "a KSArmory folder in any installed mod"}
+      - {slug: scan-other-mods-folders, title: "Find files in every installed mod's folder", note: "a convention, not a list of packs"}
+  - id: mods/ksarmory/features/weapon-part-definitions-xml
+    title: "Weapon parts as inert KSA parts split into an Assets file and a GameData file"
+    category: assets
+    submod: null
+    summary: "Each weapon is a plain KSA part declared in two mod.toml-listed XML bundles (art and subparts in KSArmoryAssets.xml, mass, colliders, connectors, editor tags and real RCS thrusters in KSArmoryGameData.xml), with no behaviour in XML because the C# finds the part by Id"
+    novelty: low
+    techniques: ["xml-asset", "glb-model", "editor-tag-definition", "subpart-gamedata-thrusters", "assets-gamedata-split"]
+    lifecycle: ["startup:asset-load"]
+    hooks: ["mod.toml assets (KSA asset-bundle loader)"]
+    game_types: ["KSA.AssetBundle", "KSA.PartTemplate", "KSA.SubPartTemplate", "KSA.PartGameDataReference", "KSA.SubPartGameDataReference", "KSA.EditorTagDefinition", "KSA.MeshViewModule", "KSA.VehicleEditor", "KSA.CombustorTemplate", "KSA.ModLibrary", "KSA.GlbImport.PartAssetBundler"]
+    key_paths: ["src/KSArmory/mod.toml", "src/KSArmory/KSArmoryAssets.xml", "src/KSArmory/KSArmoryGameData.xml", "src/KSArmory/KSArmory.csproj", "tools/validate-parts.py"]
+    howto_topics:
+      - {slug: new-part-with-own-glb-and-textures, title: "Declare a new part with its own GLB and textures", note: "Assets and GameData XML at the mod root"}
+      - {slug: part-xml-module-elements, title: "Write part game data XML", note: "mass, colliders, connectors, editor tags"}
+      - {slug: append-only-ids-for-saved-data, title: "Keep saves loading after changing a part", note: "subpart lists append-only, part Ids fixed"}
+  - id: mods/ksarmory/features/weapon-registry-and-profiles
+    title: "A weapon system is data plus art, discovered by part Id"
+    category: vehicles-and-parts
+    submod: null
+    summary: "Launchers, rounds, sensors, optics and craft components are plain profile objects in a registry that is open until all mods load and then frozen, and the mod crews one weapon system per matching launcher part it finds on any craft, following that part across splits and docks"
+    novelty: medium
+    techniques: ["data-driven-registry", "part-id-discovery", "sim-ksa-split", "starmap-lifecycle"]
+    lifecycle: ["startup:all-mods-loaded", "frame:draw-ui"]
+    hooks: ["starmap StarMapAllModsLoaded", "starmap StarMapAfterGui"]
+    game_types: ["KSA.Vehicle", "KSA.PartTree", "KSA.Part", "KSA.PartTemplate", "KSA.Part.Connector"]
+    key_paths: ["src/KSArmory/Sim/Arsenal.cs", "src/KSArmory/Sim/Catalogue.cs", "src/KSArmory/Sim/LauncherProfile.cs", "src/KSArmory/Sim/MunitionProfile.cs", "src/KSArmory/Sim/SensorProfile.cs", "src/KSArmory/Sim/WeaponSurvey.cs"]
+    howto_topics:
+      - {slug: data-driven-part-behaviour-registry, title: "Attach behaviour to inert parts through a registry", note: "profiles keyed by part Id, found on any craft"}
+      - {slug: split-game-adapters-from-pure-logic, title: "Keep simulation code free of game types", note: "profiles and registry live in Sim/"}
+  - id: mods/ksarmory/features/world-anchored-screen-markers
+    title: "World-anchored screen markers on full-screen ImGui overlay windows"
+    category: ui
+    submod: null
+    summary: "Brackets, lock cues, chase brackets and part-health bars are projected through the viewport camera's EclToScreen/EgoToScreen onto transparent, input-less, full-screen ImGui windows, with off-screen targets clamped to the screen edge from the camera basis, not the projection"
+    novelty: medium
+    techniques: ["starmap-lifecycle", "imgui-window", "imgui-drawlist", "world-to-screen", "edge-clamp"]
+    lifecycle: ["frame:draw-ui"]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: ["KSA.Camera", "KSA.Program", "KSA.ViewportRegistry", "KSA.IViewport", "KSA.IGameViewport", "KSA.Vehicle", "Brutal.ImGuiApi.ImGui", "Brutal.ImGuiApi.ImDrawListExtensions"]
+    key_paths: ["src/KSArmory/Ksa/Markers.cs", "src/KSArmory/Ksa/LockCueOverlay.cs", "src/KSArmory/Ksa/ChaseHud.cs", "src/KSArmory/Ksa/PartHealthBars.cs", "src/KSArmory/Sim/LockCue.cs", "src/KSArmory/Sim/EdgeCue.cs"]
+    howto_topics:
+      - {slug: world-to-screen-projection, title: "Project world positions to the screen", note: "EclToScreen and EgoToScreen of the viewport camera"}
+      - {slug: fullscreen-imgui-overlay-window, title: "Draw on a transparent full-screen ImGui window", note: "input-less overlay window"}
+      - {slug: offscreen-target-indicator, title: "Clamp off-screen markers to the edge", note: "from the camera basis rather than the projection"}

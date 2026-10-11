@@ -1,0 +1,880 @@
+category: external-io
+description: 'Everything that connects a KSA mod to the world outside the frame: sampling and exporting telemetry, command queues and bridges drained on the game thread, in-process HTTP/MQTT/MCP/9p/serial servers, hosted child processes and terminals, native libraries, inter-mod contracts, HTTP clients and external SDKs.'
+topics:
+- slug: export-game-state-to-other-threads
+  title: Export live game state to background threads with immutable snapshots and a fixed sample clock
+  summary: 'Keep every transport thread away from KSA objects by building one immutable snapshot on the game thread and publishing it with a single volatile reference swap. Readers get lock-free access, async waiters wake on publish, and per-snapshot memoization keeps N readers at the cost of one format. Also covers choosing the sampling cadence: a drift-free accumulator that keeps phase but drops backlog after a hitch, so sampling runs a few times per second instead of every frame.'
+  game_types:
+  - KSA.Universe
+  - KSA.Program
+  - KSA.Vehicle
+  - KSA.CelestialSystem
+  - KSA.App
+  engine_pointers:
+  - current/decomp/KSA/Universe.cs ApplyVehicleSolvers (state settled before the sampler runs)
+  - current/decomp/KSA/Program.cs ControlledVehicle, OnFrame
+  - current/decomp/KSA/Universe.cs GetElapsedSeconds, CurrentSystem.All
+  - current/decomp/KSA/Program.cs GetPlayerTime (wall-clock Stopwatch based)
+  - current/decomp/KSA/Universe.cs GetElapsedSeconds, GetLastSimStep
+  - current/decomp/KSA/App.cs (dtPlayer clamped to 1 / MinTargetFrameRate)
+  lifecycle:
+  - frame:viewports
+  - frame:draw-ui
+  - frame:after-on-frame
+  - thread:background
+  approaches:
+  - n: 1
+    title: Sampler builds an immutable snapshot, volatile swap, TaskCompletionSource wake
+    mod: gatos
+    features:
+    - mods/gatos/features/telemetry-sampler-snapshot
+    technique: immutable-snapshot
+    note: 'Per-vehicle try/catch so one craft mid-teardown cannot kill the sample, per-stream gates that skip KSA reads when nobody listens, a ConditionalWeakTable memo of projections per snapshot, and a GC.GetAllocatedBytesForCurrentThread delta as an allocation tripwire. The canonical pattern; every gatOS transport reads only the store. Default 10 Hz, 1-120 configurable, clock reset and sampling idle while no transport client is connected. Unit-testable because the clock is game-free. Sub-step: give the SampleClock accumulator (drift-free phase, dropped backlog after a hitch) its own section; it is the answer to "sample telemetry at a fixed interval".'
+  - n: 2
+    title: Plain-struct snapshot sampled after the frame, drawn next frame (single thread, no locks)
+    mod: ksa-public-telemetry
+    features:
+    - mods/ksa-public-telemetry/features/live-flight-telemetry-sampling
+    technique: snapshot-copy
+    note: 'The lightest version for a UI-only consumer: copy kinematics into a plain snapshot from StarMapAfterOnFrame and let the next frame''s draw read it, accepting one frame of latency. Contrast with approach 1 to show when you need the volatile swap.'
+  related:
+  - host-http-and-mqtt-servers-in-the-game-process
+  - marshal-commands-to-the-game-thread
+  - read-vehicle-flight-state
+  - profile-mod-frame-cost
+  - record-telemetry-to-csv
+  - choose-a-clock-under-time-warp
+  - schedule-timed-commands
+  borrowed_from:
+  - mods/ksa-public-telemetry/features/live-flight-telemetry-sampling
+  merged_from:
+  - sample-telemetry-at-a-fixed-interval
+  dedupe_with:
+  - testing-and-tooling/record-diagnostics-without-flooding-the-frame-or-the-log
+  - getting-started/step-mod-simulation-on-sim-time
+- slug: detect-flight-events-from-snapshots
+  title: Detect flight events when the game has no event bus
+  summary: Derive liftoff, staging, flameout, SOI change, docking and similar events by diffing consecutive samples, with edge detection that stays allocation-free in the common no-change case, and deliver them to consumers as an ordered event stream.
+  game_types:
+  - KSA.Vehicle
+  - KSA.Universe
+  engine_pointers:
+  - 'current/decomp/KSA/Vehicle.cs (state read each sample: situation, parent body, engines, part count)'
+  lifecycle:
+  - frame:viewports
+  - frame:draw-ui
+  - thread:background
+  approaches:
+  - n: 1
+    title: EventDiffer over consecutive immutable SimSnapshots
+    mod: gatos
+    features:
+    - mods/gatos/features/snapshot-diff-flight-events
+    - mods/gatos/features/telemetry-sampler-snapshot
+    technique: edge-detection
+    note: Situation, SOI, engine, flameout, docking, decoupling, animation and battery events; the same event list feeds a blocking 9p file, SSE and MQTT.
+  - n: 2
+    title: Debounced heuristics on burning-engine and part counts for webcast callouts
+    mod: ksa-public-telemetry
+    features:
+    - mods/ksa-public-telemetry/features/flight-event-detection-and-callouts
+    technique: edge-detection
+    note: LIFTOFF, MAX Q, MECO/SECO, STAGE and landing callouts from engine and part count transitions, with debounce so a flickering count does not repeat a callout.
+  related:
+  - export-game-state-to-other-threads
+  - host-guest-transports-tcp-9p-and-ssh
+  - detect-staging-and-vehicle-loss
+  - compute-mission-elapsed-time-and-detect-liftoff
+  borrowed_from:
+  - mods/ksa-public-telemetry/features/flight-event-detection-and-callouts
+  dedupe_with:
+  - vehicles-and-parts/detect-staging-and-vehicle-loss
+  - flight-and-orbits/compute-mission-elapsed-time-and-detect-liftoff
+  - ui/detect-vessel-and-soi-changes-from-ui
+- slug: record-telemetry-to-csv
+  title: Sample telemetry history and record it to CSV without stalling the frame
+  summary: Write flight telemetry to a file for later analysis, either as an on-demand export of a history buffer or as a continuous per-step recorder that buffers rows, flushes in batches, never throws and never waits on the disk. Includes the wall-clock player-time interval that feeds a fixed-length history array for a HUD graph.
+  game_types:
+  - KSA.Vehicle
+  - KSA.Universe
+  - KSA.Program
+  - KSA.App
+  engine_pointers:
+  - current/decomp/KSA/Constants.cs DocumentsFolderPath
+  - current/decomp/KSA/Vehicle.cs PrepareWorker (per-step hook used by the recorder)
+  - current/decomp/KSA/Program.cs GetPlayerTime (wall-clock Stopwatch based)
+  - current/decomp/KSA/Universe.cs GetElapsedSeconds, GetLastSimStep
+  - current/decomp/KSA/App.cs (dtPlayer clamped to 1 / MinTargetFrameRate)
+  lifecycle:
+  - frame:draw-ui
+  - frame:dispatch-solvers
+  - frame:viewports
+  approaches:
+  - n: 1
+    title: Wall-clock player-time interval feeding a fixed-length history array
+    mod: kitten-engineer-redux
+    features:
+    - mods/kitten-engineer-redux/features/telemetry-history-and-csv-export
+    technique: telemetry-sampling
+    note: '0.25 s of Program.GetPlayerTime from the HUD draw into 720-entry shifted arrays, reset on vehicle change. Simple, but it keeps ticking while paused and ignores time warp; explain the trade-off. Six metrics, one row per sample, written to the KSA documents folder when the player clicks Export. Sub-step: the wall-clock player-time sampling interval (as opposed to the drift-free sim-clock accumulator in export-game-state-to-other-threads) deserves its own section.'
+  - n: 2
+    title: Static single-owner buffered sink with per-step CSV, plan snapshots and event log
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/guidance-flight-telemetry-csv
+    technique: buffered-file-sink
+    note: Rows buffered in memory and flushed every N, a sink that swallows I/O errors, one owner vehicle per run, rate-limited whole-plan snapshots, and log lines keyed on a bucketed change signature so repeated states are not re-logged.
+  related:
+  - export-game-state-to-other-threads
+  - write-a-per-mod-log-file
+  - log-each-problem-once
+  - choose-a-clock-under-time-warp
+  - schedule-timed-commands
+  borrowed_from:
+  - mods/ksa-advancedflightcomputer/features/guidance-flight-telemetry-csv
+  dedupe_with:
+  - testing-and-tooling/record-diagnostics-without-flooding-the-frame-or-the-log
+  - getting-started/write-a-per-mod-log-file
+- slug: marshal-commands-to-the-game-thread
+  title: Marshal commands from background threads to the game thread
+  summary: Let transport threads submit immutable commands and await a result while all KSA mutation happens at one fixed point in the frame. Covers two-phase queues (frame versus solver window), timeouts that abandon a pending entry, atomic batches drained as a unit, and a shared outcome-to-errno mapping every transport reuses.
+  game_types:
+  - KSA.Program
+  - KSA.Universe
+  - KSA.Vehicle
+  - KSA.GameViewport
+  engine_pointers:
+  - current/decomp/KSA/Program.cs OnFrame, PrepareFrame
+  - current/decomp/KSA/Universe.cs ApplyVehicleSolvers, ExecuteNextVehicleSolvers
+  - current/decomp/KSA/Vehicle.cs PrepareWorker (copies manual inputs and flight computer into the worker state)
+  - current/decomp/KSA/GameViewport.cs OnFrame
+  lifecycle:
+  - frame:viewports
+  - frame:draw-ui
+  - frame:after-on-frame
+  - frame:dispatch-solvers
+  - thread:background
+  approaches:
+  - n: 1
+    title: Two ConcurrentQueues (Frame and Solver phase) with TaskCompletionSource, timeout and abandon
+    mod: gatos
+    features:
+    - mods/gatos/features/game-thread-command-queue
+    technique: command-queue
+    note: SimCommand carries a stable action key and the phase is derived from it. SubmitAsync awaits with a timeout (ETIMEDOUT while paused or loading), SubmitBatchAsync keeps up to 64 commands in one Pending so they execute in one drain, RunContinuationsAsynchronously keeps awaiting code off the game thread, and KsaCatalog applies authority gates, ENOENT and latches a degraded accessor on exceptions. Includes the CommandOutcome to errno/HTTP name mapping.
+  - n: 2
+    title: Solver-window drain in a Priority.First prefix on ExecuteNextVehicleSolvers
+    mod: gatos
+    features:
+    - mods/gatos/features/solver-phase-command-drain
+    - mods/gatos/features/game-thread-command-queue
+    technique: harmony-prefix
+    note: Writes that the vehicle step would otherwise restore (flight computer setpoints, refills, teleports) must land after ApplyVehicleSolvers and before PrepareVehicleWorkers. Shows why Frame-phase writes are one frame late for those fields.
+  related:
+  - schedule-timed-commands
+  - host-http-and-mqtt-servers-in-the-game-process
+  - let-ai-agents-control-the-game-over-mcp
+  - write-state-where-the-vehicle-solver-sees-it
+  - host-a-terminal-with-pty-sessions-and-frame-handoff
+  - game-loop-and-lifecycle
+  borrowed_from:
+  - mods/gatos/features/solver-phase-command-drain
+  dedupe_with:
+  - vehicles-and-parts/create-or-dispose-vehicles-without-racing-the-solver
+  - vehicles-and-parts/write-state-where-the-vehicle-solver-sees-it
+  - flight-and-orbits/choose-a-moment-to-write-flight-computer-state
+- slug: schedule-timed-commands
+  title: Schedule timed command sequences on render, wall or sim time
+  summary: Play back a script of commands at millisecond offsets against a chosen clock, ticked on the game thread just before the command drain. Covers absolute offsets so rounding never accumulates, all-or-nothing validation, catch-up after a hitch that never skips a trigger, and live players that can pause, scrub or loop.
+  game_types:
+  - KSA.Universe
+  - KSA.App
+  - KSA.Program
+  engine_pointers:
+  - current/decomp/KSA/App.cs (dtPlayer clamp to MinTargetFrameRate)
+  - current/decomp/KSA/Universe.cs GetElapsedSeconds
+  lifecycle:
+  - frame:viewports
+  - frame:draw-ui
+  - thread:background
+  approaches:
+  - n: 1
+    title: Scheduler posting SimCommands before the drain, with render, wall and ut clocks
+    mod: gatos
+    features:
+    - mods/gatos/features/timed-command-scheduler
+    technique: command-queue
+    note: Grammar of offset, path and value lines plus @id/@clock/@rate/@loop/@group directives; wall clock parked while idle so time is never banked; coalescing catch-up posts every trigger but only the last non-trigger value per path; failures recorded per schedule.
+  related:
+  - marshal-commands-to-the-game-thread
+  - choose-a-clock-under-time-warp
+  - play-cinematic-camera-tracks
+  - export-game-state-to-other-threads
+  dedupe_with:
+  - camera/play-cinematic-camera-tracks
+- slug: script-gameplay-through-a-command-bridge
+  title: Drive a running game from outside through a file-drop command bridge
+  summary: 'Let a script or an AI agent operate a game that stays running by dropping JSON command files into a per-mod folder and reading JSON replies back, polled from a frame hook that KSA always calls. Covers the atomic .part rename on both sides, one command at a time, multi-frame commands as per-frame closures, and the reply format. Includes keeping the bridge developer-only: a deploy script writes an empty marker file beside the DLL, the release package never contains it, and the mod checks it once at load.'
+  game_types:
+  - KSA.Program
+  - KSA.Universe
+  - KSA.GameSaves
+  - KSA.Constants
+  engine_pointers:
+  - current/decomp/KSA/Program.cs OnFrame (StarMapAfterOnFrame postfix site; StarMapAfterGui sits inside the DrawUI block)
+  - current/decomp/KSA/Constants.cs DocumentsFolderPath, LogsFolderPath
+  - current/decomp/KSA/Universe.cs SetSimulationSpeed, GetLastSimStep
+  - current/decomp/KSA/Constants.cs LogsFolderPath (where bridge folders live)
+  lifecycle:
+  - startup:all-mods-loaded
+  - frame:after-on-frame
+  approaches:
+  - n: 1
+    title: Bridge with a KSA-free BridgeCommand parser and craft-level commands
+    mod: ksacars
+    features:
+    - mods/ksacars/features/file-drop-command-bridge
+    technique: file-ipc
+    note: 'The reference implementation: in/ and out/ folders under the mod log folder, lexically first file every 0.1 s of player time, BridgeCommand.TryParse in a game-free Sim assembly, closures advanced once per frame for step, load and capture, plus spawn, drive, seat kittens and a telemetry report command. Sub-step: give the developer-only marker-file gate (Build.Developer from a file written by the deploy script) a section, since it applies to every bridge below.'
+  - n: 2
+    title: Generic get/set of config fields by reflection and composed-shot commands
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/file-command-bridge
+    technique: file-ipc
+    note: Adds set/get over every public Config field by name, kitten pose and prop commands, camera holding and a swing array; shows how a bridge grows with a mod's panels.
+  - n: 3
+    title: Bridge with shader hot reload and an in-building scene for visual checks
+    mod: ksastructures
+    features:
+    - mods/ksastructures/features/dev-file-bridge-and-mcp
+    technique: file-ipc
+    note: Adds reload_shaders through the internal FileReference.DoLoad, lighting and view commands, and the closure model; useful as the lean variant of the same protocol.
+  - n: 4
+    title: Bridge that doubles as an effect lab and a camera claimant
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/file-command-bridge-and-mcp
+    technique: file-ipc
+    note: Commands for bursts, spawn, fly and fire; the bridge holds the main view as one claimant of the camera arbiter; a UI button only sets a flag so a capture never starts inside the UI pass.
+  related:
+  - take-screenshots-from-code
+  - run-an-unattended-scenario-and-report-pass-or-fail
+  - let-ai-agents-control-the-game-over-mcp
+  - marshal-commands-to-the-game-thread
+  - keep-overlays-updating-when-hud-hidden
+  - make-an-http-request-from-a-mod-without-blocking-the-frame
+  - find-your-mod-folder-at-runtime
+  borrowed_from:
+  - mods/ksacars/features/file-drop-command-bridge
+  - mods/ksagolf/features/file-command-bridge
+  - mods/ksastructures/features/dev-file-bridge-and-mcp
+  - mods/ksarmory/features/file-command-bridge-and-mcp
+  merged_from:
+  - gate-developer-only-features-behind-a-marker-file
+  dedupe_with:
+  - testing-and-tooling/script-gameplay-through-a-command-bridge
+  - testing-and-tooling/drive-a-running-game-through-a-file-bridge
+  - testing-and-tooling/gate-developer-only-features
+- slug: run-an-unattended-scenario-and-report-pass-or-fail
+  title: 'Run scripted scenarios unattended: load a save, step exact sim time, report a verdict'
+  summary: 'Turn the running game into an end-to-end test. A request file read and deleted at load selects a scenario, a state machine flies it, tagged log lines carry progress and the verdict, and a shell harness waits on the tag, takes screenshots on cue and exits non-zero on FAIL or TIMEOUT. Sub-steps: loading a save by name and waiting until a craft is flown (closing any popup that holds the throttle), and unpausing for an exact number of simulated seconds then pausing again.'
+  game_types:
+  - KSA.GameSaves
+  - KSA.Popup
+  - KSA.Program
+  - KSA.Universe
+  - KSA.SimSpeed
+  - KSA.SimStep
+  engine_pointers:
+  - current/decomp/KSA/GameSaves.cs LoadSaveGame
+  - current/decomp/KSA/Program.cs OnFrame
+  - current/decomp/KSA/Popup.cs Popups (private static list), AnyOpen
+  - current/decomp/KSA/Universe.cs GetLastSimStep, SetSimulationSpeed
+  lifecycle:
+  - startup:all-mods-loaded
+  - frame:draw-ui
+  - frame:after-on-frame
+  - startup:game-loaded
+  approaches:
+  - n: 1
+    title: Request file, state machine, SCENARIO log lines and wall and sim budgets
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/unattended-scenario-runner
+    technique: state-machine
+    note: 'Why a file rather than an environment variable (game launched across WSL), take-once semantics, snapshot-and-restore of config around a run, TIMEOUT with a description of where it was stuck. LoadingSave then WaitingForWorld states; each frame closes engine popups found through the private static Popup.Popups list because an open one holds the throttle. Sub-step: loading a save with GameSaves.LoadSaveGame, waiting for the world and closing the engine popup by reflection, gets its own section.'
+  - n: 2
+    title: Bridge commands for loading a save and stepping an exact number of simulated seconds
+    mod: ksacars
+    features:
+    - mods/ksacars/features/file-drop-command-bridge
+    - mods/ksagolf/features/file-command-bridge
+    - mods/ksastructures/features/dev-file-bridge-and-mcp
+    technique: file-ipc
+    note: 'load installs a closure that returns its reply only when Program.ControlledVehicle exists. Same closure in three bridges: dtSim is the last sim step in a flight scene and 0 while paused or in menus; the reply is withheld until the sum reaches the requested seconds. Mention SetSimulationSpeed with speeds below the UI''s floor. Two sub-steps for a section each: load-a-save polling until a vehicle is controlled, and a per-frame closure summing Universe.GetLastSimStep().DeltaTime to pause after exactly N simulated seconds.'
+  related:
+  - script-gameplay-through-a-command-bridge
+  - take-screenshots-from-code
+  - show-a-game-styled-popup
+  - set-simulation-speed-from-a-mod
+  - choose-a-clock-under-time-warp
+  borrowed_from:
+  - mods/ksarmory/features/unattended-scenario-runner
+  merged_from:
+  - load-a-save-from-code
+  - step-the-simulation-an-exact-number-of-seconds
+  dedupe_with:
+  - testing-and-tooling/run-unattended-scenarios-and-report-a-verdict
+  - testing-and-tooling/load-a-save-from-code
+  - persistence/load-a-save-from-code
+  - testing-and-tooling/step-the-simulation-an-exact-number-of-seconds
+- slug: take-screenshots-from-code
+  title: Take clean screenshots from mod code
+  summary: Ask KSA's own screenshot system for a capture without the HUD by reaching the private Program screenshot object once by reflection and calling its public Request(scale, flags) with warm-up frames, then collect the file from the exports folder and write a manifest of what the picture shows.
+  game_types:
+  - KSA.ScreenshotCapture
+  - KSA.Program
+  - KSA.Camera
+  - KSA.Constants
+  engine_pointers:
+  - current/decomp/KSA/ScreenshotCapture.cs Request (scale, flags), DEFAULT_WARMUP_FRAMES, OnPrepareFrame (sets Program.DrawUI false)
+  - current/decomp/KSA/Program.cs _screenshotCapture, Screenshot terminal action, DrawUI
+  - current/decomp/KSA/Constants.cs DocumentsFolderPath (exports/screenshots)
+  - current/decomp/Core/Renderer.cs ExtentOverride (high-resolution captures)
+  lifecycle:
+  - frame:after-on-frame
+  - frame:prepare
+  - frame:post-render
+  - thread:background
+  approaches:
+  - n: 1
+    title: Request with warm=24, wait for the new ksa_*.png, move it and write a manifest
+    mod: ksacars
+    features:
+    - mods/ksacars/features/file-drop-command-bridge
+    technique: reflection
+    note: 'Smallest working version: one reflected field, flags string, poll the screenshots folder, move the image beside a JSON manifest (time, pause, speed, FOV, craft screen position).'
+  - n: 2
+    title: Series spaced in simulated seconds, same-instant variant diffs and temporal noise maps
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/visual-testing-captures
+    technique: reflection
+    note: Per-image manifests with the craft's projected screen position, series stepping a paused world, variant captures at the same instant and a noise map for shimmer; the Python tools crop around the craft using the manifest.
+  - n: 3
+    title: Capture button that only sets a flag, and capture bundles with GPU split
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/file-command-bridge-and-mcp
+    technique: reflection
+    note: A capture must not start inside the UI pass, so the panel sets a static flag that the next frame hook consumes; also why the capture hook must be StarMapAfterOnFrame, since ScreenshotCapture hides the HUD and the GUI hooks stop.
+  related:
+  - capture-rendered-frames
+  - script-gameplay-through-a-command-bridge
+  - hold-a-composed-camera-shot-for-screenshots
+  - handle-renderer-rebuilds
+  - project-world-positions-to-screen
+  borrowed_from:
+  - mods/ksacars/features/file-drop-command-bridge
+  - mods/ksagolf/features/visual-testing-captures
+  - mods/ksarmory/features/file-command-bridge-and-mcp
+  dedupe_with:
+  - testing-and-tooling/take-screenshots-from-code
+  - rendering/capture-rendered-frames
+  - testing-and-tooling/visual-regression-for-mods
+  - camera/hold-a-composed-camera-shot-for-screenshots
+- slug: host-http-and-mqtt-servers-in-the-game-process
+  title: Host HTTP and MQTT servers in the game process for telemetry and control
+  summary: Expose telemetry and accept control commands from outside the game with servers running inside it. One approach is a raw-socket HTTP/1.1 server with JSON snapshots, Server-Sent Events, long-poll and an OpenAPI document; the other an embedded MQTT broker that publishes retained, changed-only values while subscribers exist and consumes command topics. Both route commands through the game-thread queue and shut down cleanly at unload.
+  game_types: []
+  engine_pointers:
+  - current/decomp/KSA/Program.cs OnFrame (the only place game objects may be touched)
+  - current/decomp/KSA/Program.cs OnFrame (publish pump reads snapshots, not game objects)
+  lifecycle:
+  - startup:all-mods-loaded
+  - thread:background
+  - event:unload
+  approaches:
+  - n: 1
+    title: Raw TcpListener server with SSE, long-poll, OpenAPI and a generic command endpoint
+    mod: gatos
+    features:
+    - mods/gatos/features/http-v1-api-server
+    technique: protocol-server
+    note: 'No HttpListener or ASP.NET dependency: a hand-rolled request-line parser keeps the mod loadable in the game''s runtime; reads come from the snapshot store, writes enqueue SimCommands; loopback binding and the per-leaf /sim mirror.'
+  - n: 2
+    title: Embedded broker with subscription-gated changed-only publish and ProcessPublish=false command topic
+    mod: gatos
+    features:
+    - mods/gatos/features/embedded-mqtt-broker
+    technique: protocol-server
+    note: Publish pump task off the main thread; intercepting the command topic with ProcessPublish=false so other subscribers never see commands; byte-change gating per leaf topic.
+  related:
+  - export-game-state-to-other-threads
+  - marshal-commands-to-the-game-thread
+  - let-ai-agents-control-the-game-over-mcp
+  - build-external-clients-and-autopilots-with-a-typed-sdk
+  - clean-up-on-game-exit
+  merged_from:
+  - serve-a-telemetry-and-control-api-over-http
+  - publish-telemetry-and-accept-commands-over-mqtt
+  dedupe_with:
+  - getting-started/clean-up-on-game-exit
+- slug: let-ai-agents-control-the-game-over-mcp
+  title: Let AI agents drive the game through an MCP server
+  summary: 'Expose the game to a coding agent as MCP tools, either with an in-process Streamable HTTP endpoint on the game''s own server or with a small stdlib Python MCP server that wraps a file bridge and returns screenshots inline. Also covers shaping tools and resources for a language-model client instead of a programmer: logical grouped reads, batch and scheduled actions, stable action keys and error results an agent can act on.'
+  game_types: []
+  engine_pointers:
+  - current/decomp/KSA/Constants.cs LogsFolderPath (where the file bridge folders live)
+  lifecycle:
+  - startup:all-mods-loaded
+  - thread:background
+  - event:unload
+  approaches:
+  - n: 1
+    title: Stateless Streamable HTTP MCP endpoint inside the game process
+    mod: gatos
+    features:
+    - mods/gatos/features/mcp-server-for-agents
+    technique: protocol-server
+    note: 'ModelContextProtocol.Core behind a hand-rolled HTTP adapter, a stateless transport per request, Host and Origin validation against DNS rebinding, tools mapped to the command queue. How reads are grouped for few round trips, how batch and scheduled actions map to SubmitBatchAsync and the scheduler, and how errno names become tool errors. Sub-step: give agent-facing API design (McpRegistry logical resources, grouped reads, batch and scheduled actions, stable action keys, actionable errors) its own section.'
+  - n: 2
+    title: Stdlib Python stdio MCP server wrapping the file bridge, with image tools
+    mod: ksacars
+    features:
+    - mods/ksacars/features/ksa-mcp-server
+    - mods/ksagolf/features/file-command-bridge
+    - mods/ksastructures/features/dev-file-bridge-and-mcp
+    - mods/ksarmory/features/file-command-bridge-and-mcp
+    technique: file-ipc
+    note: JSON-RPC over stdio registered in .mcp.json; finds the user directory, launches the game only if none runs and never closes one it did not start; returns screenshots as base64 JPEG, contact sheets, GIFs and noise maps; doubles as a CLI. No change to the mod beyond the bridge.
+  related:
+  - script-gameplay-through-a-command-bridge
+  - host-http-and-mqtt-servers-in-the-game-process
+  - take-screenshots-from-code
+  - marshal-commands-to-the-game-thread
+  - schedule-timed-commands
+  borrowed_from:
+  - mods/ksacars/features/ksa-mcp-server
+  - mods/ksagolf/features/file-command-bridge
+  - mods/ksastructures/features/dev-file-bridge-and-mcp
+  - mods/ksarmory/features/file-command-bridge-and-mcp
+  merged_from:
+  - design-an-agent-facing-game-api
+  dedupe_with:
+  - testing-and-tooling/expose-a-running-game-to-an-ai-agent-with-mcp
+- slug: build-external-clients-and-autopilots-with-a-typed-sdk
+  title: Build an external SDK client or autopilot for the game over files and HTTP
+  summary: 'Wrap the game external API in a typed client with one Transport interface and two implementations (file system and HTTP) so scripts do not care how they reach the game, then use it to fly a vessel from a separate process: pace control loops by simulation time, gate on telemetry freshness and use batch writes so a set of controls lands in one tick.'
+  game_types: []
+  engine_pointers: []
+  lifecycle:
+  - thread:background
+  approaches:
+  - n: 1
+    title: Typed SDK with a Transport interface, plus example autopilot programs
+    mod: gatos
+    features:
+    - mods/gatos/features/external-api-clients
+    technique: external-client
+    note: 'The Transport seam, typed reads over snapshot JSON and typed writes that surface errno names. land-o-matic, agc and cinematic examples; pace by sim time not wall time; stop on stale telemetry; use atomic batches. Two sub-steps for a section each: the Transport abstraction with file and HTTP implementations, and writing a companion program (landing guidance etc.) with sim-time pacing, freshness gating and batch writes.'
+  related:
+  - host-http-and-mqtt-servers-in-the-game-process
+  - host-guest-transports-tcp-9p-and-ssh
+  - marshal-commands-to-the-game-thread
+  - choose-a-clock-under-time-warp
+  merged_from:
+  - build-a-typed-client-over-files-and-http
+  - write-an-external-autopilot-for-ksa
+- slug: bridge-a-serial-port-and-bus-protocols-to-the-game
+  title: Bridge a serial port and bus protocols (NDJSON, NMEA, CCSDS, SCPI) to the game
+  summary: Connect a guest or external device through a virtio-serial chardev socket to the game, stream telemetry as NDJSON, NMEA sentences or CCSDS space packets, and accept SCPI-style command lines answered with OK or ERR plus an errno name. Covers the connector that reconnects per boot and the 6-byte CCSDS primary header encoder.
+  game_types: []
+  engine_pointers: []
+  lifecycle:
+  - thread:background
+  approaches:
+  - n: 1
+    title: SerialBridge with a connector per boot, protocol encoders and a SCPI command port
+    mod: gatos
+    features:
+    - mods/gatos/features/serial-bus-ccsds-nmea-scpi
+    technique: protocol-server
+    note: QEMU chardev socket server=on,wait=off so QEMU never blocks the boot; the game connects and reconnects; encoders are pure functions over the snapshot; commands go through the shared queue.
+  related:
+  - host-and-supervise-an-external-process-from-a-mod
+  - export-game-state-to-other-threads
+  - marshal-commands-to-the-game-thread
+- slug: host-and-supervise-an-external-process-from-a-mod
+  title: Host and supervise an external process or virtual machine from a KSA mod
+  summary: Start a child process from the game without blocking the frame or leaking it, with pumps for its output, a queued writer, readiness probing, and bounded shutdown at unload. Three concrete shapes cover a long-lived VM, a Windows pseudoconsole shell and a Unix pty shell. The VM shape also covers per-OS QEMU accelerator ladders (WHPX, HVF, KVM, TCG fallback), CPU models, a pristine base image with per-profile qcow2 overlays and a pinned guest image fetched by the build. A further sub-step finds installed shells and WSL distributions on a background thread and builds correct launch command lines.
+  game_types:
+  - KSA.Program
+  engine_pointers:
+  - StarMap.Core unload path (StarMapUnload runs on a normal exit; Environment.Exit skips it)
+  lifecycle:
+  - startup:all-mods-loaded
+  - frame:draw-ui
+  - thread:background
+  - event:unload
+  approaches:
+  - n: 1
+    title: QEMU microVM with async boot state machine, accelerator ladder, qcow2 overlays and a shutdown ladder
+    mod: gatos
+    features:
+    - mods/gatos/features/qemu-microvm-host-process
+    - mods/gatos/features/qcow2-overlay-guest-disks
+    - mods/gatos/features/alpine-guest-image
+    technique: process-hosting
+    note: 'Everything off the main thread; StarMapUnload runs a bounded stop so a hung child cannot hold the game exit. Direct kernel boot artifacts plus a manifest contract, a PID lock on the overlay, grow-only resize, a minimal busybox init with respawned supervisors. Sub-step: the QemuCommandBuilder accelerator ladder, qcow2 overlay disks and pinned Alpine guest image (formerly run-a-virtual-machine-alongside-the-game) get their own sections.'
+  - n: 2
+    title: Windows ConPTY with a never-sleeping ReadFile pump, queued writer and close-first teardown
+    mod: purrtty
+    features:
+    - mods/purrtty/features/conpty-shell-hosting
+    technique: native-interop
+    note: CreatePseudoConsole plus a process attribute list, STARTF_USESTDHANDLES with null handles, and a teardown that closes the pseudoconsole first and leaks handles still in use rather than closing them under a pump.
+  - n: 3
+    title: POSIX pty via posix_openpt and posix_spawnp with a poll reader and a waitpid thread
+    mod: purrtty
+    features:
+    - mods/purrtty/features/posix-pty-spawn-without-fork
+    technique: native-interop
+    note: 'The game never forks (a large multithreaded process); SETSID, slave as stdin, signal reset; DllImport resolution through a per-assembly resolver. Sub-step: the variadic ioctl padding for Apple arm64 is covered in bind-and-vendor-native-c-libraries; link to it.'
+  - n: 4
+    title: ShellCommandResolver, WslDistributionDetector and UnixShellDetector feeding a menu cache
+    mod: purrtty
+    features:
+    - mods/purrtty/features/shell-detection-and-command-resolution
+    technique: background-thread
+    note: 'Never probe on the frame; cache for the menu; quoting rules for arguments with spaces, quotes and trailing backslashes. Sub-step: detecting shells/WSL distributions once with bounded waits and quoting launch commands (CommandLineToArgvW versus discrete argv); feeds the terminal topic.'
+  related:
+  - clean-up-on-game-exit
+  - relaunch-the-game-from-a-mod
+  - bind-and-vendor-native-c-libraries
+  - host-a-terminal-with-pty-sessions-and-frame-handoff
+  - host-guest-transports-tcp-9p-and-ssh
+  - bridge-a-serial-port-and-bus-protocols-to-the-game
+  borrowed_from:
+  - mods/gatos/features/qcow2-overlay-guest-disks
+  - mods/gatos/features/alpine-guest-image
+  merged_from:
+  - run-a-virtual-machine-alongside-the-game
+  - detect-installed-shells-and-launch-commands
+  dedupe_with:
+  - getting-started/relaunch-the-game-from-a-mod
+  - getting-started/clean-up-on-game-exit
+  - testing-and-tooling/ship-a-linux-guest-image-with-a-mod
+- slug: host-guest-transports-tcp-9p-and-ssh
+  title: Connect a VM guest to the game with slirp TCP, a 9P filesystem and pinned SSH
+  summary: 'The channels between a QEMU guest and the game process that work on Windows, Linux and macOS: TCP over slirp user networking with pre-allocated host ports and guest-side supervisors; a from-scratch 9P2000.L server exposing a virtual filesystem and confined host folders (including synthetic files that behave under cat, watch and tail -f); and SSH.NET sessions that refuse a host key whose SHA-256 does not match the guest manifest.'
+  game_types: []
+  engine_pointers: []
+  lifecycle:
+  - startup:all-mods-loaded
+  - thread:background
+  approaches:
+  - n: 1
+    title: slirp hostfwd/guestfwd TCP with a PortAllocator and guest-side supervisors
+    mod: gatos
+    features:
+    - mods/gatos/features/slirp-tcp-host-guest-transport
+    technique: process-hosting
+    note: Why not virtio-9p, virtiofs or vsock (unavailable or unsupported on Windows hosts); bind port 0 for all channels at once to avoid a race between allocation and use, retry once on a clash; ports carried on the kernel command line.
+  - n: 2
+    title: From-scratch 9P2000.L server with a VfsNode tree and HostDirectory confinement
+    mod: gatos
+    features:
+    - mods/gatos/features/ninep-server-in-csharp
+    technique: protocol-server
+    note: 'Session per connection, accept loop on a background task, HostDirectory/HostFile mapping nodes to real files with confinement to the mount root so a guest cannot escape with .., read-only mounts rejecting mutations. Sub-step: give the 9P2000.L message loop and the confined host-folder passthrough their own sections.'
+  - n: 3
+    title: Sensor, StreamFile, EventsFile and CommandFile models under Linux netfslib rules
+    mod: gatos
+    features:
+    - mods/gatos/features/sim-filesystem-file-models
+    - mods/gatos/features/snapshot-diff-flight-events
+    technique: virtual-filesystem
+    note: 'Why truthful file sizes matter to the guest page cache, how the blocking event file is parked per reader, and how a write is parsed, submitted to the command queue and mapped to errno. Sub-step of the 9P approach: Sensor, StreamFile, EventsFile and CommandFile models (truthful sizes, growing logs for tail -f, blocking event files); its own section.'
+  - n: 4
+    title: Pin the guest SSH host key to a manifest value
+    mod: gatos
+    features:
+    - mods/gatos/features/ssh-shell-session-into-guest
+    - mods/gatos/features/alpine-guest-image
+    technique: background-thread
+    note: 'CanTrust only when the presented key''s fingerprint equals the one in the installed guest manifest. Sub-step: HostKeyReceived handler comparing the presented SHA-256 to the guest manifest instead of trust-on-first-use.'
+  related:
+  - host-and-supervise-an-external-process-from-a-mod
+  - bridge-a-serial-port-and-bus-protocols-to-the-game
+  - export-game-state-to-other-threads
+  - marshal-commands-to-the-game-thread
+  - detect-flight-events-from-snapshots
+  - host-a-terminal-with-pty-sessions-and-frame-handoff
+  borrowed_from:
+  - mods/gatos/features/alpine-guest-image
+  merged_from:
+  - connect-a-vm-guest-to-the-game-over-tcp
+  - expose-game-data-and-host-folders-to-a-guest-over-9p
+  - design-synthetic-files-for-live-data
+  - pin-ssh-host-keys
+  dedupe_with:
+  - testing-and-tooling/ship-a-linux-guest-image-with-a-mod
+- slug: host-a-terminal-with-pty-sessions-and-frame-handoff
+  title: Host a terminal emulator in the game with pty sessions, custom shells and thread-to-frame handoff
+  summary: 'Run a terminal tab inside the game: pty or ConPTY output pumps, writers and waiters live on background threads while every main-thread API runs on one frame tick. Covers bounded queues in both directions, configure-before-publish sessions, dirty-aware frame snapshots of a headless terminal surface, and plugging in custom shells (line-buffered shells over the game console, SSH PTY sessions into a guest) with console command output captured by a gated Harmony postfix.'
+  game_types:
+  - KSA.Program
+  - Brutal.ImGuiApi.Abstractions.TerminalInterface
+  - Brutal.ImGuiApi.Abstractions.ConsoleWindow
+  - Brutal.ImGuiApi.ImColor8
+  engine_pointers:
+  - current/decomp/KSA/Program.cs OnFrame (StarMapAfterGui lives inside the DrawUI block)
+  - current/decomp/Brutal.ImGuiApi.Abstractions/TerminalInterface.cs Execute (for the console shell example)
+  - current/decomp/KSA/Program.cs TerminalInterface (=> ConsoleWindow.Terminal), TerminalOutput, RegisterCommand calls
+  - current/decomp/Brutal.ImGuiApi.Abstractions/TerminalInterface.cs Execute
+  - current/decomp/Brutal.ImGuiApi.Abstractions/ConsoleWindow.cs Print
+  lifecycle:
+  - frame:draw-ui
+  - thread:background
+  - startup:all-mods-loaded
+  - frame:input
+  approaches:
+  - n: 1
+    title: Map every thread to one StarMapAfterGui tick with configure-before-publish sessions
+    mod: purrtty
+    features:
+    - mods/purrtty/features/pty-threads-to-frame-tick-handoff
+    technique: background-thread
+    note: 'Thread inventory (spawn, pump, writer, waiter, teardown, detection) and the rule that only the tick touches ImGui and the clipboard; hidden-HUD behaviour (no tick, queues fill to their bound). Primary: map every thread to one StarMapAfterGui tick; also sets the thread rules for the remaining approaches.'
+  - n: 2
+    title: Bounded byte inbox with backpressure and dirty-aware frame snapshots
+    mod: purrtty
+    features:
+    - mods/purrtty/features/headless-terminal-surface-and-frame-snapshot
+    technique: background-thread
+    note: 'A renderer-neutral engine thread owns the native state; any thread posts bytes; the frame asks for a TerminalFrame snapshot only when dirty. Also the testability argument: no KSA or ImGui types in the backend.'
+  - n: 3
+    title: BaseLineBufferedShell that executes lines through the game console
+    mod: purrtty
+    features:
+    - mods/purrtty/features/custom-shell-registry-and-lifecycle
+    - mods/purrtty/features/game-console-shell
+    technique: inter-mod-api
+    note: 'Simplest shell: lines in, coloured text out, executed on the frame tick; shows the validation probe and trivial-ctor rule. Sub-step: running KSA console commands and capturing the coloured output (TerminalInterface.Execute plus a Print postfix gated to the call extent, formerly run-ksa-console-commands-and-capture-output) gets its own section.'
+  - n: 4
+    title: SSH PTY session with lazy VM boot, bounded input writer thread and thread-agnostic output
+    mod: gatos
+    features:
+    - mods/gatos/features/ssh-shell-session-into-guest
+    - mods/gatos/features/purrtty-custom-shell-contract
+    technique: background-thread
+    note: 'Streaming shell: SSH.NET shell stream, ShellInputQueue so keystrokes never block the render thread, host-key pinning, VmConnectionBroker for lazy boot.'
+  related:
+  - marshal-commands-to-the-game-thread
+  - export-game-state-to-other-threads
+  - keep-overlays-updating-when-hud-hidden
+  - host-and-supervise-an-external-process-from-a-mod
+  - split-game-adapters-from-pure-logic
+  - design-an-inter-mod-registry-contract
+  - host-guest-transports-tcp-9p-and-ssh
+  - log-to-the-game-log
+  - take-screenshots-from-code
+  borrowed_from:
+  - mods/gatos/features/ssh-shell-session-into-guest
+  - mods/gatos/features/purrtty-custom-shell-contract
+  merged_from:
+  - hand-background-thread-output-to-the-game-frame
+  - add-a-custom-shell-to-purrtty
+  - run-ksa-console-commands-and-capture-output
+  dedupe_with:
+  - rendering/keep-overlays-updating-when-hud-hidden
+- slug: let-a-terminal-program-set-the-system-clipboard
+  title: Let a terminal program set the system clipboard with OSC 52
+  summary: Scan the pty byte stream with a small allocation-free OSC scanner as a sidecar to the terminal engine, decode OSC 52 payloads, and apply them with ImGui.SetClipboardText on the main thread, so remote programs can copy into the player's clipboard.
+  game_types:
+  - KSA.ImGuiBackendGlfwImpl
+  - Brutal.ImGuiApi.ImGui
+  engine_pointers:
+  - current/decomp/KSA/ImGuiBackendGlfwImpl.cs (GLFW-backed get/set clipboard delegates)
+  lifecycle:
+  - frame:draw-ui
+  - thread:background
+  approaches:
+  - n: 1
+    title: OscSidecar tee on the pump thread, clipboard write on the tick
+    mod: purrtty
+    features:
+    - mods/purrtty/features/osc52-clipboard-sidecar
+    technique: imgui-window
+    note: OscSidecar.Feed scans exactly the bytes about to go into the VT engine (vectorized jump to ESC, 64 KiB payload cap, oversize dropped rather than truncated, interest decided on raw bytes before allocating); the window wires ClipboardRequested to ImGui.SetClipboardText. Queries are not answered yet.
+  related:
+  - copy-text-to-the-clipboard-from-imgui
+  - host-a-terminal-with-pty-sessions-and-frame-handoff
+  dedupe_with:
+  - ui/copy-text-to-the-clipboard-from-imgui
+- slug: stream-the-game-screen-to-a-terminal
+  title: Stream the game screen to a terminal with the Kitty graphics protocol
+  summary: Deliver captured frames to a terminal session as Kitty graphics images that replace one fixed image id, with encoding on a background thread so the frame never waits. Covers the display surface, the encoder and the throttling against the terminal's consumption rate.
+  game_types:
+  - KSA.Program
+  - Core.Renderer
+  engine_pointers:
+  - current/decomp/KSA/Program.cs RenderGame (final End), PostRender
+  lifecycle:
+  - frame:post-render
+  - thread:background
+  approaches:
+  - n: 1
+    title: Staging-buffer readback on slot reuse, background KittyEncoder, fixed image id
+    mod: gatos
+    features:
+    - mods/gatos/features/screen-stream-frame-capture
+    technique: harmony-transpiler
+    note: The capture half (transpiler before the final End, per-slot staging buffers) is detailed in capture-rendered-frames; this topic covers the encoding, delivery and pacing half.
+  related:
+  - capture-rendered-frames
+  - take-screenshots-from-code
+  - host-a-terminal-with-pty-sessions-and-frame-handoff
+  - show-an-image-in-imgui
+  borrowed_from:
+  - mods/gatos/features/screen-stream-frame-capture
+  dedupe_with:
+  - rendering/capture-rendered-frames
+  - rendering/show-an-image-in-imgui
+- slug: bind-and-vendor-native-c-libraries
+  title: Bind and vendor native C libraries with layout-exact P/Invoke
+  summary: Call a C library from a KSA mod safely. Use blittable layout-exact structs verified against a C probe compiled from the same headers, source-generated or hand-written imports, a startup layout self-check, one thread per solver instance, and per-RID builds. Loading the library from the mod folder is covered in the getting-started topic. Also covers vendoring an upstream binding (pruned, local patches marked as divergences, pin-bump self-checks) and the Apple arm64 variadic-call pitfall for ioctl and friends.
+  game_types: []
+  engine_pointers:
+  - StarMap per-mod AssemblyLoadContext (natives are not resolved automatically; see ship-native-libraries-with-a-mod)
+  lifecycle:
+  - startup:all-mods-loaded
+  - frame:dispatch-solvers
+  - thread:background
+  approaches:
+  - n: 1
+    title: Vendored libghostty-vt binding with managed packed-cell decoding and a startup self-check
+    mod: purrtty
+    features:
+    - mods/purrtty/features/vendored-libghostty-vt-binding
+    technique: native-interop
+    note: 'Source-generated LibraryImport, natives cross-compiled with zig for three RIDs, a layout self-check that fails loudly at startup. README with the upstream commit, markers at every local change, and a self-check that fails when the native export list or struct layout drifts. Sub-step: vendoring and patching the upstream binding with divergence markers and a pin-bump check (formerly vendor-and-patch-a-third-party-binding) gets its own section.'
+  - n: 2
+    title: Clarabel and SCS solvers with layout-exact structs, reused sparse CSC patterns and single-thread ownership
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/native-conic-solver-interop
+    technique: native-interop
+    note: Struct layouts checked against a C probe on each target platform; native handles never crossed between threads; sparse pattern reuse across solves.
+  - n: 3
+    title: Pad register arguments for variadic C calls such as ioctl on Apple arm64
+    mod: purrtty
+    features:
+    - mods/purrtty/features/posix-pty-spawn-without-fork
+    technique: native-interop
+    note: 'WinSizeIoctl calls a second import of ioctl with six dummy nint arguments so the winsize pointer lands on the stack; explain the failure signature (garbage winsize pointer). Sub-step: stand-alone pitfall (variadic args go on the stack on Apple arm64) a reader may search for by name; keep as its own section or short article.'
+  related:
+  - ship-native-libraries-with-a-mod
+  - run-an-expensive-solve-without-stalling-the-frame
+  - ship-third-party-dlls-with-a-mod
+  - host-and-supervise-an-external-process-from-a-mod
+  borrowed_from:
+  - mods/ksa-advancedflightcomputer/features/native-conic-solver-interop
+  merged_from:
+  - bind-a-native-c-library-with-p-invoke
+  - vendor-and-patch-a-third-party-binding
+  - call-variadic-c-functions-via-p-invoke-on-apple-arm64
+  dedupe_with:
+  - getting-started/ship-native-libraries-with-a-mod
+  - getting-started/ship-third-party-dlls-with-a-mod
+  - testing-and-tooling/build-and-abi-check-native-libraries
+- slug: design-an-inter-mod-registry-contract
+  title: Design and consume an inter-mod registry contract across assembly load contexts
+  summary: Shape the surface another mod binds to so it survives refactors and needs no game references, and consume it from the other side. Covers small text-only members, results with faults instead of exceptions, validation probes, factory registries, a duck-typed attribute API bound by full name across every AssemblyLoadContext, optional versus required dependencies, registering from the right startup hook, staying inert when the host mod is absent, and a committed API-surface record that CI diffs.
+  game_types:
+  - KSA.Program
+  - KSA.KeyHash
+  engine_pointers:
+  - StarMap.Core ModAssemblyLoadContext (type identity across mods; see share-types-between-mods)
+  - StarMap mod.toml StarMap.ModDependencies ImportedAssemblies (see declare-a-mod-dependency)
+  - current/decomp/KSA/Program.cs Main (the prefix target)
+  lifecycle:
+  - startup:starmap-before-main
+  - startup:all-mods-loaded
+  approaches:
+  - n: 1
+    title: Text-only registration members with fault results, required dependency and a CI-checked API surface
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/armoury-pack-registration-api
+    technique: inter-mod-api
+    note: 'A pack needs only KSArmory.dll; Register(string, string) validates and returns faults; registration from the pack''s entry point precedes StarMapAllModsLoaded. Dependent mod orders after the host, registers during its own startup hook, and receives a fault result if it registers too late. tools/pack-api.py regenerates docs/PACK-API-SURFACE.md from source and checks it in CI; a Schema constant is bumped on a real break. Sub-step: the PACK-API-SURFACE record and CI diff (formerly record-and-check-the-api-other-mods-bind-to) gets its own section; also cover the consumer side, registering from the pack entry point.'
+  - n: 2
+    title: Factory registry with a validation probe, contract assembly import and optional dependency
+    mod: purrtty, gatos
+    features:
+    - mods/purrtty/features/custom-shell-registry-and-lifecycle
+    - mods/purrtty/features/custom-shell-contract-via-assembly-imports
+    - mods/gatos/features/purrtty-custom-shell-contract
+    technique: inter-mod-api
+    note: 'ICustomShell contract free of game and UI types; RegisterShell constructs a probe instance to validate before accepting; the host presents in-process shells as PTY process managers. Optional = true with Private = true copies in deps.json; detection by assembly location so the vendored copy is never mistaken for the real host. Sub-step: the consumer side, declaring an optional dependency, vendored fallback copies and registering at StarMapAllModsLoaded while staying inert when the host mod is absent.'
+  - n: 3
+    title: Duck-typed attributes bound by FullName with MakeGenericMethod and CreateDelegate
+    mod: shaderextensions
+    features:
+    - mods/shaderextensions/features/duck-typed-attribute-api
+    technique: inter-mod-api
+    note: 'Scan AssemblyLoadContext.All after StarMap loaded every mod; unmanaged constraints are not enforced through reflection; no hard dependency, no type identity problems. Sub-step: scanning every AssemblyLoadContext with GetCustomAttributesData in a Program.Main prefix is the answer to loading across load contexts; give it a section.'
+  related:
+  - share-types-between-mods
+  - declare-a-mod-dependency
+  - integrate-with-an-optional-mod
+  - host-a-terminal-with-pty-sessions-and-frame-handoff
+  - use-shaderextensions-without-referencing-its-assembly
+  - discover-plugins-by-attribute-name
+  - fork-a-library-mod-compatibly
+  borrowed_from:
+  - mods/gatos/features/purrtty-custom-shell-contract
+  - mods/purrtty/features/custom-shell-contract-via-assembly-imports
+  - mods/ksarmory/features/armoury-pack-registration-api
+  merged_from:
+  - design-an-inter-mod-registration-api
+  - register-with-another-mods-plugin-registry
+  - expose-an-api-to-other-mods-without-a-shared-assembly
+  - record-and-check-the-api-other-mods-bind-to
+  dedupe_with:
+  - getting-started/share-types-between-mods
+  - getting-started/declare-a-mod-dependency
+  - getting-started/integrate-with-an-optional-mod
+  - getting-started/discover-plugins-by-attribute-name
+  - shaders/use-shaderextensions-without-referencing-its-assembly
+- slug: make-an-http-request-from-a-mod-without-blocking-the-frame
+  title: Make an HTTP request from a mod and add an in-game bug report form
+  summary: Send a request from a Task.Run on the player's click only, poll plain status fields from the draw each frame, give the request a timeout, and handle runtime quirks of the game's load context such as a BCL property that throws MissingMethodException when read directly. The worked example is an ImGui bug report window that posts to a guarded self-hosted issue service, with draft rules mirrored from the service and build-match gating.
+  game_types:
+  - KSA.Vehicle
+  engine_pointers:
+  - current/decomp/KSA/Program.cs OnDrawUiViewports (draw-ui host for the form)
+  lifecycle:
+  - frame:draw-ui
+  - thread:background
+  approaches:
+  - n: 1
+    title: FeedbackClient posting JSON with polled Sending/Status fields and reflection for StatusCode
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/in-game-bug-reports
+    technique: background-thread
+    note: '45 s timeout, volatile status, status codes read via GetProperty("StatusCode") because the direct call throws MissingMethodException in game; per-code user messages. Buttons hidden when the running KSA build differs from the built-for build; Send disabled with the reason text while the draft is invalid; the service''s sanitising, rate limits and 202-for-everything policy. Sub-step: the ImGui report window, ReportDraft rules mirrored from the service and the service-side guard (formerly add-an-in-game-bug-report-form) get their own section.'
+  related:
+  - host-a-terminal-with-pty-sessions-and-frame-handoff
+  - script-gameplay-through-a-command-bridge
+  - build-a-settings-window
+  - check-the-game-version
+  merged_from:
+  - add-an-in-game-bug-report-form
+  dedupe_with:
+  - ui/build-a-settings-window
+  - ui/build-a-developer-panel

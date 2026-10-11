@@ -1,0 +1,679 @@
+batch: audio-1
+game_loop_reference: getting-started/game-loop-and-lifecycle
+category: audio
+category_description: Playing sound in KSA from a mod through the game's FMOD system - shipping sound XML assets, placing
+  and moving spatial channels, reusing Core sounds and their parameters, timing sounds against the world, and bringing your
+  own files or music.
+groups:
+  playback: 'Playing sounds against the world from code: spatial channels, parameter curves, engine loops and propagation
+    delay.'
+  sound-assets: Declaring sounds and music as XML assets, and the sound type map they register into.
+  channels: 'Owning FMOD channels: raw sound files, time-warp and volume behaviour, and releasing channels at scene change
+    and exit.'
+topics:
+- slug: play-a-sound-at-a-world-position-and-hold-its-channel
+  title: Play a sound at a world position and hold its spatial channel
+  kind: howto
+  group: playback
+  batch: audio-1
+  summary: Start a declared sound so it pans, attenuates, Doppler-shifts and is muffled by air pressure as if it came from
+    a point in the world, using SpatialAudio built from a nearby object plus an offset or from camera-relative Ego vectors,
+    then keep the returned IChannel, re-place it each frame with SetSpatialAudio, restart it when the engine has reclaimed
+    it, and sweep channels against the live roster so nothing keeps playing after its owner is gone.
+  game_types:
+  - KSA.GameAudio
+  - KSA.SpatialAudio
+  - KSA.SoundBehavior
+  - KSA.IChannel
+  - KSA.Camera
+  - KSA.PhysicalAtmosphereReference
+  - KSA.ModLibrary
+  - KSA.ChannelWrapper
+  - KSA.CompoundChannelWrapper
+  engine_pointers:
+  - current/decomp/KSA/SpatialAudio.cs (constructors from Astronomical + offset and from Ego position/velocity/pressure)
+  - current/decomp/KSA/GameAudio.cs GetAudioCamera, PlaySound overloads
+  - current/decomp/KSA/ChannelWrapper.cs SetSpatialAudio (pressure to low-pass cutoff)
+  - current/decomp/KSA/Camera.cs GetPositionEgo, GetVelocityEgo
+  - current/decomp/KSA/GameAudio.cs UpdateAudio (drops channels that are neither playing nor virtual)
+  - current/decomp/KSA/IChannel.cs
+  - current/decomp/KSA/ChannelWrapper.cs UpdateVolume, UpdatePitch (multipliers persist until reset)
+  lifecycle:
+  - frame:draw-ui
+  - frame:celestials
+  - frame:after-on-frame
+  - frame:post-render
+  approaches:
+  - n: 1
+    title: GameAudio.PlaySound with SpatialAudio(Astronomical, offset)
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/world-positioned-sounds
+    technique: fmod-audio
+    note: 'Anchor on a live vehicle near the sound and add the Ecl difference as the offset (Ego is a pure translation of
+      Ecl); Doppler and pressure then come from the anchor. Includes ModLibrary.Get<SoundBehavior> lookup and the speed-band
+      choice of sound id and volume. Fire-and-forget: no channel is kept, so this approach needs no hold-and-move section.'
+  - n: 2
+    title: Hand-built Ego SpatialAudio, one held channel per source swept against the live roster
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/spatial-gun-and-motor-sounds
+    - mods/ksacars/features/engine-sound-crossfade
+    technique: held-channel
+    note: 'Listener is GameAudio.GetAudioCamera(); position and velocity from camera.GetPositionEgo/GetVelocityEgo, pressure
+      from PhysicalAtmosphereReference.GetAtmosphericPressure(listener). Use when the source is a mod-simulated object (platform
+      ego plus the round''s own offset keeps it epoch-clean at orbital speed). Bypasses GameAudio.PlaySound''s 10x gate. Absorbed
+      from hold-and-move: [armory] the channel unit is chosen by what the ear hears (one pitched loop for a fast gun, not
+      many one-shots); the channel is moved every frame after the rounds are stepped, dictionaries are swept against the live
+      roster, and the loop is never restarted from code. Give the held-channel lifecycle (SetSpatialAudio each frame, restart
+      when reclaimed, sweep) its own section. Channel unit chosen by what the ear hears (a 75 round per second gun is one
+      pitched loop, not 75 one-shots); position is platform ego plus the round''s offset; dictionaries swept each frame against
+      the live roster; update runs after the rounds are stepped so a motor is heard where its round is now; do not restart
+      a loop from code, let <Loop /> loop it.'
+  - n: 3
+    title: One looping channel per craft, guarded move and cut
+    mod: ksacars
+    features:
+    - mods/ksacars/features/engine-sound-crossfade
+    - mods/ksacars/features/rocket-sound-without-engine
+    technique: fmod-audio
+    note: 'Absorbed from hold-and-move: a sub-step section on keeping a looping channel per craft: guarded TryMove/Cut, replace
+      a dead channel next frame. SoundChannels.TryMove/Cut wrap every call in try because the engine drops a finished channel;
+      a dead channel is replaced next frame; per-craft dictionary; Update runs from the dual-hook StepOnce on the main thread,
+      before GameAudio.UpdateAudio in PostRender applies the values.'
+  related:
+  - ship-custom-sounds-as-xml-assets
+  - cursor-to-world-ray
+  - understand-ksa-coordinate-frames-and-epochs
+  - keep-mod-sounds-sensible-under-time-warp
+  - release-sound-channels-at-scene-change-and-exit
+  - drive-sound-parameters-from-code
+  - replace-the-stock-aerodynamic-force-model
+  - simulate-bodies-outside-the-vehicle-system
+  - draw-ui-while-the-hud-is-hidden
+  - contain-exceptions-in-starmap-hooks
+  merged_from:
+  - play-a-sound-at-a-world-position
+  - hold-and-move-a-spatial-channel-every-frame
+- slug: drive-sound-parameters-from-code
+  title: Drive a sound's Param curves from code and reuse stock sounds
+  kind: howto
+  group: playback
+  batch: audio-1
+  summary: Set the named parameters a sound's <Param> curves listen to (Throttle, Distance, Pressure, Intensity, Iva) with
+    SetParameter and a KeyHash, knowing the engine stores the value and applies it in GameAudio.UpdateAudio and that a sound
+    played by hand reads zero; use it to reuse Core's stock engine and explosion sounds for mod-simulated rockets, cars, missiles
+    and blasts.
+  game_types:
+  - KSA.IChannel
+  - KSA.ChannelWrapper
+  - KSA.CompoundChannelWrapper
+  - KSA.MultiChannelWrapper
+  - KSA.SoundParameterData
+  - KSA.KeyHash
+  - KSA.GameAudio
+  - KSA.SoundEvent
+  - KSA.CompoundSound
+  - KSA.ClusterSound
+  - KSA.Vehicle
+  - KSA.ViewportRegistry
+  - KSA.ExplosionSoundSystem
+  - KSA.ExplosionSystem
+  - KSA.Rendering.Particles.ExplosionReference
+  - KSA.MultiSound
+  - KSA.SoundBehavior
+  - KSA.SpatialAudio
+  - KSA.AssetBundle
+  engine_pointers:
+  - current/decomp/KSA/SoundParameterData.cs (Type Volume/Pitch/Lpf/Hpf, InMin/InMax/OutMin/OutMax, Reverse mode, Rule)
+  - current/decomp/KSA/ChannelWrapper.cs SetParameter, ApplyParameters L212-L246
+  - current/decomp/KSA/GameAudio.cs UpdateAudio (ApplyParameters per active channel)
+  - current/decomp/KSA/ExplosionSoundSystem.cs (reference for Distance, Pressure, Intensity)
+  - current/decomp/KSA/Vehicle.cs UpdateAudio L6127-L6189 and sound hashes L6961-L6966
+  - current/decomp/KSA/GameAudio.cs PlaySound(SoundEvent ...) (cluster sound attached to parent IAudio)
+  - current/Content/Core/Sounds.xml DefaultEngine Param curves, DefaultEngineSoundBehavior
+  - current/decomp/KSA/ExplosionSystem.cs SpawnPresetInternal L253-L257
+  - current/decomp/KSA/ExplosionSoundSystem.cs Spawn, UpdateAudio, StopAll
+  - current/decomp/KSA/Rendering/Particles/ExplosionReference.cs (Sound field)
+  - current/Content/Core/ExplosionAssets.xml Explosion_Conflagration L99-L116, ExplosionBig L219-L249
+  - current/decomp/KSA/Universe.cs DeserializeSave (ExplosionSoundSystem.StopAll)
+  lifecycle:
+  - frame:draw-ui
+  - frame:post-render
+  - frame:after-on-frame
+  - startup:asset-load
+  - frame:celestials
+  approaches:
+  - n: 1
+    title: Engine parameters mirrored from Vehicle.UpdateAudio, borrowing the stock engine sound
+    mod: ksacars
+    features:
+    - mods/ksacars/features/rocket-sound-without-engine
+    technique: fmod-audio
+    note: 'Prebuilt KeyHash.Make hashes; parameters set in StarMapAfterGui are consumed in the same frame''s PostRender apply
+      pass; CompoundChannelWrapper fans SetParameter to start, loop, stop and the subscribed cluster channel; parameter multipliers
+      reset after each apply so they must be set every frame. Absorbed from reuse-the-stock-engine-sound: give a section to
+      playing Core''s DefaultEngineSoundBehavior for a mod-simulated rocket by mirroring the per-nozzle branch of Vehicle.UpdateAudio.
+      Mirrors the per-nozzle branch of Vehicle.UpdateAudio: start paused, SetSpatialAudio, SetParameter Throttle/Distance/Pressure/Iva
+      via prebuilt KeyHash, unpause on the first frame. Author states it has not been listened to in game, so treat the mix
+      as unverified. One channel per car at its centre; silent above 10x.'
+  - n: 2
+    title: Explosion parameters set by hand on a MultiSound, preset stripped of its SoundEvent
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/burst-sound-at-blast-arrival
+    technique: fmod-audio
+    note: 'ExplosionBig''s three layers mix on Distance (100-1000 m crack versus far report), Pressure (echo layer) and Intensity;
+      the engine''s ExplosionSoundSystem sets them, but a sound played by hand needs them set explicitly or the layers mix
+      wrong; MultiChannelWrapper forwards pitch and parameters to all layers. Absorbed from play-a-stock-explosion-sound:
+      give a section to copying a Core Explosion preset without its SoundEvent so the engine stays silent, then playing the
+      same Core sound yourself. KSArmoryNuclearBurst keeps Core''s flash and drops SoundEvent (and VolumeRef, for an unrelated
+      cloud reason); BurstSound plays ExplosionBig with SoundBehavior.Play(startPaused: true), PitchMultiplier = cbrt(0.3
+      kt / kt) clamped 0.35..1, Distance/Pressure/Intensity parameters, unpause, then re-places the channel each frame while
+      IsStillActive. Calling SoundBehavior.Play directly skips the 10x and 50 km gates that GameAudio.PlaySound applies.'
+  - n: 3
+    title: Stock engine loop for a mod-simulated projectile with Throttle pinned open
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/spatial-gun-and-motor-sounds
+    technique: fmod-audio
+    note: One channel per burning mod-simulated round; Core's loop maps Throttle 0 to 0.1x volume and 0.5x pitch so the mod
+      sets Throttle=1 on start; the same lookup resolves mod and Core ids, so a custom sample can later replace the borrowed
+      one without code changes.
+  related:
+  - understand-the-games-sound-and-music-xml-types
+  - play-a-sound-at-a-world-position-and-hold-its-channel
+  - play-a-spin-up-loop-tail-sound-and-crossfade-engine-loops
+  - delay-a-sound-until-the-blast-front-arrives
+  - draw-exhaust-plumes-without-an-engine
+  - inject-forces-and-impulses-at-the-physics-safe-point
+  - spawn-particle-effects
+  - keep-mod-sounds-sensible-under-time-warp
+  merged_from:
+  - reuse-the-stock-engine-sound-for-custom-thrust
+  - play-a-stock-explosion-sound-on-your-own-schedule
+- slug: play-a-spin-up-loop-tail-sound-and-crossfade-engine-loops
+  title: Crossfade engine loops and play spin-up, loop and tail sounds
+  kind: howto
+  group: playback
+  batch: audio-1
+  summary: 'Make a simulated engine or weapon sound alive: crossfade an idle and a load loop by throttle and RPM with per-loop
+    pitch against the recorded RPM, or declare a CompoundSound whose StartSound, looping Sound and StopSound ramp up, hold
+    and wind down without the mod scheduling any of it. Includes cutting seamless mono loops from recordings.'
+  game_types:
+  - KSA.IChannel
+  - KSA.SoundBehavior
+  - KSA.SpatialAudio
+  - KSA.GameAudio
+  - KSA.CompoundSound
+  - KSA.CompoundChannelWrapper
+  - KSA.SoundReference
+  - KSA.SoundFileReference
+  engine_pointers:
+  - current/decomp/KSA/ChannelWrapper.cs UpdateVolume, UpdatePitch (VolumeMultiplier and PitchMultiplier persist)
+  - current/decomp/KSA/GameAudio.cs UpdateAudio
+  - current/decomp/KSA/Program.cs PostRender L2362
+  - current/decomp/KSA/CompoundSound.cs Play (stop sound starts paused)
+  - current/decomp/KSA/CompoundChannelWrapper.cs Stop, SetParameter, SetSpatialAudio, SetPaused
+  - current/Content/Core/Sounds.xml DefaultEngineSoundBehavior (same shape)
+  - current/decomp/KSA/SoundFileReference.cs (Path, Volume, Loop, LoopData)
+  - current/Content/Core/Sounds.xml (how Core declares loops)
+  lifecycle:
+  - startup:asset-load
+  - frame:draw-ui
+  - frame:after-on-frame
+  - frame:post-render
+  approaches:
+  - n: 1
+    title: Two mono loops with per-frame volume and pitch multipliers, cut from recordings with recorded-RPM provenance
+    mod: ksacars
+    features:
+    - mods/ksacars/features/engine-sound-crossfade
+    - mods/ksacars/features/art-and-audio-pipeline-tooling
+    technique: fmod-audio
+    note: 'rev from RPM between idle and redline, loaded = clamp(1.4 rev + 0.35 load); idle volume 1 - 0.85 loaded, pitch
+      Rpm / IdleRecordedRpm; load volume scaled by loaded and Load, pitch Rpm / LoadRecordedRpm; clamps 0.5..2.5 pitch and
+      0..2 volume; 2 s wait for the starter clip; loops cut above 4x warp; only the car the player flies is heard. Absorbed
+      from cut-looping-sounds: give a section to cutting the idle and load loops from a CC0 recording with NumPy/SciPy scripts
+      and recording the source RPM that the pitch ratio depends on. buggy-sounds.py and eldorado-sounds.py track the strongest
+      engine line, cut loops at zero-return points, 20 ms seam crossfade, resample_poly and peak normalisation; tools/audio/README.md
+      records freesound id, licence and the RPM each loop was recorded at (feeds IdleRecordedRpm and LoadRecordedRpm).'
+  - n: 2
+    title: CompoundSound spin, loop and tail cut from one recording, held while firing
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/spatial-gun-and-motor-sounds
+    technique: compound-sound
+    note: 'Three <Sound> cuts (spin, <Loop /> loop, tail) plus <CompoundSound> with StartSound/Sound/StopSound; one channel
+      per firing system held while guns fire; loop re-pitched toward the gun''s rate within 0.8..1.25 and ApplyParameters;
+      a loop-plus-tail compound without a spin-up when the recording has none; cut points measured off the envelope. Absorbed
+      from cut-looping-sounds: give a section to the envelope-measured spin, loop and tail cuts from one recording. tools/cut-cannon.py
+      splits one recording into spin-up, loop and tail at envelope-measured points so a new recording needs no new numbers;
+      recording licences tracked beside the scripts.'
+  related:
+  - ship-custom-sounds-as-xml-assets
+  - play-a-sound-at-a-world-position-and-hold-its-channel
+  - drive-sound-parameters-from-code
+  - keep-mod-sounds-sensible-under-time-warp
+  - simulate-wheels-and-suspension-without-a-wheel-module
+  - understand-the-games-sound-and-music-xml-types
+  merged_from:
+  - crossfade-layered-engine-loops-by-rpm
+  - play-a-spin-up-loop-tail-sound
+  - cut-looping-sounds-from-recordings
+- slug: delay-a-sound-until-the-blast-front-arrives
+  title: Delay a world sound by the time sound takes to reach the listener
+  kind: howto
+  group: playback
+  batch: audio-1
+  summary: Make a distant event heard after it is seen by following its expanding front against the live audio camera instead
+    of using a fixed delay, so flying toward it brings the sound sooner, with gates for vacuum, inaudible pressure and a ground-reflected
+    second report. Coincident bursts are merged into one effect rather than stacked.
+  game_types:
+  - KSA.GameAudio
+  - KSA.PhysicalAtmosphereReference
+  - KSA.AtmosphereReference
+  - KSA.Camera
+  - KSA.Celestial
+  - KSA.Universe
+  engine_pointers:
+  - current/decomp/KSA/PhysicalAtmosphereReference.cs (pressure, density at altitude, speed of sound inputs)
+  - current/decomp/KSA/GameAudio.cs GetAudioCamera
+  - current/decomp/KSA/Celestial.cs GetBodyFixed2Ecl (anchor an event in the body-fixed frame)
+  - current/decomp/KSA/GameAudio.cs (voice and channel limits, System.Init(1024 ...))
+  lifecycle:
+  - frame:draw-ui
+  - frame:celestials
+  - frame:after-on-frame
+  approaches:
+  - n: 1
+    title: Per-burst front aged on the simulated step and compared with the camera every frame, coincident bursts merged
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/burst-sound-at-blast-arrival
+    technique: live-front-arrival
+    note: 'Speed of sound sqrt(gamma P0 / rho0) from the body''s atmosphere; Sedov-Taylor then sonic front radius, bisected
+      for arrival; ground-anchored in the body frame so a minutes-long wait does not leave the burst behind the planet''s
+      orbital speed; vacuum gate; 50 Pa audibility gate and loudness min(1, sqrt(p/1000)); an air-burst second report from
+      the ground mirror path; stepped by _lastSimStep so it waits through pause and hurries under warp. Absorbed from merge-coincident-events:
+      give a section to folding events that coincide in time and place into one louder effect instead of stacking voices.
+      A new burst on the same body, no more than 0.5 s after a queued front and anchored within 1 km, adds its charge to that
+      front (ChargeKg +=) instead of queuing a new one; called from both the new-cloud and merge paths of the cloud code so
+      a bomb dropped on a standing fireball is still heard.'
+  related:
+  - drive-sound-parameters-from-code
+  - play-a-sound-at-a-world-position-and-hold-its-channel
+  - simulate-bodies-outside-the-vehicle-system
+  - read-body-properties-and-orbit-elements
+  - spawn-particle-effects
+  merged_from:
+  - merge-coincident-events-into-one-effect
+- slug: understand-the-games-sound-and-music-xml-types
+  title: Understand KSA's sound, channel group and music playlist XML types
+  kind: reference
+  group: sound-assets
+  batch: audio-1
+  summary: A map of the sound types a mod can declare or look up - SoundBehavior and its Sound, CompoundSound, MultiSound
+    and ClusterSound subclasses, SpatialSoundData, SoundGroup, ChannelGroup with DSP chains, and MusicPlaylist - plus how
+    they register, populate and play.
+  game_types:
+  - KSA.SoundBehavior
+  - KSA.SoundReference
+  - KSA.CompoundSound
+  - KSA.MultiSound
+  - KSA.ClusterSound
+  - KSA.SpatialSoundData
+  - KSA.ChannelGroupReference
+  - KSA.MusicPlayList
+  - KSA.LocationMusicPlayer
+  - KSA.ModLibrary
+  engine_pointers:
+  - current/decomp/KSA/ModLibrary.cs (AllSoundBehaviours, AllMusicPlaylists, AllChannelGroups, PopulateSounds)
+  - current/decomp/KSA/SoundBehavior.cs (Play, Get, ClusterSound)
+  - current/decomp/KSA/ChannelGroupReference.cs (ParentId, Volume, DspChain, OnDataLoad creates the FMOD group, Populate parents
+    it)
+  - current/decomp/KSA/MusicPlayList.cs and LocationMusicPlayer.cs
+  - current/decomp/KSA/GameAudio.cs OnApplicationStart (Master, Sfx, Ui, Music groups)
+  - current/decomp/KSA/Program.cs L985-L990 (PopulateSounds after AttachGameData)
+  - current/Content/Core/Sounds.xml (ChannelGroup, CompoundSound, MusicPlaylist examples)
+  lifecycle:
+  - startup:asset-load
+  - startup:all-mods-loaded
+  - startup:game-loaded
+  approaches:
+  - n: 1
+    title: Read the type map through the features that use each type
+    mod: ksacars
+    features:
+    - mods/ksacars/features/engine-sound-crossfade
+    - mods/ksacars/features/rocket-sound-without-engine
+    - mods/ksarmory/features/spatial-gun-and-motor-sounds
+    - mods/ksarmory/features/burst-sound-at-blast-arrival
+    - mods/unscience/features/byo-music-vessel-3d-audio
+    technique: xml-asset
+    note: 'Reference article: Sound/CompoundSound/MultiSound/ClusterSound.Play return different IChannel wrappers; a SoundReference
+      with files registers itself while an empty one is a reference resolved by Get(); ChannelId resolves in Populate (after
+      StarMapAllModsLoaded and AttachGameData); Core declares ExternalChannel, InternalChannel, EnginesChannel, AmbienceChannel,
+      ExtReverb under Sfx; SimSpeedRule values; Param types Volume/Pitch/Lpf/Hpf. Note the mod notes that claim a <SoundBehavior>
+      top-level element are wrong in this build.'
+  related:
+  - ship-custom-sounds-as-xml-assets
+  - add-a-music-playlist-for-a-location
+  - play-a-spin-up-loop-tail-sound-and-crossfade-engine-loops
+  - drive-sound-parameters-from-code
+  - play-sound-files-through-the-games-fmod-system
+- slug: ship-custom-sounds-as-xml-assets
+  title: Ship custom sounds with a mod as XML sound assets
+  kind: howto
+  group: sound-assets
+  batch: audio-1
+  summary: Declare your own wav files in a mod asset XML (listed in mod.toml assets) so KSA registers them as SoundBehaviors
+    you can look up by id, with the right channel group, 3D range, loop flag, priority and simulation-speed rule.
+  game_types:
+  - KSA.SoundReference
+  - KSA.SoundFileReference
+  - KSA.SpatialSoundData
+  - KSA.SoundBehavior
+  - KSA.AssetBundle
+  - KSA.ModLibrary
+  - KSA.ChannelGroupReference
+  engine_pointers:
+  - current/decomp/KSA/AssetBundle.cs (XmlElement table for Sound, SpatialSoundData, CompoundSound, MultiSound, MusicPlaylist,
+    ChannelGroup)
+  - current/decomp/KSA/SoundReference.cs (ChannelId, Priority default 128, SimSpeed, SelectionRule, Pitch, Volume, Param)
+  - current/decomp/KSA/SpatialSoundData.cs (VolumeRange, TwoDRange)
+  - current/decomp/KSA/ModLibrary.cs PopulateSounds
+  - current/Content/Core/Sounds.xml (ExternalChannel group under Sfx, reference shapes)
+  lifecycle:
+  - startup:asset-load
+  - startup:all-mods-loaded
+  approaches:
+  - n: 1
+    title: One-shot sounds with random variants and a simulation-speed rule
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/world-positioned-sounds
+    technique: xml-asset
+    note: Four <Sound> assets on ExternalChannel, two <SoundFile> children each (SelectionRule defaults to Random), SimSpeed=OnlyLower,
+      <SpatialSoundData><VolumeRange Min Max> plus TwoDRange 0/0 for fully positional playback. Shows what each attribute
+      means in the decomp and that ModLibrary.Get<SoundBehavior> throws on an unknown id.
+  - n: 2
+    title: Looping layers sharing one SpatialSoundData asset
+    mod: ksacars
+    features:
+    - mods/ksacars/features/engine-sound-crossfade
+    technique: xml-asset
+    note: A named <SpatialSoundData Id> declared once and referenced from four <Sound> elements per car; <Loop /> inside <SoundFile>
+      turns on FMOD loop mode; Volume clamped 0..2; mono files because the engine spatialises the source; missing asset file
+      in mod.toml means a silent id that the mod warns about once.
+  - n: 3
+    title: Per-weapon-class spatial data, priority and pitch variation
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/spatial-gun-and-motor-sounds
+    technique: xml-asset
+    note: SpatialSoundData per weapon class (a 5-inch gun carries further than a 20 mm), Priority=110 so gun channels beat
+      Core's explosion (123/124) and engine (125) sounds under FMOD's voice limit, a <Pitch Min Max> range so a repeated gunshot
+      is not one sample, and the Python cut scripts' provenance habit.
+  related:
+  - understand-the-games-sound-and-music-xml-types
+  - play-a-sound-at-a-world-position-and-hold-its-channel
+  - play-a-spin-up-loop-tail-sound-and-crossfade-engine-loops
+  - keep-mod-sounds-sensible-under-time-warp
+  - add-a-music-playlist-for-a-location
+  - ship-content-and-code-in-one-mod
+- slug: add-a-music-playlist-for-a-location
+  title: Add background music for a body with a MusicPlaylist asset
+  kind: howto
+  group: sound-assets
+  batch: audio-1
+  summary: Declare a MusicPlaylist with MusicFile entries, loop and sync points, fades and a LocationId so the game's LocationMusicPlayer
+    picks it while the audio camera follows that body or a child of it, crossfading at sync points.
+  game_types:
+  - KSA.MusicPlayList
+  - KSA.MusicFileReference
+  - KSA.LocationMusicPlayer
+  - KSA.MusicPlayer
+  - KSA.GameAudio
+  - KSA.ChannelGroupType
+  engine_pointers:
+  - current/decomp/KSA/MusicPlayList.cs (LocationId, PlayMusic, sets MusicPlayer.CurrentPlaylist)
+  - current/decomp/KSA/LocationMusicPlayer.cs (Initialise lookup by LocationId hash, GetLocationPlaylist walks Parent, ScheduleNext
+    fade at SyncPoints, Update)
+  - current/decomp/KSA/MusicFileReference.cs (SyncPoint)
+  - current/Content/Core/Sounds.xml L522-L611 (EarthSOIMusic and other SOI playlists on ChannelId=Music)
+  - current/decomp/KSA/Program.cs L985-L990 (PopulateSounds then LocationMusicPlayer.Initialise)
+  lifecycle:
+  - startup:asset-load
+  - startup:game-loaded
+  - frame:post-render
+  approaches:
+  - n: 1
+    title: Declare a MusicPlaylist in a mod asset XML
+    mod: unscience
+    features:
+    - mods/unscience/features/byo-music-vessel-3d-audio
+    technique: xml-asset
+    note: Only demonstrated by BYO Music's development-host Assets.xml (a MultiSound plus a MusicPlaylist with LocationId=Sol,
+      Music/Sabotage.mp3 git-ignored, not in the shipped mod.toml), and its legacy MusicPlayer helper that calls MusicPlaylist.PlayMusic;
+      the real shape and behaviour must be taken from Core's SOI playlists and LocationMusicPlayer in the decomp. Say plainly
+      that no shipped mod feature runs this path in game.
+  related:
+  - understand-the-games-sound-and-music-xml-types
+  - ship-custom-sounds-as-xml-assets
+  - play-sound-files-through-the-games-fmod-system
+- slug: play-sound-files-through-the-games-fmod-system
+  title: Play your own sound files through KSA's FMOD system without blocking
+  kind: howto
+  group: channels
+  batch: audio-1
+  summary: Create FMOD sounds from bytes or a file path on GameAudio.System, open long files with NonBlocking and poll their
+    state, and play them on the game's Sfx, Music or Ui channel group (optionally attached in 3D to a vessel) so they mix
+    with game audio and obey the player's volume sliders, without ever owning or pumping the FMOD system.
+  game_types:
+  - KSA.GameAudio
+  - Brutal.FmodApi.FmodSystem
+  - Brutal.FmodApi.Sound
+  - Brutal.FmodApi.Channel
+  - Brutal.FmodApi.Mode
+  - KSA.ChannelGroupType
+  - KSA.ChannelGroupReference
+  - KSA.ModLibrary
+  - Brutal.FmodApi.OpenState
+  - Brutal.FmodApi.Result
+  - KSA.SpatialAudio
+  - KSA.Vehicle
+  - KSA.Program
+  engine_pointers:
+  - current/decomp/KSA/GameAudio.cs System, OnApplicationStart (Init 1024, 3D right-handed, file callbacks, Master/Sfx/Ui/Music
+    groups), GetChannelGroup L660-L680, CreateFmodSound L270-L280, UpdateAudio
+  - current/decomp/KSA/ChannelGroupReference.cs
+  - current/decomp/KSA/Program.cs PostRender L2362 (GameAudio.UpdateAudio pumps FMOD)
+  - current/decomp/Brutal.FmodApi/Fmod.cs TryCreateSound, TryCreateStream, TryPlaySound
+  - current/decomp/KSA/GameAudio.cs CreateFmodSound (Thread.Sleep(1) loop on TryGetOpenState for streamed sounds)
+  - current/decomp/Brutal.FmodApi/OpenState.cs
+  - current/decomp/KSA/SpatialAudio.cs PositionView, VelocityView (camera view space; KSA never sets FMOD listener attributes)
+  - current/decomp/KSA/ChannelWrapper.cs SetSpatialAudio (convention being matched)
+  - current/decomp/KSA/Program.cs L2263 (OnFrameViewports before GUI), L2267 (OnDrawUiFrame), L2362 (PostRender)
+  lifecycle:
+  - frame:viewports
+  - frame:draw-ui
+  - frame:after-on-frame
+  - frame:post-render
+  - thread:background
+  - event:save
+  - event:load
+  - frame:prepare
+  approaches:
+  - n: 1
+    title: In-memory sounds, channel table and ref-counted release
+    mod: gatos
+    features:
+    - mods/gatos/features/fmod-audio-playback
+    technique: fmod-audio
+    note: TryCreateSound(bytes, OpenMemory | _2d | CreateSample or CreateCompressedSample above 1 MiB), cached by (name, version);
+      play on GameAudio.GetChannelGroup(Sfx/Music/Ui) started paused, then position, loop, volume, pitch and unpause; release
+      a Sound only when no live channel plays it; never call System.Update/Close/Release; uploads stay on transport threads,
+      FMOD calls on the main thread.
+  - n: 2
+    title: File-path streams on the Sfx group, opened non-blocking and polled each frame
+    mod: unscience
+    features:
+    - mods/unscience/features/byo-music-vessel-3d-audio
+    technique: fmod-audio
+    note: 'TryCreateStream with a NUL-terminated UTF-8 absolute path (KSA''s file callbacks File.OpenRead the name), group
+      from ModLibrary.Get<ChannelGroupReference>("Sfx").ChannelGroup, TryPlaySound paused, configure, unpause; Mode flags
+      for 3D, loop and rolloff; avoid a second FMOD system (second listener and device). Absorbed from load-fmod-streams-without-blocking:
+      give a section to opening long files with Mode.NonBlocking and polling the open state once per frame. TryCreateStream(Mode._3d
+      | NonBlocking | LoopOff); each Update checks TryGetOpenState: Error aborts with a ''use PCM WAV, MP3 or Ogg Vorbis''
+      message, anything but Ready waits a frame, 15 s without readiness is a timeout. The extension is not a codec check,
+      so a mislabelled file ends as a per-entry error rather than a stuck Loading.'
+  - n: 3
+    title: One VesselSound per entry with per-frame 3D attributes and a completion-based repeat scheduler
+    mod: unscience
+    features:
+    - mods/unscience/features/byo-music-vessel-3d-audio
+    technique: fmod-audio
+    note: 'Absorbed from attach-an-imported-sound-to-a-vessel-in-3d: a 3D vessel-attached playback layer on top of the stream
+      approach, including persistence across scene saves. TrySet3dAttributes(spatial.PositionView(), VelocityView()) every
+      frame after Mode._3d | _3dLinearRolloff, min/max (min(10, range*0.1), range), spread 0 for stereo files, Doppler 0;
+      native LoopNormal for zero gap, otherwise RepeatPlayback.Advance counts real seconds from observed completion and keeps
+      elapsed silence when the gap is edited; stop on vessel loss; scene-save participant restores paused sounds. Possible
+      finish-path issue noted by static reading (strict TrySetPaused before tolerant TryIsPlaying), unverified in game.'
+  related:
+  - understand-the-games-sound-and-music-xml-types
+  - keep-mod-sounds-sensible-under-time-warp
+  - release-sound-channels-at-scene-change-and-exit
+  - add-a-music-playlist-for-a-location
+  - make-a-vehicle-indestructible
+  - build-searchable-lists-and-browsers
+  - draw-ui-while-the-hud-is-hidden
+  - run-an-expensive-solve-without-stalling-the-frame
+  merged_from:
+  - load-fmod-streams-without-blocking-the-game-thread
+  - attach-an-imported-sound-to-a-vessel-in-3d
+- slug: keep-mod-sounds-sensible-under-time-warp
+  title: Keep mod-played sounds sensible under time warp and the player's volume
+  kind: howto
+  group: channels
+  batch: audio-1
+  summary: Know what the engine does to a sound at high simulation speed (pitch rule, stop above 10x, PlaySound refusing)
+    and the player's Master and Sfx sliders, and choose per sound whether to follow it, override it or bypass it.
+  game_types:
+  - KSA.GameAudio
+  - KSA.ChannelWrapper
+  - KSA.SimSpeedRule
+  - KSA.SoundReference
+  - KSA.ChannelGroupType
+  - KSA.Universe
+  engine_pointers:
+  - current/decomp/KSA/GameAudio.cs PlaySound L383-L423 (Universe.SimulationSpeed > 10 early-out, alwaysPlay), UpdateAudio,
+    ApplySettings, MapVolumeSetting
+  - current/decomp/KSA/ChannelWrapper.cs HandleSimSpeedPitch, StopForSimSpeed L497-L503
+  - current/decomp/KSA/SimSpeedRule.cs (None, Ignore, All, OnlyLower, OnlyHigher)
+  lifecycle:
+  - startup:asset-load
+  - frame:draw-ui
+  - frame:post-render
+  approaches:
+  - n: 1
+    title: Declare a SimSpeed rule and let the engine handle it
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/world-positioned-sounds
+    technique: fmod-audio
+    note: SimSpeed=OnlyLower follows pitch below 1x (floored at 0.25) and never raises it; GameAudio.PlaySound silently returns
+      no channel above 10x unless alwaysPlay, which the caller must handle; channels are stopped above 10x unless SimSpeed=Ignore.
+  - n: 2
+    title: Cut your own loops below the engine's threshold
+    mod: ksacars
+    features:
+    - mods/ksacars/features/engine-sound-crossfade
+    technique: fmod-audio
+    note: Calling SoundBehavior.Play directly skips the PlaySound 10x early-out; the mod cuts its loops above 4x without a
+      key-off because RPM swings under warp are only noise, which sits below StopForSimSpeed and HandleSimSpeedPitch.
+  - n: 3
+    title: Channels the game never registers
+    mod: unscience
+    features:
+    - mods/unscience/features/byo-music-vessel-3d-audio
+    technique: fmod-audio
+    note: 'FMOD channels made directly on GameAudio.System and the game''s Sfx group are not in ActiveChannels, so HandleSimSpeedPitch
+      and StopForSimSpeed never touch them: stable pitch, plays in space and in warp, still follows the player''s SFX and
+      master sliders; Doppler level 0 keeps pitch steady.'
+  related:
+  - ship-custom-sounds-as-xml-assets
+  - play-sound-files-through-the-games-fmod-system
+  - play-a-sound-at-a-world-position-and-hold-its-channel
+  - set-simulation-speed-from-a-mod
+  - compute-mission-elapsed-time-and-detect-liftoff
+  - inject-forces-and-impulses-at-the-physics-safe-point
+  - simulate-bodies-outside-the-vehicle-system
+- slug: release-sound-channels-at-scene-change-and-exit
+  title: Stop and release sound channels at scene change and game exit
+  kind: howto
+  group: channels
+  batch: audio-1
+  summary: Stop held channels when the owner, the scene or a save load goes away, and know that by StarMapUnload the game
+    has already closed FMOD (Program.Dispose calls GameAudio.Release before StarMap invokes unload hooks), so unload-time
+    audio cleanup is moot and calls must be guarded.
+  game_types:
+  - KSA.Program
+  - KSA.GameAudio
+  - KSA.ExplosionSoundSystem
+  - KSA.IChannel
+  - Brutal.FmodApi.FmodSystem
+  - KSA.Universe
+  engine_pointers:
+  - current/decomp/KSA/Program.cs Dispose L1362-L1488 (GameAudio.Release at L1485, after Glfw.Terminate)
+  - current/decomp/KSA/GameAudio.cs Release (System.Close then System.Release), OnApplicationStart
+  - current/decomp/KSA/Universe.cs DeserializeSave (ExplosionSoundSystem.StopAll for the engine's own)
+  - content/mods/starmap/features/unload-and-shutdown.md (StarMapUnload runs after Main returns and Dispose)
+  lifecycle:
+  - event:shutdown
+  - event:starmap-unload
+  - event:load
+  approaches:
+  - n: 1
+    title: StopAll at StarMapUnload, plus Stop(stopImmediate) on world reload
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/spatial-gun-and-motor-sounds
+    - mods/ksarmory/features/burst-sound-at-blast-arrival
+    technique: starmap-lifecycle
+    note: '[StarMapUnload] calls StopAll on the gun and motor players because pooled channels belong to the game; the same
+      classes are reset from the world-reload hook (BurstSound.Clear stops channels with stopImmediate as Universe.DeserializeSave
+      does for the engine''s own). Cross-check the timing claim against the ksacars note before presenting StopAll at unload
+      as effective.'
+  - n: 2
+    title: Stop on scene exit and tolerate a dead audio system
+    mod: ksacars
+    features:
+    - mods/ksacars/features/engine-sound-crossfade
+    - mods/ksacars/features/rocket-sound-without-engine
+    technique: starmap-lifecycle
+    note: StopAll runs when the craft leaves a flight scene, when the fault limiter disables the mod, and in [StarMapUnload];
+      the last is documented as moot because Program.Dispose already closed FMOD, so every channel call is wrapped in try
+      and fails quietly.
+  - n: 3
+    title: Dispose all streams on save reset before vehicles are replaced
+    mod: unscience
+    features:
+    - mods/unscience/features/byo-music-vessel-3d-audio
+    technique: save-sidecar
+    note: 'The scene-save participant''s Reset is Dispose: every stream is stopped and released before KSA replaces the vehicles;
+      target loss (vehicle disposed or no longer the same object) stops the entry; Restore re-creates sounds paused.'
+  - n: 4
+    title: Release sounds only after no channel plays them
+    mod: gatos
+    features:
+    - mods/gatos/features/fmod-audio-playback
+    technique: fmod-audio
+    note: Tick prunes stopped channels, then releases cached Sounds whose clip version was evicted and that no channel still
+      plays; teardown frees only what the mod created and never calls System.Close or Release because the game owns the system.
+  related:
+  - clean-up-on-game-exit
+  - play-a-sound-at-a-world-position-and-hold-its-channel
+  - play-sound-files-through-the-games-fmod-system
+  - make-a-vehicle-indestructible
+  - contain-exceptions-in-starmap-hooks

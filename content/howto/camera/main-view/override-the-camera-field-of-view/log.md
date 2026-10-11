@@ -1,0 +1,5 @@
+# Override the camera field of view and zoom past the stock clamp history
+
+## 2026-10-10
+* **Update**: Review: corrected the claim that `GameSettings.ApplyTo` runs only at viewport creation (the settings Apply also resets the frame camera to the slider value), added that `UpdateProjection` changes the projection at once while the view-projection is rebuilt only in `Camera.OnFrame` (`UpdateShaderData` packs them separately), and removed an unsupported sentence about Glass.
+* **Creation**: Added [Override the camera field of view and zoom past the stock clamp](overview.md) and 3 How-To articles ([override-the-camera-field-of-view-1](override-the-camera-field-of-view-1.md), [override-the-camera-field-of-view-2](override-the-camera-field-of-view-2.md), [override-the-camera-field-of-view-3](override-the-camera-field-of-view-3.md)) against game build 2026.10.10.5554 from the override-the-camera-field-of-view batch plan; every game member named was grepped in the decompile and every snippet is verbatim from the pinned mod checkouts.

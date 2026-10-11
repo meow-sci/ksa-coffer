@@ -1,0 +1,5 @@
+# Organise a mod window: tabs, button tabs, tables and pop-out sections history
+
+## 2026-10-10
+* **Creation**: Added [overview](overview.md) and 5 how-to articles: [Tabbed window: a closeable ImGui tab bar with programmatic selection](build-a-tabbed-imgui-window-1.md); [Tabbed window: a per-craft window with tabs, pop-out panes and a reopen button](build-a-tabbed-imgui-window-2.md); [Tabbed window: title-bar-coloured custom tab buttons](build-a-tabbed-imgui-window-3.md); [Tabbed window: button tabs driving a table of collapsing headers](build-a-tabbed-imgui-window-4.md); [Tabbed window: collapsible sections that pop out into their own windows](build-a-tabbed-imgui-window-5.md). Written from the pinned mod sources and checked against the decompiled game build 2026.10.10.5554.
+* **Update**: Reviewed against build 2026.10.10.5554 and the lifecycle reference: "Related topics, not yet written" lines replaced with links to the topics that now exist; overview `repos`, `lifecycle` and `game_types` widened to the union of the articles.

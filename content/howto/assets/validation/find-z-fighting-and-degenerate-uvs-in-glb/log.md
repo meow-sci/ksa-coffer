@@ -1,0 +1,5 @@
+# Check GLB meshes offline: z-fighting, degenerate UVs, names and bounds history
+
+## 2026-10-10
+* **Update**: Independent review of the topic against the decompiled build 2026.10.10.5554 and the pinned mod checkouts. Fixed the plane-bucket wording (0.2 mm is finer than the 8 mm skin). Link text of cross references now names the target article, unresolved topic placeholders became links and truncated snippets are marked with an elision.
+* **Creation**: Added [Find coplanar faces and zero-area UVs with checkmesh.py and read bounds with meshinfo.py](find-z-fighting-and-degenerate-uvs-in-glb-1.md), [Compare exports by surface fingerprint and sweep articulated assemblies for collisions](find-z-fighting-and-degenerate-uvs-in-glb-2.md), [Parse the GLB JSON chunk in C# to validate mesh references](find-z-fighting-and-degenerate-uvs-in-glb-3.md), [Check GLB meshes offline: z-fighting, degenerate UVs, names and bounds](overview.md). Three approaches: checkmesh.py and meshinfo.py, fingerprint comparison and SAT sweeps, and a C# JSON-chunk reader. Verified against the decompiled game build 2026.10.10.5554 and the pinned mod checkouts.

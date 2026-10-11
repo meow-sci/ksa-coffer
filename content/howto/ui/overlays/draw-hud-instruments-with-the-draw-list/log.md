@@ -1,0 +1,5 @@
+# Draw HUD instruments: arc gauges, gradients, scrolling tapes and animated intros history
+
+## 2026-10-10
+* **Creation**: Added [overview](overview.md) and 3 how-to articles: [HUD instruments: PathArcTo plus PathStroke arcs and vertex-alpha gradients](draw-hud-instruments-with-the-draw-list-1.md); [HUD instruments: overlapping staged intro and outro animation with easing and edge-in stagger](draw-hud-instruments-with-the-draw-list-2.md); [HUD instruments: clip rects per region, scrolling tapes and endpoint rotation](draw-hud-instruments-with-the-draw-list-3.md). Written from the pinned mod sources and checked against the decompiled game build 2026.10.10.5554.
+* **Update**: Reviewed against build 2026.10.10.5554 and the lifecycle reference: article 3 hooks gain `starmap StarMapImmediateLoad` (layout is computed there); "Related topics, not yet written" lines replaced with links to the topics that now exist; overview `repos`, `lifecycle` and `game_types` widened to the union of the articles.

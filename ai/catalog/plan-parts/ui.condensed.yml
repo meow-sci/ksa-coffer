@@ -1,0 +1,1295 @@
+category: ui
+description: ImGui windows, menu bar and ModMenu entries, fonts, draw-list overlays and widgets, hotkeys
+  and input focus, stock-window injection, HUD overlays and settings UIs for KSA mods.
+topics:
+- slug: subclass-the-stock-imguiwindow
+  title: Build a mod window on the game's ImGuiWindow base class, with stable ids and saved placement
+  summary: Derive from KSA.ImGuiWindow so the window gets stock chrome, title bar, close handling and
+    menu integration, draw it every frame from the right hook without leaking ImGui stack state, and give
+    it a stable id and persisted position and size (or take over the chrome entirely with a plain window).
+  game_types: [KSA.ImGuiWindow, KSA.IStaticWindow, KSA.IViewport, KSA.IGameViewport, KSA.VersionInfo,
+    KSA.Program, Brutal.ImGuiApi.ImGui, Brutal.ImGuiApi.ImGuiWindowFlags, Brutal.ImGuiApi.ImGuiViewportPtr]
+  engine_pointers: ['current/decomp/KSA/ImGuiWindow.cs DrawContent (abstract), UseConsoleChrome, OnDrawUi,
+      NoSavedSettings', current/decomp/KSA/IStaticWindow.cs, current/decomp/KSA/ImGuiWindow.cs (NoSavedSettings,
+    _initialPosition, _initialSize), current/decomp/KSA/ImGuiWindow.cs (stock chrome for comparison)]
+  lifecycle: ['frame:draw-ui', 'event:starmap-unload']
+  approaches:
+  - n: 1
+    title: Lazily created window drawn from StarMapAfterGui (menu-opened)
+    mod: ksa-deltavmap
+    features: [mods/ksa-deltavmap/features/map-window-and-menu-entry]
+    technique: imgui-window
+    note: Construct the subclass lazily inside an ImGui frame (the base constructor needs a context),
+      draw it from the after-GUI hook, balance stacks in finally, and warn when VersionInfo.Current.VersionString
+      differs from the tested build. Window state is NoSavedSettings.
+  - n: 2
+    title: Guarded DrawContent with title-bar close detection
+    mod: ksa-measuretools
+    features: [mods/ksa-measuretools/features/measure-menu-and-tool-window]
+    technique: imgui-window
+    note: Same base class with exception-guarded DrawContent, detecting the title-bar close button, and
+      unloading cleanly on StarMapUnload.
+  - n: 3
+    title: IStaticWindow auto-registration with a mod-owned layout persisted to mod config
+    mod: ksa-public-telemetry
+    features: [mods/ksa-public-telemetry/features/panels-as-static-imgui-windows]
+    technique: imgui-window
+    note: 'Implementing IStaticWindow lets the game draw the panel itself; seed _initialPosition and _initialSize
+      and persist them in the mod config because the base uses NoSavedSettings. Also folded: Capture GetWindowPos/Size
+      and debounce into mod config (ksa-public-telemetry): Needed when the stock base class uses NoSavedSettings;
+      debounced write from DrawContent. Sub-step to give its own section: capture GetWindowPos/Size from
+      DrawContent and debounce the write into mod config, because the base class uses NoSavedSettings.'
+  - n: 4
+    title: 'Stable window ids: Label##stable-id for renameable windows and a fixed id so imgui.ini restores
+      a plain window'
+    mod: purrtty
+    features: [mods/purrtty/features/named-terminal-registry-and-theme-dialog, mods/ksastructures/features/settings-menu]
+    technique: imgui-window
+    note: 'User-renameable windows keep geometry because the id part after ## never changes. Also folded:
+      Stable window id for a small settings window (ksastructures): Plain window with a fixed id so imgui.ini
+      restores it. Sub-step: renaming a window without losing its ImGui state.'
+  - n: 5
+    title: 'Chrome-less plain-ImGui variant: alpha-0 title bar, InvisibleButton drag guard, resize snapped
+      to a character grid'
+    mod: purrtty
+    features: [mods/purrtty/features/terminal-window-chrome-tabs-and-resize-snap]
+    technique: imgui-window
+    note: 'Alpha 0 and transparent colours keep the layout stable; an InvisibleButton over the content
+      stops drag-moves; resize is detected by size change while the left button is held and then snapped.
+      Sub-step: this is a plain ImGui.Begin window rather than an ImGuiWindow subclass; show it as the
+      way to take over chrome entirely.'
+  related: [match-the-stock-console-ui-style, add-items-to-the-game-menu-bar, persist-imgui-window-state,
+    draw-a-fullscreen-click-through-overlay, draw-a-monospace-text-grid]
+  borrowed_from: []
+  merged_from: [give-mod-windows-stable-ids-and-persisted-placement, build-a-chromeless-window-that-snaps-to-a-grid]
+  dedupe_with: [persistence/persist-imgui-window-state, persistence/persist-imgui-window-layout]
+- slug: match-the-stock-console-ui-style
+  title: 'Make mod UI look like the game: console widgets, window skin and global theme'
+  summary: Use the game's public ConsoleStyle and ConsoleWidgets helpers (label rows, checkboxes, sliders,
+    primary buttons, window skin) so mod panels match stock fonts, colors and columns, or re-theme every
+    window through the shared ImGuiStyle.
+  game_types: [KSA.ConsoleStyle, KSA.ConsoleWidgets, KSA.ImGuiWindow, KSA.TransferPlanner, KSA.ImGuiDisabledScope,
+    Brutal.ImGuiApi.ImGuiStyle, Brutal.ImGuiApi.ImGuiCol, KSA.FontManager, KSA.KSAColor]
+  engine_pointers: ['current/decomp/KSA/ConsoleStyle.cs PushWidgetStyle, BeginWindow, PopWidgetStyle',
+    'current/decomp/KSA/ConsoleWidgets.cs BeginRow, Checkbox, EndRow', current/decomp/KSA/TransferPlanner.cs
+      (private DrawSliderFloatRow pattern the mods copy), current/decomp/KSA/ConsoleStyle.cs (per-widget
+      PushStyleColor still overrides the global style)]
+  lifecycle: ['frame:draw-ui', 'startup:all-mods-loaded', 'event:save', 'event:load', 'frame:prepare']
+  approaches:
+  - n: 1
+    title: ConsoleWidgets rows inside an ImGuiWindow subclass (no chrome)
+    mod: ksa-deltavmap
+    features: [mods/ksa-deltavmap/features/stock-console-widget-panels, mods/ksa-measuretools/features/measure-menu-and-tool-window]
+    technique: imgui-window
+    note: BeginRow/Checkbox/RowHovered/Tooltip/EndRow and a hidden-id logarithmic slider row copied from
+      TransferPlanner; explain why UseConsoleChrome is off so ConsoleStyle.PushWidgetStyle is not applied.
+      Measure Tools shows rows, tooltips and a hovered-row highlight.
+  - n: 2
+    title: Plain ImGui.Begin plus ConsoleStyle/ConsoleWidgets styling
+    mod: ohmystars
+    features: [mods/ohmystars/features/modmenu-entry-and-console-style-windows]
+    technique: imgui-window
+    note: Avoids ConsoleStyle.BeginWindow because it forces NoSavedSettings and pins to the main viewport;
+      draws custom title-bar-coloured tab buttons and indented collapsible sections from StarMapBeforeGui.
+  - n: 3
+    title: ConsoleStyle window skin unpinned from the main viewport, wrapped helpers
+    mod: ksa-advancedflightcomputer
+    features: [mods/ksa-advancedflightcomputer/features/guidance-panel-and-overlays, mods/ksa-advancedflightcomputer/features/stock-styled-console-ui]
+    technique: imgui-window
+    note: pinToMainViewport false so the panel can leave the main window, plus thin wrappers that reproduce
+      the Transfer Planner's private row helpers so UI injected into stock windows matches.
+  - n: 4
+    title: Re-theme every KSA and mod window through the global ImGuiStyle
+    mod: unscience
+    features: [mods/unscience/features/skittles-imgui-theme-manager]
+    technique: toml-config
+    note: 'Capture original style at AllModsLoaded, restore on unload; game code never calls StyleColors*,
+      but widgets that push colors still win. Includes ImGui.ShowStyleEditor and Tomlyn presets. Also
+      see theme-an-imgui-window (per-window colors) in the widget kit topic. Sub-step to give its own
+      section: capture the original style at StarMapAllModsLoaded and restore it on unload; TOML presets
+      and the embedded style editor.'
+  related: [subclass-the-stock-imguiwindow, build-a-settings-window, inject-ui-into-a-stock-window, build-custom-drawn-imgui-widgets,
+    persist-mod-settings-toml]
+  borrowed_from: []
+  merged_from: [theme-the-whole-game-ui]
+  dedupe_with: [persistence/persist-named-color-palettes]
+- slug: build-a-tabbed-imgui-window
+  title: Build a tabbed ImGui window with pop-out panes
+  summary: Organise a mod panel into tabs, whether with real ImGui tab bars (closeable, selectable) or
+    hand-drawn tab buttons, keep the selection valid when tabs come and go, and let panes or sections
+    pop out into separate windows.
+  game_types: [Brutal.ImGuiApi.ImGui, Brutal.ImGuiApi.ImGuiTabBarFlags]
+  engine_pointers: [current/decomp/KSA/ConsoleStyle.cs (title bar colors used by custom tab buttons),
+    current/decomp/KSA/ImGuiWindow.cs]
+  lifecycle: ['frame:draw-ui']
+  approaches:
+  - n: 1
+    title: Closeable ImGui tab bar with programmatic selection
+    mod: purrtty
+    features: [mods/purrtty/features/terminal-window-chrome-tabs-and-resize-snap]
+    technique: imgui-window
+    note: BeginTabBar with closeable tabs, SetSelected on request and a stale-selection guard after a
+      tab is closed.
+  - n: 2
+    title: Per-craft tabbed window with pop-out panes and a reopen button
+    mod: ksarmory
+    features: [mods/ksarmory/features/operator-panel-imgui]
+    technique: imgui-window
+    note: 'One window per craft with tabs and a reopen button; shows the multi-window structure and where
+      pop-outs hook in. Also folded: Pop-out panes in a per-craft operator panel (ksarmory): Tabbed per-craft
+      window whose panes can pop out, with a reopen button.'
+  - n: 3
+    title: Title-bar-coloured custom tab buttons
+    mod: ohmystars
+    features: [mods/ohmystars/features/modmenu-entry-and-console-style-windows]
+    technique: imgui-window
+    note: Hand-rolled tab buttons that match the stock console palette instead of ImGui tab bars.
+  - n: 4
+    title: Button tabs driving a table of collapsing headers
+    mod: mpfx
+    features: [mods/mpfx/features/effect-settings-window]
+    technique: imgui-window
+    note: Tab buttons choose a page, each page is a three-column table of collapsing headers.
+  - n: 5
+    title: Collapsible sections that pop out into their own windows
+    mod: kitten-engineer-redux
+    features: [mods/kitten-engineer-redux/features/draw-list-widget-kit]
+    technique: imgui-window
+    note: 'Section state keyed by id so content is drawn once either inline or popped out. Sub-step to
+      give its own section: section state keyed by id so content is drawn once, inline or popped out.'
+  related: [build-a-settings-window, build-custom-drawn-imgui-widgets]
+  borrowed_from: []
+  merged_from: [pop-out-panel-sections-into-windows]
+- slug: show-live-vehicle-data-in-a-window
+  title: Show live vehicle and editor data in an ImGui window or HUD
+  summary: Read the controlled vehicle's settled physics, orbit and engine state (or the part tree being
+    built in the editor) on the main thread and present it in a window or HUD, either from a StarMap GUI
+    hook or from a Harmony postfix on the game's own UI call.
+  game_types: [KSA.Program, KSA.Vehicle, KSA.PhysicsStates, KSA.PhysicsEnvironment, KSA.PartTree, KSA.VehicleEditor,
+    KSA.VehicleEditingSpace, KSA.CelestialSystem, KSA.PhysicalAtmosphereReference]
+  engine_pointers: ['current/decomp/KSA/Program.cs OnFrame (ApplyVehicleSolvers precedes OnDrawUiViewports)
+      and Program.ControlledVehicle, MainViewport', current/decomp/KSA/Vehicle.cs Vehicle.OnDrawUi(IGameViewport),
+    current/decomp/KSA/VehicleEditor.cs OnDrawUi, 'current/decomp/KSA/Program.cs Editor, OnFrameEditor']
+  lifecycle: ['frame:draw-ui', 'editor:draw-ui']
+  approaches:
+  - n: 1
+    title: Plain ImGui window from StarMapAfterGui with guarded Begin/End
+    mod: ksaero
+    features: [mods/ksaero/features/aero-readout-window]
+    technique: imgui-window
+    note: Smallest possible readout. Read ref-readonly physics state after the solvers were applied, re-run
+      a pure model for derived numbers, and keep Begin/End balanced with try/finally and log-once guards
+      so one exception cannot corrupt the ImGui stack.
+  - n: 2
+    title: Harmony postfix on Vehicle.OnDrawUi filtered to the main viewport
+    mod: kitten-engineer-redux
+    features: [mods/kitten-engineer-redux/features/flight-hud-controlled-vehicle-postfix]
+    technique: harmony-postfix
+    note: Hooks the game's per-vehicle UI call instead of a StarMap attribute, so it must filter to Program.MainViewport
+      and Program.ControlledVehicle itself. Shows building a per-frame data record (orbit, live nozzle
+      thrust, ComputeActiveThrust, TWR) and reading engine thrust and mass flow.
+  - n: 3
+    title: Harmony postfix on VehicleEditor.OnDrawUi
+    mod: kitten-engineer-redux
+    features: [mods/kitten-engineer-redux/features/editor-panel-injection]
+    technique: harmony-postfix
+    note: 'The editor has no StarMap hook of its own; the postfix only runs while an editor exists. Covers
+      reading EditingSpace.Parts and PartTree.ComputeInertMassPropertiesAsmb plus ComputePropellantMassPropertiesAsmb
+      as the editor does. Sub-step to give its own section: the vehicle editor has no StarMap hook, so
+      this variant reads the part tree being built (dry, propellant and wet mass) instead of live flight
+      state.'
+  related: [draw-ui-while-the-hud-is-hidden, build-custom-drawn-imgui-widgets]
+  borrowed_from: []
+  merged_from: [add-a-panel-to-the-vehicle-editor]
+  dedupe_with: [flight-and-orbits/read-vehicle-flight-state]
+- slug: build-a-settings-window
+  title: Build a mod settings window (and developer panel)
+  summary: Lay out settings as tabs, tables and collapsing headers, with slider-plus-input rows, color
+    pickers, reset buttons, form label gutters and wrapped tooltips; also covers a closable developer
+    panel with a reopen button and slow-motion controls.
+  game_types: [Brutal.ImGuiApi.ImGui, Brutal.ImGuiApi.ImGuiTableFlags, KSA.Program, KSA.KSAColor, Brutal.Numerics.Color,
+    KSA.Universe, KSA.SimSpeed]
+  engine_pointers: [current/decomp/KSA/GameSettings.cs (stock settings pages for style comparison), current/decomp/KSA/KSAColor.cs
+      Xkcd (static Color.Preset properties), current/decomp/KSA/Universe.cs SetSimulationSpeed]
+  lifecycle: ['frame:draw-ui']
+  approaches:
+  - n: 1
+    title: Tabs, three-column table, collapsing headers and ColorPicker4 bound to a float4
+    mod: mpfx
+    features: [mods/mpfx/features/effect-settings-window]
+    technique: imgui-window
+    note: 'Slider-plus-input row helper, ColorPicker4 bound to a float4, Reset buttons, pre/post rows.
+      Also folded: ColorPicker4 bound to a float4 setting (mpfx): Direct float4 editing with reset. Sub-step:
+      color editing.'
+  - n: 2
+    title: Label-gutter form tables and full-width widgets
+    mod: purrtty
+    features: [mods/purrtty/features/imgui-filter-combo-and-form-widgets]
+    technique: imgui-window
+    note: Fixed label gutter, full-width inputs, destructive button styling.
+  - n: 3
+    title: Settings window with ColorButton popups and INI persistence
+    mod: ksa-aircrafthud
+    features: [mods/ksa-aircrafthud/features/ini-settings-and-settings-window]
+    technique: imgui-window
+    note: ColorButton plus popup ColorPicker, settings written to a hand-parsed hud.ini. Borrowed from
+      persistence.
+  - n: 4
+    title: Menu entry plus small settings window with wrapped tooltips
+    mod: ksagolf
+    features: [mods/ksagolf/features/developer-panel-and-menu-bar, mods/ksastructures/features/settings-menu,
+      mods/ksacars/features/car-panel-and-modmenu]
+    technique: imgui-window
+    note: Wrapped tooltips, apply expensive settings on slider release, NoNav/NoFocusOnAppearing panel.
+  - n: 5
+    title: Reflected XKCD catalog with a filterable picker
+    mod: unscience
+    features: [mods/unscience/features/lib-xkcd-color-catalog]
+    technique: reflection
+    note: 'Reflect over KSAColor.Xkcd once, cache sorted name/color pairs, serve to a filterable picker.
+      Writer note: the same feature is approach 4 of build-searchable-lists-and-browsers; write the XKCD
+      catalog once here and cross-link, or the other way round.'
+  - n: 6
+    title: Panel opened from menu, ModMenu or a floating button
+    mod: ksagolf
+    features: [mods/ksagolf/features/developer-panel-and-menu-bar]
+    technique: imgui-window
+    note: 'Universe.SetSimulationSpeed(new SimSpeed(x)); the engine has no floor. Wrapped tooltips helper.
+      Sub-step to give its own section: a developer panel with a reopen affordance and simulation-speed
+      buttons below the 0.1x floor via Universe.SetSimulationSpeed.'
+  related: [list-a-mod-in-modmenu, persist-mod-settings-toml, match-the-stock-console-ui-style, build-searchable-lists-and-browsers,
+    add-items-to-the-game-menu-bar]
+  borrowed_from: [mods/ksa-aircrafthud/features/ini-settings-and-settings-window]
+  merged_from: [pick-colors-in-imgui, build-a-developer-panel]
+  dedupe_with: [persistence/persist-mod-settings-toml, persistence/persist-mod-settings-ini, persistence/persist-mod-settings-as-json,
+    flight-and-orbits/set-simulation-speed-from-a-mod, testing-and-tooling/live-tweak-constants-in-game]
+- slug: build-searchable-lists-and-browsers
+  title: Build searchable lists, two-pane browsers and file pickers in ImGui
+  summary: Filter combos and long lists as the player types (working around Brutal's ImInputString quirks),
+    build a two-pane browser with a draggable splitter and a go-to button, and let players pick files
+    from disk into a shared catalog.
+  game_types: [Brutal.ImGuiApi.ImInputString, Brutal.ImGuiApi.ImGui, KSA.Universe, KSA.CelestialSystem,
+    KSA.Celestial, KSA.Vehicle, KSA.Program, KSA.ConsoleStyle]
+  engine_pointers: [current/decomp/Brutal.ImGuiApi (ImInputString, InputTextWithHint), 'current/decomp/KSA/Universe.cs
+      MoveCameraTo, WorldSun (null until LoadSystem), CurrentSystem', current/decomp/KSA/Program.cs ControlledVehicle,
+    current/decomp/KSA/Constants.cs DocumentsFolderPath]
+  lifecycle: ['frame:draw-ui', 'startup:all-mods-loaded']
+  approaches:
+  - n: 1
+    title: Live substring filter inside a combo, EvaluateLength every frame
+    mod: purrtty
+    features: [mods/purrtty/features/imgui-filter-combo-and-form-widgets]
+    technique: imgui-window
+    note: ImInputString only refreshes Length on a true InputText return, so the filter calls EvaluateLength
+      each frame.
+  - n: 2
+    title: SetKeyboardFocusHere on IsWindowAppearing with SetItemDefaultFocus
+    mod: compendium
+    features: [mods/compendium/features/celestial-info-window]
+    technique: imgui-window
+    note: Searchable star-system combo with filter field focused on open.
+  - n: 3
+    title: InputTextWithHint with ranked results and reveal-on-pick
+    mod: ksa-deltavmap
+    features: [mods/ksa-deltavmap/features/search-focus-isolate-and-aggregation]
+    technique: imgui-window
+    note: InputTextWithHint returns true only on edit; ranked matches over the whole universe that reveal
+      and center a node.
+  - n: 4
+    title: Filterable color catalog list
+    mod: unscience
+    features: [mods/unscience/features/lib-xkcd-color-catalog]
+    technique: reflection
+    note: Cached name/float4 pairs sorted by name served to a filterable picker.
+  - n: 5
+    title: Splitter from a thin Button plus MouseDelta between two BeginChild panes
+    mod: compendium
+    features: [mods/compendium/features/celestial-info-window]
+    technique: imgui-window
+    note: 'Covers the splitter, cached body lists, wait-for-universe guard in the UI hook (StarMapAllModsLoaded
+      runs before any universe exists), Universe.MoveCameraTo with changeControl behaviour, and exception-safe
+      cleanup. Sub-step to give its own section: wait-for-universe guard in the UI hook (StarMapAllModsLoaded
+      runs before any universe exists) and Universe.MoveCameraTo for the go-to button.'
+  - n: 6
+    title: LibraryFileBrowser copying chosen files into a flat catalog
+    mod: unscience
+    features: [mods/unscience/features/lib-shared-file-library]
+    technique: imgui-window
+    note: Always copy into a flat non-overwriting catalog before handing back a catalog name; browser
+      windows drawn from the host's render hook.
+  related: [build-a-settings-window, lay-out-a-tree-or-graph-diagram, subclass-the-stock-imguiwindow,
+    persist-mod-settings-toml]
+  borrowed_from: []
+  merged_from: [build-a-two-pane-browser-window, build-a-filesystem-file-picker, add-search-to-imgui-combos-and-lists]
+  dedupe_with: [persistence/import-user-files-into-a-mod-catalog]
+- slug: add-items-to-the-game-menu-bar
+  title: Add a menu to the game's top menu bar
+  summary: Put a top-level menu (and a window toggle) on KSA's main menu bar so players can open the mod's
+    windows, working in both flight and the editor.
+  game_types: [KSA.Program, KSA.IGameViewportLifecycle, KSA.GameViewport]
+  engine_pointers: ['current/decomp/KSA/Program.cs DrawMenuBar, DrawProgramMenusHook (empty public hook,
+      called around line 4005), OnDrawUiThreadSafe', current/decomp/KSA/GameViewport.cs SetMenuBarInUse]
+  lifecycle: ['frame:draw-ui']
+  approaches:
+  - n: 1
+    title: Harmony postfix on the empty Program.DrawProgramMenusHook
+    mod: unscience
+    features: [mods/unscience/features/unscience-menu-bar-entry, mods/ksa-deltavmap/features/map-window-and-menu-entry,
+      mods/ksa-measuretools/features/measure-menu-and-tool-window, mods/purrtty/features/game-menu-with-modmenu-fallback]
+    technique: harmony-postfix
+    note: The hook exists only for mods and runs inside the real menu bar, so BeginMenu/MenuItem work
+      directly. Toggling a window, lazily creating the window object inside the menu, and SetMenuBarInUse
+      so the menu stays open.
+  - n: 2
+    title: BeginMainMenuBar from StarMapBeforeGui
+    mod: ksagolf
+    features: [mods/ksagolf/features/developer-panel-and-menu-bar, mods/ksastructures/features/settings-menu,
+      mods/ksarmory/features/operator-panel-imgui]
+    technique: starmap-lifecycle
+    note: Older approach; in 2026.10.10 KSA's bar is a window named "Menu Bar", so a second BeginMainMenuBar
+      before KSA fills it is fragile. Explain why approach 1 is preferred and when this still works.
+  - n: 3
+    title: Animated colored menu-bar words via transpiler plus prefix
+    mod: unscience
+    features: [mods/unscience/features/jplrepo-menu-bar-animation]
+    technique: harmony-transpiler
+    note: Restyle or decorate the bar itself. A transpiler on Program.DrawMenuBar snapshots the cursor
+      before the version string, and a prefix on DrawProgramMenusHook restores it and draws sliding colored
+      words.
+  related: [list-a-mod-in-modmenu, add-a-menu-with-modmenu-fallback, subclass-the-stock-imguiwindow]
+  borrowed_from: []
+- slug: list-a-mod-in-modmenu
+  title: List a mod in ModMenu with the ModMenuEntry attribute
+  summary: 'Add a ModMenu entry (a static method that draws menu items or a settings page) and decide
+    how to get the attribute type: reference the shipped DLL, vendor the DLL, copy the attribute so no
+    hard dependency exists, or avoid referencing Brutal at all.'
+  game_types: [Brutal.ImGuiApi.ImGui, Brutal.ImGuiApi.ImString, KSA.Constants]
+  engine_pointers: [current/decomp/KSA/ModLibrary.cs (mod discovery and load order), current/decomp/Brutal.ImGuiApi
+      (ImString is a ref struct)]
+  lifecycle: ['frame:draw-ui']
+  approaches:
+  - n: 1
+    title: Reference ModMenu.Attributes (NuGet or local DLL) and ship it
+    mod: compendium
+    features: [mods/compendium/features/modmenu-window-toggle, mods/ohmystars/features/modmenu-entry-and-console-style-windows,
+      mods/mpfx/features/effect-settings-window]
+    technique: inter-mod-api
+    note: ModMenuEntry(menuName) on a static method; ship ModMenu.Attributes.dll beside the mod. MPFX
+      notes ModMenu discovery was not verified in this reference set.
+  - n: 2
+    title: Vendored ModMenu.Attributes.dll resolved by StarMap's per-mod resolver
+    mod: ksa-aircrafthud
+    features: [mods/ksa-aircrafthud/features/modmenu-entry-vendored-attributes]
+    technique: assembly-load-context
+    note: DLL committed in the repo with a HintPath reference, copy-local next to the mod, resolved after
+      default and game contexts; includes shipping any third-party DLL with a StarMap mod.
+  - n: 3
+    title: Copy the attribute source into the mod (matched by type name)
+    mod: ksa-public-telemetry
+    features: [mods/ksa-public-telemetry/features/modmenu-entry-with-standalone-fallback, mods/ksacars/features/car-panel-and-modmenu,
+      mods/ksagolf/features/developer-panel-and-menu-bar, mods/ksarmory/features/operator-panel-imgui,
+      mods/ksastructures/features/settings-menu, mods/realatmospheres/features/modmenu-page-and-toml-settings]
+    technique: inter-mod-api
+    note: ModMenu matches by type name, so an inert copy of ModMenuEntryAttribute needs no dependency
+      and no extra DLL. Compare how each mod names and declares it.
+  - n: 4
+    title: DynamicMethod wrappers for ImGui.MenuItem and SetItemTooltip
+    mod: realatmospheres
+    features: [mods/realatmospheres/features/modmenu-page-and-toml-settings]
+    technique: reflection
+    note: 'Reflection cannot box a ref struct, so IL is emitted per call shape; also shows the hand-parsed
+      settings.toml under KSA.Constants.DocumentsFolderPath. Sub-step to give its own section: ImString
+      is a ref struct that reflection cannot box, so a ModMenu page that avoids a compile-time Brutal
+      reference emits per-shape DynamicMethods.'
+  related: [add-a-menu-with-modmenu-fallback, persist-mod-settings-toml]
+  borrowed_from: []
+  merged_from: [call-imgui-without-referencing-brutal]
+  dedupe_with: [getting-started/ship-third-party-dlls-with-a-mod, getting-started/build-a-mod-without-game-references]
+- slug: add-a-menu-with-modmenu-fallback
+  title: Add a menu that uses ModMenu when present and the game menu bar otherwise
+  summary: Present the same mod menu either through ModMenu or, when it is absent, through the game's
+    menu bar or a standalone window, without showing it twice.
+  game_types: [KSA.Program, KSA.ModLibrary, KSA.IGameViewportLifecycle, KSA.GameViewport]
+  engine_pointers: [current/decomp/KSA/ModLibrary.cs Find, current/decomp/KSA/Program.cs DrawProgramMenusHook]
+  lifecycle: ['startup:all-mods-loaded', 'frame:draw-ui']
+  approaches:
+  - n: 1
+    title: Decide once with ModLibrary.Find("ModMenu")
+    mod: purrtty
+    features: [mods/purrtty/features/game-menu-with-modmenu-fallback, mods/gatos/features/modmenu-entry-with-fallback-menu]
+    technique: harmony-postfix
+    note: The postfix draws only when ModMenu is not loaded, avoiding a double menu; keeps the draw path
+      allocation-free and reads slow probes from a background snapshot instead of computing in the menu.
+  - n: 2
+    title: ModMenuEntry attribute with an active-flag property name
+    mod: kitten-engineer-redux
+    features: [mods/kitten-engineer-redux/features/modmenu-entry-with-standalone-fallback]
+    technique: inter-mod-api
+    note: The attribute is told which property says it is active; the fallback postfix on DrawProgramMenusHook
+      uses SetMenuBarInUse.
+  - n: 3
+    title: One settings tree rendered as a menu or as a standalone window
+    mod: ksa-public-telemetry
+    features: [mods/ksa-public-telemetry/features/modmenu-entry-with-standalone-fallback]
+    technique: imgui-menu
+    note: A Category() helper switches BeginMenu to CollapsingHeader by a flag, with a hotkey-toggled
+      fallback window drawing the same content.
+  related: [list-a-mod-in-modmenu, add-items-to-the-game-menu-bar, rebindable-hotkeys]
+  borrowed_from: []
+  dedupe_with: [getting-started/integrate-with-an-optional-mod]
+- slug: inject-ui-into-a-stock-window
+  title: Inject UI into one of the game's own windows or menus
+  summary: Add a section, menu entries or extra controls inside a stock ImGui window (Mods settings page,
+    orbit context menu, plan window, burn editor) at a precise spot.
+  game_types: [KSA.GameSettings, KSA.BurnContextMenu, KSA.TransferPlanner, KSA.Burn, KSA.BurnCanvasHost,
+    KSA.ConsoleStyle, KSA.ConsoleWidgets]
+  engine_pointers: ['current/decomp/KSA/GameSettings.cs OnDrawUi (private _openTab, Mods tab)', current/decomp/KSA/BurnContextMenu.cs
+      Draw, current/decomp/KSA/TransferPlanner.cs DrawPlanWindow, current/decomp/KSA/Burn.cs DrawBurnEditorWindowContent]
+  lifecycle: ['frame:draw-ui']
+  approaches:
+  - n: 1
+    title: One-call transpiler before PopWidgetStyle on the Mods settings page
+    mod: ksa-advancedflightcomputer
+    features: [mods/ksa-advancedflightcomputer/features/mods-settings-page-sections]
+    technique: harmony-transpiler
+    note: Anchor on a unique call and validate it; draw registered sections only while the private Mods
+      tab is open (reflection into _openTab).
+  - n: 2
+    title: Transpiler anchored on a UTF-8 label literal in BurnContextMenu.Draw
+    mod: ksa-advancedflightcomputer
+    features: [mods/ksa-advancedflightcomputer/features/orbit-context-menu-shortcuts]
+    technique: harmony-transpiler
+    note: Find the "At Periapsis" and "At Apoapsis" submenus by reading u8 label literals from the IL
+      and insert a submenu before the final EndPopup.
+  - n: 3
+    title: Call-site swap inside the Transfer Planner plan window
+    mod: ksa-advancedflightcomputer
+    features: [mods/ksa-advancedflightcomputer/features/plan-window-transpiler-injection]
+    technique: harmony-transpiler
+    note: Borrowed from patching. Take over the window body for custom plan types.
+  - n: 4
+    title: Postfixes on the burn editor and burn canvas host
+    mod: ksa-advancedflightcomputer
+    features: [mods/ksa-advancedflightcomputer/features/rcs-burn-editor-and-gauge-ui]
+    technique: harmony-postfix
+    note: No IL surgery needed when the target method ends where you want to add; style is gauge-like
+      when docked and plain ImGui when detached.
+  related: [swap-one-call-inside-a-game-method-with-a-transpiler, match-the-stock-console-ui-style, work-with-stock-cockpit-gauges]
+  borrowed_from: [mods/ksa-advancedflightcomputer/features/plan-window-transpiler-injection]
+  dedupe_with: [flight-and-orbits/inject-ui-into-the-transfer-planner-window, flight-and-orbits/add-entries-to-the-orbit-context-menu,
+    flight-and-orbits/add-plan-type-to-the-transfer-planner]
+- slug: work-with-stock-cockpit-gauges
+  title: Add to, drive and hide the stock cockpit gauges and navball
+  summary: Add a mod-defined button to the EngineControl gauge canvas via an XML patch and mod enum, drive
+    its state from Harmony patches, force stock gauges visible for a craft with no engines, hide and restore
+    the stock flight HUD, and draw a custom marker on the navball.
+  game_types: [KSA.GaugeButtonFlightComputer, KSA.EnumTypeOption, KSA.GaugeCanvas, KSA.Vehicle, KSA.ModLibrary,
+    KSA.GaugeVisibilityFlag, KSA.ManualControlInputs, KSA.FixedAlert, KSA.LayoutSaves, KSA.SerializedLayout,
+    KSA.ImGuiWindow, KSA.Program, KSA.NavBallRenderer, KSA.CanvasRect, KSA.ImGuiHelper]
+  engine_pointers: ['current/decomp/KSA/GaugeButtonFlightComputer.cs EnumTypes, IsDisabled, Pack', current/Content
+      (Gauges.xml EngineControl canvas), current/decomp/KSA/GaugeCanvas.cs IsContextVisible, 'current/decomp/KSA/Vehicle.cs
+      AreAllEnginesInactive, _manualControlInputs, PrepareWorker', 'current/decomp/KSA/GaugeCanvas.cs
+      AllCanvases, SetEnabled', current/decomp/KSA/ImGuiWindow.cs (id form title###TypeFullName_), current/decomp/KSA/NavBallRenderer.cs
+      ToScreenMarker, current/decomp/KSA/GaugeCanvas.cs (canvas drawn via ImGui AddCallback), current/Content/Shaders
+      (NavballMarkers.glsl constants)]
+  lifecycle: ['startup:immediate-load', 'startup:asset-load', 'frame:draw-ui', 'frame:input', 'startup:all-mods-loaded',
+    'frame:gauges', 'frame:dispatch-solvers', 'event:starmap-unload']
+  approaches:
+  - n: 1
+    title: Register the enum at immediate load, append the Button by XML patch
+    mod: ksa-advancedflightcomputer
+    features: [mods/ksa-advancedflightcomputer/features/autostage-gauge-button]
+    technique: xml-patch
+    note: StarMapImmediateLoad runs before Gauges.xml is read, so the enum must be registered first; Vehicle.ToggleEnum/IsSet/IsFlightComputerDisabled
+      prefixes give the state.
+  - n: 2
+    title: Rewrite disabled bits and tooltip in postfixes
+    mod: ksa-advancedflightcomputer
+    features: [mods/ksa-advancedflightcomputer/features/rcs-burn-editor-and-gauge-ui]
+    technique: harmony-postfix
+    note: Postfix GaugeButtonFlightComputer.IsDisabled and Pack to enable a stock button for engineless
+      vehicles.
+  - n: 3
+    title: IsContextVisible and AreAllEnginesInactive postfixes plus a throttle write by reflection
+    mod: ksacars
+    features: [mods/ksacars/features/engine-hud-for-engineless-craft]
+    technique: harmony-postfix
+    note: 'Write the value between PrepareWorker''s clamp and UpdateGauges; display only, not control.
+      Sub-step to give its own section: forcing a gauge canvas visible for an engineless craft and suppressing
+      the "No active engines" alert.'
+  - n: 4
+    title: Toggle GaugeCanvas.SetEnabled and remember what was changed
+    mod: ksa-public-telemetry
+    features: [mods/ksa-public-telemetry/features/hide-and-restore-stock-flight-hud]
+    technique: reflection
+    note: 'Pause while the LAYOUTS window is open because layout saves capture the enabled flag; restore
+      on unload. Uses ImGui.Internal.FindWindowByName and WasActive to detect a game window. Sub-step
+      to give its own section: detect whether a game ImGui window (LAYOUTS) is open by its derived id
+      before toggling canvases.'
+  - n: 5
+    title: CCE to CCI to control to Body2Screen on the foreground draw list
+    mod: ohmystars
+    features: [mods/ohmystars/features/navball-star-marker]
+    technique: imgui-drawlist
+    note: 'GaugeCanvas windows render via draw callbacks, so draw on the foreground list; copy style constants
+      from NavballMarkers.glsl; CPU coverage checks and a repainted centre indicator. Sub-step to give
+      its own section: GaugeCanvas renders via ImGui draw callbacks, so a navball marker must draw on
+      the foreground list.'
+  related: [xpath-xml-patch-recipes, inject-ui-into-a-stock-window, coordinate-imgui-focus-with-game-input,
+    draw-a-fullscreen-click-through-overlay, match-the-stock-console-ui-style, project-world-to-screen]
+  borrowed_from: []
+  merged_from: [show-stock-gauges-for-a-custom-craft, hide-the-stock-flight-hud, add-a-navball-marker,
+    add-or-change-a-stock-gauge-button]
+  dedupe_with: [flight-and-orbits/override-stock-gauge-readouts]
+- slug: show-alerts-and-popups-in-game
+  title: Show transient alerts and game-styled popups in game
+  summary: Raise a timed centered message with the game's own alert system from a main-thread hook, or
+    subclass KSA.Popup so the game draws a console-styled modal with buttons.
+  game_types: [KSA.TimedAlert, KSA.Alert, KSA.LStrings, KSA.Program, KSA.Popup, KSA.PopupButton, KSA.ConsoleStyle]
+  engine_pointers: ['current/decomp/KSA/TimedAlert.cs Create, CreateWarning (list cleared when DrawUI
+      is false)', 'current/decomp/KSA/Popup.cs DrawAll, BeginConsoleModal, DrawConsoleButtonRow, CreateButton']
+  lifecycle: ['frame:apply-solvers', 'frame:prepare', 'frame:draw-ui']
+  approaches:
+  - n: 1
+    title: TimedAlert.Create/CreateWarning from main-thread postfixes
+    mod: ksa-advancedflightcomputer
+    features: [mods/ksa-advancedflightcomputer/features/stock-timed-alerts]
+    technique: harmony-postfix
+    note: Alerts expire on player time while game logic runs on sim time; the alert list is unsynchronized
+      so worker threads must queue; DrawUI=false clears all timed alerts.
+  - n: 2
+    title: Popup subclass self-registering with Popup.DrawAll
+    mod: ohmystars
+    features: [mods/ohmystars/features/star-binary-switcher]
+    technique: imgui-window
+    note: 'Borrowed from celestials. The constructor registers the popup; the game draws it with other
+      popups. Sub-step to give its own section: confirm/cancel buttons via PopupButton and DrawConsoleButtonRow.'
+  related: [draw-ui-while-the-hud-is-hidden, show-a-dialog-during-loading]
+  borrowed_from: [mods/ohmystars/features/star-binary-switcher]
+  merged_from: [show-a-game-styled-popup, show-a-transient-on-screen-alert]
+- slug: show-a-dialog-during-loading
+  title: Show a modal ImGui dialog during loading, before the game loop runs
+  summary: Ask the player a question, or fail fast with a copyable error, while mods are being prepared,
+    by running your own mini frame loop with an ImGui-only render pass.
+  game_types: [KSA.Popup, KSA.PopupButton, KSA.ConfirmMods, KSA.SelectSystem, KSA.SetupTaskBase, KSA.ImGuiHelper,
+    KSA.ImGuiBackend, KSA.Program, Core.Renderer]
+  engine_pointers: [current/decomp/KSA/ConfirmMods.cs (frame pump to copy), current/decomp/KSA/SelectSystem.cs,
+    current/decomp/KSA/Popup.cs BeginConsoleModal, current/decomp/KSA/ModLibrary.cs PrepareAll]
+  lifecycle: ['startup:asset-load']
+  approaches:
+  - n: 1
+    title: Modal question modelled on ConfirmMods (restart prompt)
+    mod: starmap
+    features: [mods/starmap/features/startup-modal-popup]
+    technique: harmony-prefix
+    note: Subclass Popup, pump GLFW poll, ImGui frame and an ImGui-only Vulkan render pass; requires renderer
+      and ImGui context.
+  - n: 2
+    title: PopupTask loop with ErrorAndExit
+    mod: kittenextensions
+    features: [mods/kittenextensions/features/pre-game-popup-loop]
+    technique: harmony-prefix
+    note: Wraps a Popup in a task so the debugger and error dialog work inside PrepareAll; shows the failing
+      element with copyable text then Environment.Exit(1).
+  related: [show-alerts-and-popups-in-game, choose-a-starmap-startup-hook]
+  borrowed_from: []
+- slug: load-a-custom-font-into-imgui
+  title: Load a custom TTF font into KSA's ImGui atlas
+  summary: Add a bundled font to the shared ImGui atlas at the right moment, draw it at any size with
+    ImGui 1.92 PushFont(font, size), and stop KSA from auto-loading it as a game font.
+  game_types: [Brutal.ImGuiApi.ImFontAtlasPtr, Brutal.ImGuiApi.ImFontConfig, Brutal.ImGuiApi.ImGui, KSA.FontManager,
+    KSA.Mod, KSA.ImGuiBackendVulkanImpl]
+  engine_pointers: ['current/decomp/KSA/FontManager.cs Initialize (scans Content/**/*.ttf), RegenerateFonts',
+    current/decomp/KSA/ImGuiBackendVulkanImpl.cs RendererHasTextures (dynamic atlas), 'current/decomp/KSA/Program.cs
+      constructor order (CreateContext, FontManager.Initialize)']
+  lifecycle: ['startup:immediate-load', 'startup:all-mods-loaded', 'frame:draw-ui']
+  approaches:
+  - n: 1
+    title: AddFontFromFileTTF at StarMapImmediateLoad
+    mod: ksa-aircrafthud
+    features: [mods/ksa-aircrafthud/features/custom-hud-font, mods/compendium/features/custom-fonts-in-imgui]
+    technique: imgui-font
+    note: Immediate load is after ImGui.CreateContext and FontManager.Initialize, so the atlas exists.
+      Compendium adds every TTF/OTF in a Fonts folder and balances sized pushes with a counter; AircraftHUD
+      uses one font at several sizes and notes mod.toml fonts only registers names.
+  - n: 2
+    title: Add lazily on the first UI frame using FontManager's config
+    mod: ksa-public-telemetry
+    features: [mods/ksa-public-telemetry/features/montserrat-fonts-in-imgui-atlas]
+    technique: imgui-font
+    note: Same ImFontConfig fields as KSA.FontManager; tabular digits via widest-digit cell and drop shadows
+      on draw lists.
+  - n: 3
+    title: Add at StarMapAllModsLoaded with a renamed extension
+    mod: purrtty
+    features: [mods/purrtty/features/nerd-font-loading-into-imgui-atlas]
+    technique: imgui-font
+    note: FontManager scans Content/**/*.ttf, so ship the file renamed (.iamttf) to avoid auto-load; size
+      with PushFont(font, size) on the dynamic atlas.
+  related: [survive-a-game-font-rebuild, draw-a-monospace-text-grid]
+  borrowed_from: []
+- slug: survive-a-game-font-rebuild
+  title: Keep mod fonts alive when the game rebuilds its font atlas
+  summary: Changing interface font settings schedules FontManager.RegenerateFonts, which clears the whole
+    ImGui atlas and invalidates every font pointer a mod cached; explain the hazard and a guard.
+  game_types: [KSA.FontManager, KSA.GameSettings, KSA.Program, Brutal.ImGuiApi.ImFontAtlasPtr]
+  engine_pointers: [current/decomp/KSA/Program.cs ScheduleFontRebuild; PrepareFrame consumes it (Program.cs
+      near line 2228), current/decomp/KSA/FontManager.cs RegenerateFonts (Fonts.Clear first), current/decomp/KSA/GameSettings.cs
+      (font setting change handlers)]
+  lifecycle: ['frame:prepare', 'startup:immediate-load']
+  approaches:
+  - n: 1
+    title: Detect the atlas clear and re-add fonts (hazard documented by four mods, none tested)
+    mod: compendium
+    features: [mods/compendium/features/custom-fonts-in-imgui, mods/purrtty/features/nerd-font-loading-into-imgui-atlas,
+      mods/ksa-aircrafthud/features/custom-hud-font, mods/ksa-public-telemetry/features/montserrat-fonts-in-imgui-atlas]
+    technique: reflection
+    note: No reference mod implements the fix; every font feature page records the hazard and the AircraftHUD
+      page suggests a postfix on FontManager.RegenerateFonts. The writer must label the guard as adapted
+      and untested, and verify membership checks against the decomp.
+  related: [load-a-custom-font-into-imgui]
+  borrowed_from: []
+- slug: draw-a-fullscreen-click-through-overlay
+  title: Draw full-screen, click-through overlays and HUDs on the ImGui draw list
+  summary: Paint a HUD, markers or lines over the whole game view without blocking the mouse, using an
+    input-less transparent window or a window-less foreground/background draw list, including overlays
+    on secondary and detached viewports.
+  game_types: [Brutal.ImGuiApi.ImGui, Brutal.ImGuiApi.ImDrawListPtr, Brutal.ImGuiApi.ImGuiViewportPtr,
+    KSA.ImGuiHelper, KSA.Program, KSA.Camera, KSA.GameViewport, KSA.IGameViewport, KSA.IViewport, KSA.ViewportRegistry,
+    RenderCore.ReverseDepthBufferUtils]
+  engine_pointers: ['current/decomp/KSA/ImGuiHelper.cs GetMainOverlayDrawList, GetOverlayDrawList(IViewport)',
+    current/decomp/KSA/Program.cs OnDrawUiViewports / DrawFps (stock overlay draw), current/decomp/KSA/ViewportRegistry.cs,
+    current/decomp/KSA/ImGuiHelper.cs GetOverlayDrawList(IViewport)]
+  lifecycle: ['frame:draw-ui', 'render:imgui', 'frame:viewports']
+  approaches:
+  - n: 1
+    title: NoInputs/NoBackground fullscreen window sized to the main viewport
+    mod: ksa-aircrafthud
+    features: [mods/ksa-aircrafthud/features/fullscreen-drawlist-hud, mods/compendium/features/body-pointer-overlay,
+      mods/ksarmory/features/world-anchored-screen-markers, mods/ksa-advancedflightcomputer/features/guidance-panel-and-overlays]
+    technique: imgui-drawlist
+    note: Window flags, SetNextWindowPos/Size/Viewport of the main viewport, layout from viewport height;
+      drawn behind other windows. AFC projects CCI points through the main camera.
+  - n: 2
+    title: ImGuiHelper.GetOverlayDrawList (no window)
+    mod: ksa-measuretools
+    features: [mods/ksa-measuretools/features/overlay-drawlist-rendering]
+    technique: imgui-drawlist
+    note: Main-viewport overlay list with viewport-local projection plus viewport.Pos, NaN culling of
+      behind-camera points, throttled hover picks and allocation-free labels.
+  - n: 3
+    title: ImGui.GetForegroundDrawList anchored to WorkPos/WorkSize
+    mod: ksa-public-telemetry
+    features: [mods/ksa-public-telemetry/features/foreground-drawlist-broadcast-overlay]
+    technique: imgui-drawlist
+    note: No window object at all; always on top of every window.
+  - n: 4
+    title: Click-through lock mode with a hot zone
+    mod: purrtty
+    features: [mods/purrtty/features/click-through-lock-mode-hot-zone]
+    technique: imgui-window
+    note: A normal window that becomes NoMouseInputs while unfocused so clicks reach the game, with a
+      tiny hot-zone window to refocus; focus visuals on the foreground list.
+  - n: 5
+    title: Per-surface draw list and per-viewport Ego transforms
+    mod: ksarmory
+    features: [mods/ksarmory/features/gunner-sight-overlay]
+    technique: imgui-drawlist
+    note: 'Ego belongs to the camera that sampled it; resolve the platform viewport of the camera window;
+      zoom by magnification. Sub-step to give its own section: overlays over a secondary camera or a camera
+      window torn off to its own platform viewport, projected with that view''s own camera.'
+  related: [draw-ui-while-the-hud-is-hidden, project-world-to-screen, borrow-a-secondary-viewport]
+  borrowed_from: []
+  merged_from: [paint-overlays-on-secondary-and-detached-viewports]
+  dedupe_with: [rendering/choose-a-draw-list-for-world-overlays]
+- slug: draw-ui-while-the-hud-is-hidden
+  title: Keep a mod UI drawing when the player hides the HUD (F2)
+  summary: StarMap's GUI hooks and most UI calls sit inside Program.DrawUI, so an overlay vanishes on
+    F2 or screenshots; hook a call that still runs, or knowingly accept the disappearance.
+  game_types: [KSA.Program]
+  engine_pointers: ['current/decomp/KSA/Program.cs OnFrame (lines near 2255-2285): OnDrawUiFrame/OnDrawUiViewports/OnDrawUiThreadSafe
+      inside if (DrawUI); DrawFps and OnDrawUiConsole run unconditionally; OnFrameEditor precedes the
+      check']
+  lifecycle: ['frame:viewports', 'frame:draw-ui', 'frame:celestials']
+  approaches:
+  - n: 1
+    title: Harmony postfix on Program.OnFrameEditor
+    mod: ksa-aircrafthud
+    features: [mods/ksa-aircrafthud/features/fullscreen-drawlist-hud]
+    technique: harmony-postfix
+    note: Runs before the DrawUI guard, after NewFrame, so draw-list calls are legal.
+  - n: 2
+    title: Reflection-installed postfix on private Program.DrawFps
+    mod: ksa-public-telemetry
+    features: [mods/ksa-public-telemetry/features/draw-while-ui-hidden-drawfps-postfix]
+    technique: harmony-postfix
+    note: Borrowed from patching. DrawFps is the one unconditional UI-phase call; patched through reflection
+      with no compile-time Harmony reference and graceful degradation.
+  - n: 3
+    title: Replay StarMap Before/After GUI work from a prefix on OnDrawUiConsole
+    mod: unscience
+    features: [mods/unscience/features/lib-hidden-ui-frame-hook, mods/unscience/features/pebbles-workshop-editor]
+    technique: harmony-prefix
+    note: Borrowed from patching. Returns immediately while DrawUI is true, otherwise invokes registered
+      host callbacks; Pebbles uses it to keep its editor window alive.
+  - n: 4
+    title: Frame-latched step claimed by whichever hook fires first
+    mod: ksarmory
+    features: [mods/ksarmory/features/dual-hook-simulation-step, mods/ksagolf/features/dual-hook-frame-stepping,
+      mods/gatos/features/frame-hooks-and-f2-fallback, mods/ksarmory/features/cursor-ray-world-click-tools]
+    technique: harmony-prefix
+    note: Borrowed from patching and getting-started. For per-frame logic (not only drawing) use a latch
+      with OnFrameCelestials prefix as the unguarded fallback; click tools keep working with the HUD hidden.
+  related: [keep-overlays-updating-when-hud-hidden, draw-a-fullscreen-click-through-overlay, show-alerts-and-popups-in-game]
+  borrowed_from: [mods/ksa-public-telemetry/features/draw-while-ui-hidden-drawfps-postfix, mods/unscience/features/lib-hidden-ui-frame-hook,
+    mods/ksarmory/features/dual-hook-simulation-step, mods/ksagolf/features/dual-hook-frame-stepping,
+    mods/gatos/features/frame-hooks-and-f2-fallback]
+  dedupe_with: [rendering/keep-overlays-updating-when-hud-hidden]
+- slug: project-world-to-screen
+  title: Project world positions to screen coordinates and point at off-screen targets
+  summary: Turn Ecl, Ego or CCI positions into pixel positions for an overlay with the right viewport
+    offset, cull points behind the camera and break polylines at them, and clamp markers to the screen
+    edge for targets that are off screen.
+  game_types: [KSA.Camera, KSA.ViewportRegistry, KSA.IGameViewport, KSA.Program, Brutal.ImGuiApi.ImGuiViewportPtr]
+  engine_pointers: ['current/decomp/KSA/Camera.cs EclToScreen, EgoToScreen, EgoToClip, IsPointWithinFov,
+      GetPositionEgo', 'current/decomp/KSA/Camera.cs EgoToClip, IsPointWithinFov, EgoToScreen']
+  lifecycle: ['frame:draw-ui']
+  approaches:
+  - n: 1
+    title: EclToScreen/EgoToScreen on the viewport's camera
+    mod: ksarmory
+    features: [mods/ksarmory/features/world-anchored-screen-markers, mods/ksagolf/features/cursor-picking-and-terrain-ray]
+    technique: imgui-drawlist
+    note: Ignore-behind option plus the viewport offset; Ego anchoring via GetPositionEgo.
+  - n: 2
+    title: Behind-camera NaN culling with polyline breaking
+    mod: ksa-measuretools
+    features: [mods/ksa-measuretools/features/overlay-drawlist-rendering]
+    technique: imgui-drawlist
+    note: Behind-camera projections return NaN; split lines instead of drawing across the screen.
+  - n: 3
+    title: CCI and body-fixed points through the main camera
+    mod: ksa-advancedflightcomputer
+    features: [mods/ksa-advancedflightcomputer/features/guidance-panel-and-overlays]
+    technique: imgui-drawlist
+    note: Projecting orbit-frame points for a trajectory overlay.
+  - n: 4
+    title: Direction arrows and transfer overlay in the map view
+    mod: ksa-deltavmap
+    features: [mods/ksa-deltavmap/features/map-mode-transfer-overlay]
+    technique: imgui-drawlist
+    note: Borrowed from flight-and-orbits. GetPositionEclFromCce plus Camera.EclToScreen and a fixed-length
+      screen arrow for a world direction.
+  - n: 5
+    title: EgoToClip, divide by W, flip when behind, clamp to the NDC square
+    mod: ohmystars
+    features: [mods/ohmystars/features/star-pointer, mods/compendium/features/body-pointer-overlay]
+    technique: imgui-drawlist
+    note: 'IsPointWithinFov first, then clip-space direction normalisation; the pointer line runs from
+      the nearest window corner. Sub-step to give its own section: clamping a marker or pointer line to
+      the screen edge for off-screen or behind-camera targets.'
+  - n: 6
+    title: Edge cue from the camera basis (bearing), not the projection
+    mod: ksarmory
+    features: [mods/ksarmory/features/world-anchored-screen-markers, mods/ksarmory/features/gunner-sight-overlay]
+    technique: imgui-drawlist
+    note: Robust when the projection is degenerate near the camera plane.
+  related: [draw-a-fullscreen-click-through-overlay, cursor-to-world-ray]
+  borrowed_from: [mods/ksa-deltavmap/features/map-mode-transfer-overlay]
+  merged_from: [point-at-off-screen-targets]
+  dedupe_with: [rendering/project-world-positions-to-screen, rendering/point-at-an-offscreen-target, camera/work-in-the-cameras-ego-frame]
+- slug: draw-a-chart-with-imdrawlist
+  title: Draw charts, scopes and relief maps with the ImGui draw list
+  summary: Plot a time series or a function of altitude without ImPlot (axes with nice-number ticks, labels,
+    fills, markers, threshold lines, hover crosshair) and render instruments such as a polar radar scope
+    and hill-shaded relief map from draw-list primitives.
+  game_types: [Brutal.ImGuiApi.ImDrawListPtr, Brutal.ImGuiApi.ImGui, KSA.PhysicalAtmosphereReference,
+    KSA.AtmosphereReference, KSA.Celestial, KSA.Vehicle, KSA.Universe, Brutal.ImGuiApi.ImDrawListExtensions]
+  engine_pointers: [current/decomp/KSA/PhysicalAtmosphereReference.cs (density and pressure sampling for
+      the altitude plot), current/decomp/KSA/Celestial.cs (terrain height queries and rotation axis)]
+  lifecycle: ['frame:draw-ui']
+  approaches:
+  - n: 1
+    title: Time-series line graph with extrema, dashed threshold and crosshair
+    mod: kitten-engineer-redux
+    features: [mods/kitten-engineer-redux/features/draw-list-line-graph]
+    technique: imgui-drawlist
+    note: Nice-number ticks, time axis, fill, extrema markers and hover readout.
+  - n: 2
+    title: Function plot with InvisibleButton space reservation
+    mod: compendium
+    features: [mods/compendium/features/atmosphere-profile-graph]
+    technique: imgui-drawlist
+    note: Samples 101 altitudes, AddRectFilled/AddLine/AddText, CalcTextSize for labels, altitude marker;
+      shows sampling PhysicalAtmosphereReference.
+  - n: 3
+    title: Primitives-only scope plus 64x64 cached height grid
+    mod: ksarmory
+    features: [mods/ksarmory/features/radar-scope-and-relief-map]
+    technique: imgui-drawlist
+    note: 'Build the east-north-up frame from the body''s rotation axis, not the ecliptic; resample heights
+      only on movement, span change or every ten seconds. Sub-step to give its own section: craft-centred
+      polar scope in a north-up local frame and a cached resampled terrain height grid.'
+  related: [build-custom-drawn-imgui-widgets, draw-a-monospace-text-grid]
+  borrowed_from: []
+  merged_from: [draw-a-radar-scope-and-relief-map]
+- slug: build-custom-drawn-imgui-widgets
+  title: Build custom-drawn ImGui widgets and icons
+  summary: Lay out rows, tiles, gauges, toggles, buttons, icons and trees yourself on the window draw
+    list with InvisibleButton hit-testing, a Dummy for content size and per-window colors, instead of
+    stock widgets or textures; includes ordered stat tiles with per-metric threshold alerts.
+  game_types: [Brutal.ImGuiApi.ImGui, Brutal.ImGuiApi.ImDrawListPtr, Brutal.ImGuiApi.ImDrawListExtensions,
+    KSA.ViewportBase, Brutal.ImGuiApi.ImGuiStoragePtr, Brutal.Numerics.floatRect]
+  engine_pointers: [current/decomp/KSA/ImGuiHelper.cs, current/decomp/Brutal.ImGuiApi (ChannelsSplit,
+    ImGuiStorage), current/decomp/KSA/Program.cs ControlledVehicle]
+  lifecycle: ['frame:draw-ui', 'startup:asset-load']
+  approaches:
+  - n: 1
+    title: Draw-list widget kit with runtime-editable theme
+    mod: kitten-engineer-redux
+    features: [mods/kitten-engineer-redux/features/draw-list-widget-kit]
+    technique: imgui-drawlist
+    note: Rows, tiles, gauges, toggles and buttons; InvisibleButton hit test; Dummy reserves size; runtime-editable
+      colours.
+  - n: 2
+    title: Icon buttons from primitives, no textures
+    mod: ksarmory
+    features: [mods/ksarmory/features/operator-panel-imgui]
+    technique: imgui-drawlist
+    note: Craft switcher and weapon icons drawn with AddLine/AddCircle.
+  - n: 3
+    title: One glyph function shared by map and legend
+    mod: ksa-deltavmap
+    features: [mods/ksa-deltavmap/features/subway-map-canvas-rendering]
+    technique: imgui-drawlist
+    note: Screen-fixed KSP-style glyphs drawn identically in the legend.
+  - n: 4
+    title: ImGuiTreeView<N,A> with static abstract adapters and ChannelsSplit(2)
+    mod: kittenextensions
+    features: [mods/kittenextensions/features/imgui-tree-view]
+    technique: imgui-drawlist
+    note: 'Draw fills on channel 0 beneath widgets and merge; NodeScope with using. Sub-step to give its
+      own section: ChannelsSplit(2) so selection fills draw beneath widgets, and open state kept in ImGui
+      storage.'
+  - n: 5
+    title: Rule list evaluated once per frame against a shared context
+    mod: kitten-engineer-redux
+    features: [mods/kitten-engineer-redux/features/hud-widgets-and-threshold-alerts]
+    technique: imgui-drawlist
+    note: 'Evaluate rules once, render in several places. Sub-step to give its own section: evaluate threshold
+      rules once per frame against a shared context and render the result as banner, tile outline, warning
+      row or graph line.'
+  related: [build-a-tabbed-imgui-window, match-the-stock-console-ui-style, show-live-vehicle-data-in-a-window,
+    draw-a-chart-with-imdrawlist]
+  borrowed_from: []
+  merged_from: [draw-a-custom-tree-view, show-threshold-alerts-in-a-hud]
+- slug: draw-hud-instruments-with-the-draw-list
+  title: 'Draw HUD instruments: arc gauges, gradients, scrolling tapes and animated intros'
+  summary: 'Build broadcast-style and fighter-style instruments from draw-list primitives: sweeping arc
+    fills and gradient bands, scrolling speed/altitude/heading tapes with clip rects, a rotated pitch
+    ladder, and reversible staged intro/outro animation.'
+  game_types: [Brutal.ImGuiApi.ImDrawListPtr, Brutal.ImGuiApi.Internal.ImGuiWindowPtr, KSA.Program, Brutal.ImGuiApi.ImDrawListExtensions,
+    KSA.CameraMode, KSA.Vehicle]
+  engine_pointers: [current/decomp/KSA/Program.cs DrawFps (stock foreground draw), current/decomp/KSA/Program.cs
+      (dt passed to OnDrawUi hooks), current/decomp/KSA/Camera.cs, current/decomp/KSA/Vehicle.cs (attitude
+      and air data inputs)]
+  lifecycle: ['frame:draw-ui', 'frame:viewports']
+  approaches:
+  - n: 1
+    title: PathArcTo plus PathStroke, VtxBuffer alpha rewrite for gradients
+    mod: ksa-public-telemetry
+    features: [mods/ksa-public-telemetry/features/foreground-drawlist-broadcast-overlay]
+    technique: imgui-drawlist
+    note: Angle origin rotated to 12 o'clock; record VtxBuffer.Count around AddConvexPolyFilled and rescale
+      alpha; tiny IOverlayPanel/PanelHost layout system.
+  - n: 2
+    title: Overlapping stages with 1-(1-t)^n easing and edge-in stagger
+    mod: ksa-public-telemetry
+    features: [mods/ksa-public-telemetry/features/intro-outro-animation]
+    technique: imgui-drawlist
+    note: Reverse by scaling elapsed time; jittered colour fades.
+  - n: 3
+    title: PushClipRect per region and endpoint rotation before AddLine
+    mod: ksa-aircrafthud
+    features: [mods/ksa-aircrafthud/features/fullscreen-drawlist-hud]
+    technique: imgui-drawlist
+    note: Draw twice around a readout box; rotate endpoints rather than using transforms.
+  related: [draw-a-fullscreen-click-through-overlay, read-vehicle-flight-state]
+  borrowed_from: []
+  merged_from: [animate-imgui-overlays-with-easing, draw-scrolling-tapes-and-rotated-ladders, draw-arc-gauges-and-gradient-shapes]
+- slug: draw-a-monospace-text-grid
+  title: 'Draw per-frame text efficiently: monospace grids and allocation-free labels'
+  summary: Render a terminal-style cell grid every frame with run batching, metric-validated glyph runs
+    and block/braille shapes, and format per-frame ImGui text without allocations using cached strings,
+    stackalloc buffers and span builders.
+  game_types: [Brutal.ImGuiApi.ImDrawListPtr, Brutal.ImGuiApi.ImFontPtr, KSA.ImGuiBackendVulkanImpl, KSA.Program,
+    Core.SpanBuilder, KSA.DistanceReference, KSA.RadianReference, Brutal.ImGuiApi.ImString]
+  engine_pointers: [current/decomp/KSA/ImGuiBackendVulkanImpl.cs (dynamic atlas glyph rasterization),
+    current/decomp/KSA/Program.cs DrawFps (stackalloc SpanBuilder pattern)]
+  lifecycle: ['frame:draw-ui', 'frame:imgui-render', 'render:imgui']
+  approaches:
+  - n: 1
+    title: Merge equal-colour rects and same-font runs
+    mod: purrtty
+    features: [mods/purrtty/features/terminal-grid-drawlist-renderer]
+    technique: imgui-drawlist
+    note: Batching gated on measured glyph advances; block elements and braille as shapes avoid hinting
+      seams and missing glyphs.
+  - n: 2
+    title: Cache the string until the shown value's key changes
+    mod: ksa-deltavmap
+    features: [mods/ksa-deltavmap/features/subway-map-canvas-rendering]
+    technique: imgui-drawlist
+    note: Key by the displayed quantity.
+  - n: 3
+    title: stackalloc plus SpanBuilder and unit formatters
+    mod: ksa-measuretools
+    features: [mods/ksa-measuretools/features/overlay-drawlist-rendering]
+    technique: imgui-drawlist
+    note: DistanceReference.ToNearest, Core.SpanBuilder, ImString from spans; also throttling expensive
+      hover picks.
+  related: [load-a-custom-font-into-imgui, read-typed-text-and-key-chords-from-imgui, build-a-pan-zoom-canvas-in-imgui]
+  borrowed_from: []
+  merged_from: [keep-per-frame-imgui-text-allocation-free]
+  dedupe_with: [testing-and-tooling/throttle-expensive-ui-computation]
+- slug: build-a-pan-zoom-canvas-in-imgui
+  title: Build pannable, zoomable and 3D canvases inside an ImGui window
+  summary: A clipped child with a full-canvas InvisibleButton that handles pan, zoom about the cursor,
+    hover and click while owning the mouse wheel, with label culling; plus a 3D preview canvas with wireframe
+    gizmos, ray picking and undo/redo.
+  game_types: [KSA.ConsoleWidgets, KSA.ConsoleStyle, Brutal.ImGuiApi.ImGui, Brutal.ImGuiApi.ImDrawListPtr,
+    Brutal.ImGuiApi.ImTextureRef, Brutal.ImGuiApi.ImInputString, KSA.Program]
+  engine_pointers: [current/decomp/Brutal.ImGuiApi (SetNextItemAllowOverlap, SetItemKeyOwner), current/decomp/KSA/Camera.cs
+      (view/projection conventions)]
+  lifecycle: ['frame:draw-ui', 'render:imgui']
+  approaches:
+  - n: 1
+    title: InvisibleButton with allow-overlap, wheel key ownership, PushClipRect and priority label culling
+    mod: ksa-deltavmap
+    features: [mods/ksa-deltavmap/features/subway-map-canvas-rendering]
+    technique: imgui-drawlist
+    note: 'Screen-fixed glyphs, per-system colours, hit testing. Also folded: Priority-ordered screen-space
+      label culling (ksa-deltavmap): Run each frame on screen rects from ImGui.CalcTextSize. Sub-step
+      to give its own section: greedy priority-ordered label culling on screen rects from ImGui.CalcTextSize.'
+  - n: 2
+    title: '3D orbit canvas: offscreen image, draw-list wireframes and gizmos, ray picking and JSON-snapshot
+      undo'
+    mod: unscience
+    features: [mods/unscience/features/pebbles-workshop-editor]
+    technique: imgui-drawlist
+    note: 'Flip M22 for a positive-height Vulkan viewport, 3D gizmos on the window draw list, canvas ray
+      picking; fits collider primitives to mesh bounds; floating editor window independent of the host
+      panel. Also folded: JSON snapshot stack with drag coalescing (unscience): Simple, safe against aliasing,
+      at the cost of snapshot size. Sub-step to give its own section: undo/redo with JSON-cloned snapshots
+      and coalesced drags.'
+  related: [draw-a-monospace-text-grid, lay-out-a-tree-or-graph-diagram, cursor-to-world-ray, place-pieces-on-a-grid-with-a-ghost]
+  borrowed_from: []
+  merged_from: [cull-overlapping-labels, draw-and-pick-in-a-3d-imgui-canvas, undo-redo-in-an-editor]
+  dedupe_with: [rendering/render-a-vulkan-scene-offscreen-into-imgui, rendering/render-imgui-into-a-texture]
+- slug: lay-out-a-tree-or-graph-diagram
+  title: Lay out a tree or graph diagram and keep it usable at scale
+  summary: A game-type-free layout pipeline (measure, tidy tree or force layout, grid snap, octilinear
+    routing, greedy labels) bounded on the draw thread, plus aggregation, search-to-reveal, stable composition
+    and re-rooting on vessel or SOI change for diagrams with thousands of nodes.
+  game_types: [Brutal.ImGuiApi.ImGui, KSA.MinorBody, KSA.Comet, KSA.Astronomical, KSA.Program, KSA.Vehicle,
+    KSA.IParentBody, KSA.CelestialSystem, KSA.PhysicsStates]
+  engine_pointers: [current/decomp/KSA/Astronomical.cs, current/decomp/KSA/MinorBody.cs, current/decomp/KSA/Program.cs
+      ControlledVehicle, PrepareFrame]
+  lifecycle: ['frame:draw-ui']
+  approaches:
+  - n: 1
+    title: Three layout modes with Barnes-Hut and an iteration budget
+    mod: ksa-deltavmap
+    features: [mods/ksa-deltavmap/features/three-layout-modes]
+    technique: imgui-drawlist
+    note: Keep the engine game-free; hard node ceiling; iteration budget by node count.
+  - n: 2
+    title: Threshold aggregation, search-to-reveal and 8,000-node ceiling
+    mod: ksa-deltavmap
+    features: [mods/ksa-deltavmap/features/search-focus-isolate-and-aggregation]
+    technique: imgui-window
+    note: Collapse a hub's minor bodies above 24 and fold star systems past eight; search over the whole
+      universe.
+  - n: 3
+    title: Stable composition of cached parts around a never-moved home layout
+    mod: ksa-deltavmap
+    features: [mods/ksa-deltavmap/features/multi-system-scene-composition]
+    technique: imgui-drawlist
+    note: Cut at Interstellar edges, cache parts per root build, routed dashed connectors and re-anchor
+      only when the anchor leaves the canvas.
+  - n: 4
+    title: Reference comparison after PrepareFrame, ego re-rooting
+    mod: ksa-deltavmap
+    features: [mods/ksa-deltavmap/features/ego-rerooting-and-vessel-follow]
+    technique: imgui-window
+    note: 'Parent-chain walk into hub levels with sibling lanes. Sub-step to give its own section: compare
+      the controlled vehicle and its parent body by reference each frame to rebuild or re-root the view
+      on vessel switch, star-system crossing or SOI change.'
+  related: [build-a-pan-zoom-canvas-in-imgui, build-searchable-lists-and-browsers]
+  borrowed_from: []
+  merged_from: [keep-a-large-diagram-usable, detect-vessel-and-soi-changes-from-ui]
+- slug: tag-imgui-windows-for-shaders
+  title: Tag an ImGui window so a shader pass can treat it specially
+  summary: Attach a marker and shader key to a window's draw data with a no-op draw callback, keeping
+    the callback delegate alive and its payload copied.
+  game_types: [Brutal.ImGuiApi.ImDrawListPtr, Brutal.ImGuiApi.ImDrawCmd, Brutal.ImGuiApi.ImGuiPlatformIOPtr,
+    KSA.ImGuiBackendVulkanImpl]
+  engine_pointers: [current/decomp/KSA/ImGuiBackendVulkanImpl.cs (callback handling), current/decomp/KSA/Program.cs
+      RenderGame]
+  lifecycle: ['frame:draw-ui', 'frame:render', 'render:imgui']
+  approaches:
+  - n: 1
+    title: ImDrawList.AddCallback with user data holding a marker hash
+    mod: shaderextensions
+    features: [mods/shaderextensions/features/imgui-draw-list-marker-callback, mods/ksa-aircrafthud/features/imgui-window-hud-shader]
+    technique: glsl-shader
+    note: Userdata size copies into _CallbacksDataBuf; unprocessed markers are harmless no-ops; the AircraftHUD
+      window shader consumes it. Keep delegates alive across the frame.
+  related: [shade-one-imgui-window-with-a-custom-fragment-shader]
+  borrowed_from: [mods/ksa-aircrafthud/features/imgui-window-hud-shader]
+  dedupe_with: [shaders/shade-one-imgui-window-with-a-custom-fragment-shader]
+- slug: cursor-to-world-ray
+  title: Turn the mouse cursor into a world ray
+  summary: Convert the ImGui cursor into an Ecl or Ego ray through the camera of the viewport it is over,
+    subtracting the viewport offset and scaling to framebuffer pixels, and verify it by round-tripping.
+  game_types: [KSA.Camera, KSA.Cursor, KSA.Ray, KSA.ViewportRegistry, KSA.IGameViewport]
+  engine_pointers: [current/decomp/KSA/Camera.cs ScreenToEgoRay, current/decomp/KSA/Cursor.cs GetEgoRay]
+  lifecycle: ['frame:draw-ui', 'frame:input']
+  approaches:
+  - n: 1
+    title: ScreenToEgoRay with viewport offset and framebuffer scale
+    mod: ksarmory
+    features: [mods/ksarmory/features/cursor-ray-world-click-tools]
+    technique: imgui-drawlist
+    note: Ignore clicks ImGui owns; works with the HUD hidden.
+  - n: 2
+    title: Viewport lookup, EgoToEcl and a projected round trip for debugging
+    mod: ksagolf
+    features: [mods/ksagolf/features/cursor-picking-and-terrain-ray]
+    technique: imgui-drawlist
+    note: Project the hit back and measure the pixel error.
+  - n: 3
+    title: Framebuffer pixel conversion before ScreenToEgoRay
+    mod: ksacars
+    features: [mods/ksacars/features/craft-mover-mouse-pick-place]
+    technique: imgui-drawlist
+    note: Convert to camera framebuffer pixels first.
+  - n: 4
+    title: Cursor.GetEgoRay
+    mod: purrtty
+    features: [mods/purrtty/features/ray-pick-focus-for-world-quads]
+    technique: imgui-drawlist
+    note: Stock helper with Moller-Trumbore triangle tests for world quads.
+  related: [pick-objects-under-the-cursor, project-world-to-screen]
+  borrowed_from: []
+  dedupe_with: [camera/place-points-under-the-cursor-on-a-construction-plane, rendering/pick-a-surface-point-under-the-cursor]
+- slug: pick-objects-under-the-cursor
+  title: Pick the vessel, part, world quad or terrain point under the cursor
+  summary: Choose among vessels by screen-space nearest with an apparent-size reach, parts by hull ray,
+    in-world quads by triangle tests, or the terrain point under the cursor by marching the ray below
+    the height field; route input to the one hit and optionally teleport a craft there.
+  game_types: [KSA.Part, KSA.Vehicle, KSA.Cursor, KSA.Ray, KSA.Celestial, KSA.CelestialSystem, KSA.Camera,
+    KSA.InputEvents]
+  engine_pointers: [current/decomp/KSA/Part.cs RayCastEgo, current/decomp/KSA/Celestial.cs (terrain height
+      queries), current/decomp/KSA/Vehicle.cs TeleportToLocation]
+  lifecycle: ['frame:draw-ui', 'frame:input']
+  approaches:
+  - n: 1
+    title: Screen-space nearest with a per-item reach
+    mod: ksagolf
+    features: [mods/ksagolf/features/cursor-picking-and-terrain-ray, mods/ksacars/features/craft-mover-mouse-pick-place]
+    technique: imgui-drawlist
+    note: Project all vehicles and pick within size-based radii.
+  - n: 2
+    title: Part.RayCastEgo hull test plus terrain march (fire-at-spot designation)
+    mod: ksarmory
+    features: [mods/ksarmory/features/cursor-ray-world-click-tools]
+    technique: imgui-drawlist
+    note: 'Exact hull hits plus a terrain march. Also folded: Terrain march alongside hull ray tests (ksarmory):
+      Used for fire-at-spot designation.'
+  - n: 3
+    title: Ray hit to texture UV for interactive in-world UI
+    mod: purrtty
+    features: [mods/purrtty/features/ray-pick-focus-for-world-quads]
+    technique: imgui-drawlist
+    note: Converts the hit to widget coordinates so a world quad is clickable and typeable.
+  - n: 4
+    title: Clearance-stepped terrain march with bisection, then a buffered TeleportToLocation
+    mod: ksagolf
+    features: [mods/ksagolf/features/cursor-picking-and-terrain-ray, mods/ksacars/features/craft-mover-mouse-pick-place]
+    technique: imgui-drawlist
+    note: 'March from the eye; do not refine a sphere hit. Also folded: Height-field walk with steps bounded
+      by height above ground (ksacars): Walk the ray below the highest terrain. Also folded: Buffered
+      TeleportToLocation after a cursor pick (ksacars): A buffered input event, so call once per action.
+      Sub-step to give its own section: teleport a craft to the picked latitude and longitude once per
+      action with Vehicle.TeleportToLocation (a buffered input event).'
+  related: [cursor-to-world-ray, coordinate-imgui-focus-with-game-input]
+  borrowed_from: []
+  merged_from: [raycast-terrain-from-the-cursor, teleport-a-craft-to-a-latitude-and-longitude]
+  dedupe_with: [vehicles-and-parts/pick-a-vehicle-under-the-cursor, rendering/pick-a-surface-point-under-the-cursor,
+    flight-and-orbits/pick-bodies-and-orbit-lines-under-the-cursor, flight-and-orbits/teleport-a-vessel-to-an-orbit-or-site,
+    vehicles-and-parts/teleport-a-vehicle]
+- slug: place-pieces-on-a-grid-with-a-ghost
+  title: Place pieces on a grid with a snapping ghost, top-down camera and world gizmos
+  summary: Cursor ray into a local frame, ray-plane cell pick, a ghost piece that snaps to connection
+    ports, a fixed top-down camera handed back afterwards, and world-space gizmos and mod meshes drawn
+    into every viewport.
+  game_types: [KSA.Controller, KSA.FixedController, KSA.GameViewport, KSA.GizmosRenderer, KSA.Vehicle,
+    KSA.Celestial, KSA.SuperMeshRenderSystem, KSA.StaticMeshRenderable, KSA.Camera]
+  engine_pointers: [current/decomp/KSA/FixedController.cs, current/decomp/KSA/GameViewport.cs, current/decomp/KSA/GizmosRenderer.cs,
+    current/decomp/KSA/SuperMeshRenderSystem.cs ClearBuckets]
+  lifecycle: ['frame:input', 'frame:viewports', 'frame:draw-ui', 'frame:render']
+  approaches:
+  - n: 1
+    title: Ray-plane cell pick in a body-fixed grid, port-snapping ghost, GizmosRenderer lines and per-viewport
+      mesh draw
+    mod: ksagolf
+    features: [mods/ksagolf/features/minigolf-course-builder]
+    technique: imgui-drawlist
+    note: 'Fixed camera mode with IViewPose re-asked in the viewport pass; place, move, remove, undo,
+      redo, save and load follow. Also folded: Gizmo lines from StarMapAfterGui plus mesh draw per viewport
+      (ksagolf): Main viewport only for gizmos; postfix on SuperMeshRenderSystem.ClearBuckets for meshes
+      in every viewport. Sub-step to give its own section: GizmosRenderer lines from StarMapAfterGui on
+      the main viewport only, and a postfix on SuperMeshRenderSystem.ClearBuckets for meshes in every
+      viewport.'
+  - n: 2
+    title: Gizmo rings anchored with GetPositionEgo
+    mod: ksacars
+    features: [mods/ksacars/features/craft-mover-mouse-pick-place]
+    technique: starmap-lifecycle
+    note: Submit from StarMapAfterGui, anchored to the vehicle.
+  related: [coordinate-imgui-focus-with-game-input, build-a-pan-zoom-canvas-in-imgui, project-world-to-screen]
+  borrowed_from: [mods/ksarmory/features/gizmo-world-overlays]
+  merged_from: [draw-gizmos-and-meshes-in-the-world]
+  dedupe_with: [rendering/draw-world-space-gizmos, camera/drive-the-main-camera-in-fixed-mode]
+- slug: coordinate-imgui-focus-with-game-input
+  title: Share the keyboard and mouse between ImGui, mod tools and the game
+  summary: 'Make mod UI and the game share input: ignore clicks and keys ImGui owns, keep a panel from
+    taking keyboard focus, drop key events while a text field is active, swallow input while a mod tool
+    is active, and give a vehicle new key meanings.'
+  game_types: [Brutal.ImGuiApi.ImGuiIOPtr, Brutal.ImGuiApi.ImGuiWindowFlags, KSA.Vehicle, KSA.GameSettings,
+    KSA.Program, KSA.FixedController, KSA.Controller, KSA.GameViewport, KSA.KittenEva, KSA.ImGuiBackendGlfwImpl,
+    KSA.ThrusterMapFlags, KSA.ManualControlInputs, KSA.EngineFlags, KSA.InputAction, KSA.InputEvents,
+    KSA.Input]
+  engine_pointers: ['current/decomp/KSA/GameSettings.cs OnKeyAll, IsUserTyping', current/decomp/KSA/Vehicle.cs
+      OnKey, current/decomp/KSA/FixedController.cs OnKey, OnMouseButton, OnScroll, 'current/decomp/KSA/Vehicle.cs
+      OnKey, ProcessInput, PrepareWorker', current/decomp/KSA/Program.cs PrepareFrame (keys applied before
+      PrepareWorker)]
+  lifecycle: ['frame:input', 'frame:draw-ui', 'frame:dispatch-solvers']
+  approaches:
+  - n: 1
+    title: Gate on WantTextInput/WantCaptureMouse in the GUI hook
+    mod: ksagolf
+    features: [mods/ksagolf/features/minigolf-course-builder]
+    technique: imgui-window
+    note: GUI hook only, so it stops with the HUD hidden.
+  - n: 2
+    title: Ignore clicks ImGui owns (WantCaptureMouse)
+    mod: ksarmory
+    features: [mods/ksarmory/features/cursor-ray-world-click-tools]
+    technique: imgui-window
+    note: Click tools keep working with the HUD hidden.
+  - n: 3
+    title: NoNav and NoFocusOnAppearing windows
+    mod: ksacars
+    features: [mods/ksacars/features/car-panel-and-modmenu]
+    technique: imgui-window
+    note: A panel that never takes the keyboard from flight keys.
+  - n: 4
+    title: WantCaptureKeyboard drops key events in a Vehicle.OnKey patch, or a postfix adds a new key
+      meaning
+    mod: ksacars
+    features: [mods/ksacars/features/drive-with-flight-keys]
+    technique: harmony-prefix
+    note: 'Clears held input as well. Also folded: Postfix OnKey to queue VehicleInputData, postfix ProcessInput
+      to record it (ksacars): GetThrusterFlags in the PrepareWorker window; private engine switch and
+      throttle flags by reflection. Sub-step to give its own section: making a vehicle respond to flight
+      keys it normally ignores (OnKey postfix queuing VehicleInputData, ProcessInput record, modifier
+      stripping).'
+  - n: 5
+    title: FixedController subclass swallows OnKey/OnMouseButton/OnScroll
+    mod: ksagolf
+    features: [mods/ksagolf/features/minigolf-course-builder]
+    technique: reflection
+    note: 'Controller OnKey runs before the vehicle; IsMouseDrag blocks part windows opening. Sub-step:
+      a controller subclass that swallows keys and clicks so the kitten or vessel does not react while
+      a tool is active.'
+  related: [block-game-hotkeys-while-typing, take-input-through-a-camera-controller, work-with-stock-cockpit-gauges]
+  borrowed_from: []
+  merged_from: [swallow-game-input-while-a-tool-is-active, make-a-vehicle-respond-to-a-key]
+  dedupe_with: [patching/consume-game-input-with-a-skipping-prefix, camera/take-input-through-a-camera-controller,
+    flight-and-orbits/drive-throttle-and-rcs-inputs-from-code]
+- slug: block-game-hotkeys-while-typing
+  title: Block game hotkeys while typing into an ImGui field
+  summary: Stop KSA bindings from firing while a mod text box has focus, by reporting key events as handled
+    in the game's key dispatch.
+  game_types: [KSA.GameSettings, KSA.Program, KSA.InputAction]
+  engine_pointers: ['current/decomp/KSA/GameSettings.cs OnKeyAll, IsUserTyping (stock only covers its
+      own fields)', current/decomp/KSA/Program.cs OnKey]
+  lifecycle: ['frame:input']
+  approaches:
+  - n: 1
+    title: Prefix on GameSettings.OnKeyAll when ImGui wants text input
+    mod: unscience
+    features: [mods/unscience/features/lib-hotkey-guard]
+    technique: harmony-prefix
+    note: Returns handled whenever ImGui.GetIO().WantTextInput.
+  - n: 2
+    title: Gate game input while a terminal has focus
+    mod: purrtty
+    features: [mods/purrtty/features/gate-game-input-while-terminal-focused]
+    technique: harmony-prefix
+    note: Borrowed from patching; patches Program.OnKey and OnKeyAll while the terminal is focused.
+  related: [coordinate-imgui-focus-with-game-input, rebindable-hotkeys]
+  borrowed_from: [mods/purrtty/features/gate-game-input-while-terminal-focused]
+  dedupe_with: [patching/consume-game-input-with-a-skipping-prefix]
+- slug: rebindable-hotkeys
+  title: Implement rebindable hotkeys with ImGui key state
+  summary: Poll ImGuiKey hotkeys with IsKeyPressed outside text input, capture a new binding with a press-a-key
+    loop and persist it.
+  game_types: [Brutal.ImGuiApi.ImGuiKey, Brutal.ImGuiApi.ImGuiIOPtr]
+  engine_pointers: [current/decomp/KSA/Input.cs, current/decomp/KSA/GameSettings.cs OnKeyAll]
+  lifecycle: ['frame:draw-ui', 'frame:input']
+  approaches:
+  - n: 1
+    title: Enum names in JSON and a capture loop over the ImGuiKey range
+    mod: ksa-public-telemetry
+    features: [mods/ksa-public-telemetry/features/rebindable-numpad-hotkeys]
+    technique: json-config
+    note: IsKeyPressed(repeat:false), skipped on WantTextInput, scanning NamedKey_BEGIN..Oem102.
+  - n: 2
+    title: Key plus modifiers with a modal capture, stored in TOML
+    mod: purrtty
+    features: [mods/purrtty/features/rebindable-toggle-hotkey]
+    technique: toml-config
+    note: Reads KeySuper through reflection; suppressed while a text field is active.
+  related: [block-game-hotkeys-while-typing, persist-mod-settings-toml]
+  borrowed_from: []
+  dedupe_with: [persistence/persist-mod-settings-toml]
+- slug: read-typed-text-and-key-chords-from-imgui
+  title: Read typed text, key chords and the clipboard from ImGui
+  summary: Use the character queue for text and IsKeyPressed for Ctrl/Alt chords, handle AltGr, drive
+    key, mouse and paste encoders, and copy to or paste from the GLFW-backed system clipboard.
+  game_types: [Brutal.ImGuiApi.ImGuiIOPtr, Brutal.ImGuiApi.ImGuiKey, KSA.ImGuiBackendGlfwImpl, Brutal.ImGuiApi.ImGui]
+  engine_pointers: [current/decomp/KSA/ImGuiBackendGlfwImpl.cs, current/decomp/KSA/ImGuiBackendGlfwImpl.cs
+      (clipboard callbacks)]
+  lifecycle: ['frame:input', 'frame:draw-ui']
+  approaches:
+  - n: 1
+    title: Character queue versus IsKeyPressed, with Get/SetClipboardText for paste chords
+    mod: purrtty
+    features: [mods/purrtty/features/imgui-keyboard-mouse-to-vt-input]
+    technique: imgui-window
+    note: 'Selection gestures and integer-metric app-mouse reporting too. Also folded: Get/SetClipboardText
+      for paste chords (purrtty): Clipboard backed by GLFW.'
+  - n: 2
+    title: Selectable rows that build text only on click
+    mod: ksa-measuretools
+    features: [mods/ksa-measuretools/features/measure-menu-and-tool-window]
+    technique: imgui-window
+    note: 'ImGui.SetClipboardText plus stock unit formatters. Sub-step to give its own section: copying
+      list rows to the clipboard only on click.'
+  related: [coordinate-imgui-focus-with-game-input]
+  borrowed_from: []
+  merged_from: [copy-text-to-the-clipboard-from-imgui]
+  dedupe_with: [external-io/let-a-terminal-program-set-the-system-clipboard]

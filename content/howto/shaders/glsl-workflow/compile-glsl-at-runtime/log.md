@@ -1,0 +1,5 @@
+# Compile and write GLSL at runtime for a mod's own pipeline history
+
+## 2026-10-10
+* **Creation**: Added [Compile and write GLSL at runtime for a mod's own pipeline](overview.md) (3 approaches): [Compile GLSL at runtime: a premultiplied-alpha fragment shader paired with the stock unlit vertex shader](compile-glsl-at-runtime-1.md), [Compile GLSL at runtime: a sticker fragment shader compiled with FromString and the game's includes](compile-glsl-at-runtime-2.md), [Compile GLSL at runtime: derivative normal mapping in an embedded-resource preview shader](compile-glsl-at-runtime-3.md). Written from the pinned mod checkouts and verified against the decompiled game build 2026.10.10.5554.
+* **Update**: Independent review (claude-code/sonnet-5.5): overview lifecycle and approach-1 row corrected (purrTTY compiles on first terminal creation from `StarMapAfterGui`, draws in `render:translucency`, not at `startup:all-mods-loaded`); article 2 lifecycle and hooks corrected (no startup phase; `StarMapBeforeGui` updates); article 1 now cites the plan's pebbles preview feature; snippet ranges corrected.

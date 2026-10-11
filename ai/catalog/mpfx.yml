@@ -1,0 +1,237 @@
+mod: mpfx
+repo: MPFX
+ref: fbdeeebca9bd2e0f0001348b6903af3a652cecd0
+summary: >-
+  MPFX (AMPW) is a small StarMap post-processing mod built on ShaderExtensions and KittenExtensions
+  Continued. One XML asset file declares 16 PostProcessingShader (pre-ImGui, on the HDR offscreen image
+  before the tonemap composite) and 16 GlobalPostShader (post-ImGui, on the swapchain image) passes
+  ordered by RenderPassId 128-143. Together they give color balance (lift/gamma/gain), color
+  temperature, YIQ hue shift, brightness, contrast, saturation, overlay, vignette, film grain, a
+  separable Gaussian blur and five experimental passes. A single StarMapAfterGui method writes
+  parameters into ShaderExtensions-owned uniform buffers and push constants (bound by attribute name,
+  with no assembly reference) and draws an ImGui settings window opened from ModMenu. Settings are not
+  persisted. Profiles are KxAsset XML that the user exports to the clipboard and pastes into an asset
+  file by hand. With CMAA2 anti-aliasing the pre-ImGui half of every effect runs but is not displayed,
+  and the always-running pre-ImGui film grain pass clamps the HDR image to [0, 1].
+features:
+  - id: mods/mpfx/features/effect-chain-assets
+    title: Effect chain declared as RenderPassId-ordered post-process assets
+    category: shaders
+    submod: null
+    summary: >-
+      Declares the whole effect stack as 32 ShaderExtensions XML assets, with paired pre/post-ImGui
+      passes per effect sharing one RenderPassId and one parameter buffer referenced by Id.
+    novelty: high
+    techniques: [xml-asset, post-processing, glsl-shader]
+    lifecycle: [startup:asset-load, render:post-process]
+    hooks:
+      - "xml-asset PostProcessingShader (ShaderExtensions)"
+      - "xml-asset GlobalPostShader (ShaderExtensions)"
+      - "harmony-transpiler KSA.Program.RenderGame (ShaderExtensions)"
+      - "harmony-postfix KSA.Program.RebuildRenderer (ShaderExtensions)"
+    game_types: [KSA.Program, KSA.SerializedId]
+    key_paths: [MPFX/MPFXAssests.xml, MPFX/MPFX.csproj]
+    howto_topics:
+      - slug: post-processing-effect-chain
+        title: Build a multi-pass post-processing chain with ShaderExtensions
+        note: one XML element per pass, ordered by RenderPassId; no C# render code
+      - slug: pre-vs-post-imgui-post-processing
+        title: Choose between pre-ImGui (HDR scene) and post-ImGui (final frame) post-processing
+        note: pre chain runs on R16G16B16A16SFloat offscreen before RenderFinalComposite; post chain sees the UI
+      - slug: share-uniform-buffer-between-shaders
+        title: Share one uniform buffer between several shaders by Id
+        note: Size creates the buffer, Id without Size references it
+      - slug: cmaa2-and-custom-post-processing
+        title: Interaction of custom post effects with the game's CMAA2 path
+        note: CMAA2 tonemaps the offscreen image before the pre-ImGui hook, so pre-ImGui passes are not displayed
+  - id: mods/mpfx/features/effect-shader-contract
+    title: Shader contract for chain passes
+    category: shaders
+    submod: null
+    summary: >-
+      Every pass reads the previous image as sampler2D at set 1 binding 0, has ShaderTime at binding 1,
+      one parameter block at binding 2 and an optional push constant, and is written to be the identity
+      for neutral parameters because passes cannot be disabled.
+    novelty: medium
+    techniques: [glsl-shader, post-processing, vulkan-buffer]
+    lifecycle: [render:post-process]
+    hooks: ["xml-asset PostProcessingShader / GlobalPostShader (ShaderExtensions)"]
+    game_types: [KSA.Program]
+    key_paths: [MPFX/Shaders/BrightnessPre.frag, MPFX/Shaders/FilmGrainPre.frag]
+    howto_topics:
+      - slug: write-a-post-processing-fragment-shader
+        title: Write a fullscreen post-processing fragment shader for KSA
+        note: ScreenspaceVert supplies Uv; descriptor set and binding layout of ShaderExtensions passes
+      - slug: toggleable-always-on-shader-pass
+        title: Make an always-running shader pass switchable with neutral parameters
+  - id: mods/mpfx/features/duck-typed-buffer-structs
+    title: Uniform buffer and push constant structs bound by attribute name
+    category: shaders
+    submod: null
+    summary: >-
+      Private copies of SxUniformBuffer/SxPushConstant attributes and lookup delegates let
+      ShaderExtensions register MPFX's structs as XML elements and fill static Span lookups by
+      reflection, without any compile-time reference to ShaderExtensions.
+    novelty: high
+    techniques: [inter-mod-api, reflection, vulkan-buffer, xml-asset]
+    lifecycle: [startup:starmap-before-main, startup:asset-load]
+    hooks:
+      - "harmony-prefix KSA.Program.Main (ShaderExtensions AssetEx.Init)"
+      - "reflection static delegate fields filled by ShaderExtensions"
+    game_types: [KSA.KeyHash, KSA.SerializedId, Brutal.Numerics.float4x4]
+    key_paths: [MPFX/Buffers.cs, MPFX/Buffers/MPFXDefaultBuffer.cs, MPFX/Buffers/MPFXGaussianBlurBuffer.cs, MPFX/Buffers/MPFXPushConstantsFloatBuffer.cs]
+    howto_topics:
+      - slug: shaderextensions-uniform-buffers
+        title: Feed a shader from C# with ShaderExtensions uniform buffers
+        note: SxUniformBuffer struct, XML element with Id and Size, LookupSpan(KeyHash.Make(id))
+      - slug: shaderextensions-push-constants
+        title: Send small per-frame values with ShaderExtensions push constants
+      - slug: std140-struct-layout-in-csharp
+        title: Match GLSL std140 layouts with C# structs
+        note: Pack = 1, manual padding, float arrays packed into vec4; float4x4 rows become mat4 columns
+      - slug: soft-dependency-by-attribute-name
+        title: Integrate with another mod without referencing its assembly
+        note: declare same-named internal attributes; the host mod matches by FullName
+  - id: mods/mpfx/features/per-frame-parameter-upload
+    title: Per-frame effect parameter upload
+    category: shaders
+    submod: null
+    summary: >-
+      StarMapAfterGui writes push constants every frame the HUD is shown and rewrites all uniform buffers only when a
+      UI dirty flag is set, substituting neutral values for disabled effects, before RenderGame records
+      the passes.
+    novelty: medium
+    techniques: [starmap-lifecycle, vulkan-buffer, post-processing]
+    lifecycle: [frame:draw-ui, frame:render]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: [KSA.Program, KSA.Universe, KSA.KeyHash, Core.Renderer]
+    key_paths: [MPFX/MPFX.cs]
+    howto_topics:
+      - slug: update-shader-parameters-each-frame
+        title: Update shader parameters from C# at the right point in the frame
+        note: write in frame:draw-ui; ShaderExtensions records push constants in RenderGame the same frame
+      - slug: dirty-flag-gpu-upload
+        title: Upload GPU parameters only when UI settings change
+      - slug: persistently-mapped-uniform-buffer
+        title: Create and update a persistently mapped uniform buffer
+        note: single host-coherent copy written in StarMapAfterGui, before the frame-slot fence wait in OnPreRender
+  - id: mods/mpfx/features/effect-settings-window
+    title: Effect settings window and ModMenu entry
+    category: ui
+    submod: null
+    summary: >-
+      ImGui window with button tabs, a three-column table of collapsing headers per effect with pre/post
+      rows, slider-plus-input row helper, ColorPicker4 and Reset buttons, opened from a ModMenuEntry.
+    novelty: low
+    techniques: [imgui-window, imgui-menu, starmap-lifecycle]
+    lifecycle: [frame:draw-ui]
+    hooks: ["starmap StarMapAfterGui", "modmenu ModMenuEntry(\"MPFX\")"]
+    game_types: [Brutal.ImGuiApi.ImGui, KSA.Program, Core.Renderer]
+    key_paths: [MPFX/MPFX.cs]
+    howto_topics:
+      - slug: imgui-settings-table-with-collapsing-headers
+        title: Lay out a settings panel as an ImGui table with collapsing sections
+      - slug: modmenu-entry
+        title: Add an entry to ModMenu with the ModMenuEntry attribute
+        note: ModMenu.Attributes NuGet package; ModMenu discovery not verified in this reference set
+      - slug: imgui-color-picker-settings
+        title: Edit colors with ImGui ColorPicker4 bound to a float4
+  - id: mods/mpfx/features/xml-effect-profiles
+    title: Effect profiles as XML assets with clipboard export
+    category: persistence
+    submod: null
+    summary: >-
+      MPFXProfile is a KxAsset loaded from any asset XML. In-game profiles are memory-only, and the Export
+      tab serializes the current profile with DefaultValue/ShouldSerialize trimming for manual pasting.
+    novelty: medium
+    techniques: [xml-asset, imgui-window]
+    lifecycle: [startup:asset-load, frame:draw-ui]
+    hooks: ["xml-asset MPFXProfile (KittenExtensions KxAsset)", "starmap StarMapAfterGui"]
+    game_types: [KSA.SerializedId, KSA.IKeyed, KSA.ModLibrary, Brutal.Numerics.float4x4, Brutal.ImGuiApi.ImGui]
+    key_paths: [MPFX/MPFXProfile.cs, MPFX/Serializer.cs, MPFX/MPFX.cs]
+    howto_topics:
+      - slug: presets-as-xml-assets
+        title: Ship mod presets as custom XML asset elements
+        note: KittenExtensions KxAsset on a SerializedId subclass, register in OnDataLoad
+      - slug: compact-xmlserializer-output
+        title: Produce minimal XML with XmlSerializer DefaultValue and ShouldSerialize
+      - slug: copy-to-clipboard-from-imgui
+        title: Export text from an ImGui window to the clipboard
+  - id: mods/mpfx/features/color-grading-math
+    title: Color grading shader math
+    category: shaders
+    submod: null
+    summary: >-
+      GLSL for lift/gamma/gain from a mat4, Kelvin temperature tint with luminance preservation, YIQ hue
+      rotation, mid-gray contrast, Rec. 709 saturation, overlay and aspect-corrected vignette.
+    novelty: medium
+    techniques: [glsl-shader, post-processing]
+    lifecycle: [render:post-process]
+    hooks: ["xml-asset PostProcessingShader / GlobalPostShader (ShaderExtensions)"]
+    game_types: [KSA.Program, Brutal.Numerics.float4x4]
+    key_paths: [MPFX/Shaders/ColorBalancePre.frag, MPFX/Shaders/ColorTempPre.frag, MPFX/Shaders/HueShiftPost.frag, MPFX/Shaders/VignettePre.frag]
+    howto_topics:
+      - slug: color-grading-shader
+        title: Implement lift, gamma, gain, temperature and hue grading in a post-process shader
+      - slug: vignette-shader
+        title: Draw an aspect-correct vignette in a post-process shader
+  - id: mods/mpfx/features/separable-gaussian-blur
+    title: Separable Gaussian blur with CPU-computed weights
+    category: shaders
+    submod: null
+    summary: >-
+      Two passes (horizontal, vertical) with normalized weights computed in C# for radius up to 20 and
+      packed into an std140 int + vec4[6] block, one shader file used by both chains.
+    novelty: medium
+    techniques: [glsl-shader, post-processing, vulkan-buffer]
+    lifecycle: [frame:draw-ui, render:post-process]
+    hooks: ["starmap StarMapAfterGui", "xml-asset PostProcessingShader / GlobalPostShader (ShaderExtensions)"]
+    game_types: [KSA.KeyHash]
+    key_paths: [MPFX/MPFX.cs, MPFX/Buffers/MPFXGaussianBlurBuffer.cs, MPFX/Shaders/GaussianBlurHorizontal.frag, MPFX/Shaders/GaussianBlurVertical.frag]
+    howto_topics:
+      - slug: separable-blur-post-process
+        title: Blur the screen with a two-pass separable Gaussian
+        note: consecutive RenderPassIds; second pass samples the first pass's target
+      - slug: std140-struct-layout-in-csharp
+        title: Match GLSL std140 layouts with C# structs
+  - id: mods/mpfx/features/film-grain-and-experimental-effects
+    title: Film grain and experimental effects
+    category: shaders
+    submod: null
+    summary: >-
+      Animated film grain on a per-side push-constant clock (optionally scaled by time warp) using
+      Ashima/Gustavson noise and soft-light blending, plus experimental HSV and channel-isolation passes.
+    novelty: medium
+    techniques: [glsl-shader, post-processing, starmap-lifecycle]
+    lifecycle: [frame:draw-ui, render:post-process]
+    hooks: ["starmap StarMapAfterGui", "xml-asset PostProcessingShader / GlobalPostShader (ShaderExtensions)"]
+    game_types: [KSA.Universe, Core.Renderer]
+    key_paths: [MPFX/Shaders/FilmGrainPre.frag, MPFX/Shaders/HSV2RGBEffectsPre.frag, MPFX/Shaders/SingleColorPre.frag, MPFX/MPFX.cs]
+    howto_topics:
+      - slug: animated-shader-time
+        title: Animate a post-process shader with game time or time-warp-scaled time
+        note: own clock in a push constant vs the ShaderExtensions ShaderTime block
+      - slug: film-grain-shader
+        title: Add film grain noise to the final image
+  - id: mods/mpfx/features/ci-release-pipeline
+    title: Generated mod.toml and CI release pipeline
+    category: testing-and-tooling
+    submod: null
+    summary: >-
+      CopyOutput.targets writes mod.toml (assets, StarMap ModDependencies with ImportedAssemblies) from
+      csproj items; GitHub Actions builds against private KSA DLLs via a GitHub App token and publishes
+      GitHub and SpaceDock releases on VersionPrefix change.
+    novelty: medium
+    techniques: [toml-config, ci-release, msbuild-targets]
+    lifecycle: []
+    hooks: []
+    game_types: []
+    key_paths: [MPFX/CopyOutput.targets, MPFX/MPFX.csproj, .github/workflows/build.yml]
+    howto_topics:
+      - slug: generate-mod-toml-from-msbuild
+        title: Generate mod.toml, including StarMap dependencies, from the csproj
+      - slug: ci-build-against-private-game-dlls
+        title: Build a KSA mod in CI without publishing the game DLLs
+        note: private DLL repo + GitHub App token; KSA_VERSION.txt for the release body
+      - slug: publish-to-spacedock
+        title: Publish mod releases to GitHub and SpaceDock automatically

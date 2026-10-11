@@ -1,0 +1,5 @@
+# Write worker-thread-safe patches inside the vehicle solver history
+
+## 2026-10-10
+* **Creation**: Added [overview](overview.md) and 6 article(s): [Pure, allocation-free, never-throwing code over the in arguments](write-worker-thread-safe-solver-patches-1.md); [Read-only tables filled on the main thread before physics starts](write-worker-thread-safe-solver-patches-2.md); [Concurrent registries keyed by reference](write-worker-thread-safe-solver-patches-3.md); [Volatile snapshot handoff from worker patches to the main thread](write-worker-thread-safe-solver-patches-4.md); [Identify the vehicle a callback runs for with a ThreadStatic set in a prefix and cleared in a finalizer](write-worker-thread-safe-solver-patches-5.md); [Immutable commands published before the solver job is queued](write-worker-thread-safe-solver-patches-6.md). Verified against the decompiled game build 2026.10.10.5554 and the pinned mod repositories.
+* **Update**: Review: overview now lists every demonstrating feature and the union of article lifecycles; added `group` to frontmatter. Reviewed against decompiled build 2026.10.10.5554 and the pinned mod repositories.

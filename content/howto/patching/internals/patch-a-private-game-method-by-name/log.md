@@ -1,0 +1,4 @@
+# Patching private and overloaded game methods by name history
+
+## 2026-10-10
+* **Creation**: Added [Patching private and overloaded game methods by name](overview.md) and 7 How-To articles ([patch-a-private-game-method-by-name-1](patch-a-private-game-method-by-name-1.md), [patch-a-private-game-method-by-name-2](patch-a-private-game-method-by-name-2.md), [patch-a-private-game-method-by-name-3](patch-a-private-game-method-by-name-3.md), [patch-a-private-game-method-by-name-4](patch-a-private-game-method-by-name-4.md), [patch-a-private-game-method-by-name-5](patch-a-private-game-method-by-name-5.md), [patch-a-private-game-method-by-name-6](patch-a-private-game-method-by-name-6.md), [patch-a-private-game-method-by-name-7](patch-a-private-game-method-by-name-7.md)), checked against build 2026.10.10.5554 and the pinned reference repositories.

@@ -1,0 +1,1722 @@
+category: physics
+description: Forces, drag and aero, wheels and suspension, colliders, Bepu, custom motion, terrain contact and physics-safe
+  mutation of simulated state, including patches inside the worker-thread vehicle solver.
+topics:
+- slug: mutate-vehicles-at-a-physics-safe-point
+  title: Mutate vehicles at a physics-safe point
+  summary: Vehicle state written from an ordinary StarMap hook or ImGui button is overwritten by the physics step
+    already in flight. This topic shows the four windows where a write survives and which kind of change belongs
+    in each.
+  game_types:
+  - KSA.Vehicle
+  - KSA.Universe
+  - KSA.Program
+  - KSA.JobSystems
+  - KSA.VehicleUpdateTask
+  - KSA.SimStep
+  engine_pointers:
+  - current/decomp/KSA/Vehicle.cs PrepareWorker
+  - current/decomp/KSA/Universe.cs PrepareVehicleWorkers, ExecuteNextVehicleSolvers, ApplyVehicleSolvers
+  - current/decomp/KSA/Program.cs PrepareFrame
+  - current/decomp/KSA/JobSystems.cs VehicleSolver
+  lifecycle:
+  - frame:prepare
+  - frame:apply-solvers
+  - frame:dispatch-solvers
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: Write inside a Vehicle.PrepareWorker prefix
+    mod: ksacars
+    features:
+    - mods/ksacars/features/prepareworker-impulse-injection
+    - mods/ksarmory/features/prepareworker-prefix-command-window
+    - mods/ksastructures/features/lift-moving-landmark
+    technique: harmony-prefix
+    note: The window just before KSA snapshots a vehicle for the worker; queue from any hook, perform here. Explain
+      why writes from StarMap hooks are lost (ApplyVehicleSolvers overwrites the kinematic states, the worker snapshot
+      is taken before the next Apply) and how GetPhysicsStatesMutable is used. KSArmory demonstrates queuing attitude,
+      throttle, staging, mass writes; KSACars velocity writes; KSAStructures position writes after taking a body
+      off rails.
+  - n: 2
+    title: Drain a command queue in a Priority.First prefix on Universe.ExecuteNextVehicleSolvers
+    mod: gatos
+    features:
+    - mods/gatos/features/solver-phase-command-drain
+    - mods/ksagolf/features/launch-site-surface-raycast
+    - mods/unscience/features/kiwis-marbles-celestial-welding
+    technique: harmony-prefix
+    note: 'Runs after Apply*Solvers and before the step is queued, so orbit swaps, refills, teleports and shape-registry
+      reads are safe. Compare with the PrepareWorker window: earlier, once per frame rather than once per vehicle,
+      and where the shapes registry is guaranteed idle.'
+  - n: 3
+    title: Run a callback at the PrepareFrame handoff with a GetJobSimStep transpiler
+    mod: unscience
+    features:
+    - mods/unscience/features/lib-physics-frame-hook
+    - mods/unscience/features/garrys-torch-vehicle-welding
+    - mods/unscience/features/dent-wizard-vessel-launcher
+    - mods/unscience/features/godzilla-vessel-scaling
+    technique: harmony-transpiler
+    note: A shared hook (Enqueue one-shots, BeforePhysics per-frame event, world-change deferral) that rewrites
+      the single GetJobSimStep call. Emphasise the exactly-once call-order validation that makes the hook disable
+      itself when the game changes, and the stateTime value passed to callbacks.
+  - n: 4
+    title: Join JobSystems.VehicleSolver before mutating from a frame hook
+    mod: ksarmory
+    features:
+    - mods/gatos/features/welds-vessel-anchoring
+    - mods/ksarmory/features/safe-vehicle-destruction-and-part-failure
+    technique: reflection
+    note: When the edit cannot wait for a dispatch window, Wait() on the vehicle solver first, mutate, and accept
+      that results staged for the craft must not land on a changed craft. Covers batching kills behind one barrier
+      and queuing PartFailureEvent rather than splitting directly.
+  related:
+  - write-worker-thread-safe-solver-patches
+  - apply-impulses-and-velocity-changes-to-a-vehicle
+  - weld-one-vessel-to-another
+  - teleport-a-vessel-by-building-a-new-orbit
+  borrowed_from:
+  - mods/ksa-advancedflightcomputer/features/post-solver-vehicle-tick
+- slug: write-worker-thread-safe-solver-patches
+  title: Write worker-thread-safe patches inside the vehicle solver
+  summary: Patches on ComputeDerivatives, the atmosphere functions, the flight computer or the constraint sim run
+    on vehicle worker threads, per substep, possibly several at once. This topic collects the patterns the mods
+    use to share data with them without locks, allocation or exceptions.
+  game_types:
+  - KSA.PhysicsStates
+  - KSA.PhysicsBubble
+  - KSA.VehicleUpdateTask
+  - KSA.PhysicsEnvironment
+  - KSA.ConstraintSim
+  - KSA.KittenLocomotion
+  - KSA.FlightComputer
+  engine_pointers:
+  - current/decomp/KSA/VehicleUpdateTask.cs
+  - current/decomp/KSA/PhysicsBubble.cs
+  - current/decomp/KSA/PhysicsStates.cs ComputeDerivatives
+  lifecycle:
+  - physics:vehicle-solver
+  - physics:bepu
+  - frame:dispatch-solvers
+  approaches:
+  - n: 1
+    title: Pure, allocation-free, never-throwing code over the in arguments
+    mod: ksaero
+    features:
+    - mods/ksaero/features/body-of-revolution-aerodynamics
+    - mods/ksaero/features/stock-drag-delegate-fallback
+    technique: harmony-transpiler
+    note: Explain the call chain PrepareFrame -> ExecuteNextVehicleSolvers -> VehicleUpdateTask on JobSystems.VehicleSolver
+      -> ComputeDerivatives, what MarkFailed does when the step throws (the bubble step is not applied that frame),
+      and why KSAero uses only its arguments and falls back to stock on degenerate geometry.
+  - n: 2
+    title: Read-only tables filled on the main thread before physics starts
+    mod: realatmospheres
+    features:
+    - mods/realatmospheres/features/measured-flight-atmospheres
+    - mods/ksastructures/features/dry-volume-below-sea-level
+    technique: reflection
+    note: ConditionalWeakTable keyed on the game's reference object, populated in a load-time postfix, read by allocation-free
+      prefixes on the worker. Also volatile array swaps for data that changes at runtime.
+  - n: 3
+    title: Concurrent registries keyed by reference
+    mod: unscience
+    features:
+    - mods/unscience/features/kitchen-sink-g-load-protection
+    - mods/unscience/features/the-tick-vessel-indestructibility
+    technique: reflection
+    note: ConcurrentDictionary with ReferenceEqualityComparer written by the UI and read by workers, an IsDisposed
+      check on read and a per-frame prune on the main thread.
+  - n: 4
+    title: Volatile snapshot handoff from worker patches to the main thread
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/course-colliders-as-clutter
+    - mods/ksastructures/features/first-person-kitten-view
+    technique: worker-thread-patch
+    note: Worker prefixes on ConstraintSim passes and KittenLocomotion.StepGrounded read an immutable snapshot published
+      by the main thread and write results through volatile fields; one sim per prefix call, no shared mutable state.
+  - n: 5
+    title: Identify the vehicle a callback runs for with a ThreadStatic set in a prefix and cleared in a finalizer
+    mod: ksastructures
+    features:
+    - mods/ksastructures/features/terrain-height-roof-override
+    technique: harmony-finalizer
+    note: Functions like GetTerrainHeightFromDirCce do not receive the vehicle. A Priority.First prefix on Vehicle.PrepareWorker
+      sets a thread-static and a Priority.Last finalizer clears it, so later patches can tell vehicle-driven calls
+      from camera and UI calls.
+  - n: 6
+    title: Immutable commands published before the solver job is queued
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/flight-computer-command-sink
+    technique: harmony-postfix
+    note: A single postfix on FlightComputer.ComputeControl runs every mod actuator writer on the worker, each consuming
+      an immutable command handed over at PrepareWorker time, with wake and off-rails requests merged into the stock
+      output.
+  related:
+  - mutate-vehicles-at-a-physics-safe-point
+  - replace-the-stock-aerodynamic-force-model
+  - mutate-the-shared-bepu-shape-registry
+  borrowed_from:
+  - mods/ksa-advancedflightcomputer/features/flight-computer-command-sink
+  - mods/ksastructures/features/dry-volume-below-sea-level
+  - mods/ksastructures/features/first-person-kitten-view
+- slug: apply-impulses-and-velocity-changes-to-a-vehicle
+  title: Apply impulses and velocity changes to a vehicle
+  summary: 'Push a craft from a mod: add a velocity or angular-velocity delta that the solver then integrates, whether
+    the push comes from a driven car, an explosion or a debug kick.'
+  game_types:
+  - KSA.Vehicle
+  - KSA.PhysicsStates
+  - KSA.Kinematic
+  - KSA.Universe
+  engine_pointers:
+  - current/decomp/KSA/Vehicle.cs PrepareWorker, GetPhysicsStatesMutable
+  - current/decomp/KSA/PhysicsStates.cs
+  lifecycle:
+  - frame:dispatch-solvers
+  approaches:
+  - n: 1
+    title: Add velocity deltas in the PrepareWorker prefix
+    mod: ksacars
+    features:
+    - mods/ksacars/features/prepareworker-impulse-injection
+    technique: harmony-prefix
+    note: Write VelocityPhys and AngularVelocityPhys in the window before the worker snapshot; the generic recipe
+      and its limits (railed craft ignore writes, see keep-a-pushed-craft-off-rails).
+  - n: 2
+    title: Summed per-part drag-style shove with torque from a blast front
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/blast-shove-impulse
+    technique: impulse-write
+    note: Each part the front reaches adds a push and a torque about the centre of mass, saturated so nothing outruns
+      the wind, written as one impulse; covers Kinney-Graham overpressure and the post-front wind, off-rails handling
+      and the orbit rebuild.
+  - n: 3
+    title: Impulsive kick from the solver-dispatch window
+    mod: gatos
+    features:
+    - mods/gatos/features/debug-cheats-teleport-refuel-warp
+    technique: harmony-prefix
+    note: Debug cheat that applies an instantaneous velocity change in the ExecuteNextVehicleSolvers prefix; shows
+      the simpler no-per-part variant.
+  related:
+  - keep-a-pushed-craft-off-rails
+  - keep-custom-forces-stable-under-time-warp
+  - mutate-vehicles-at-a-physics-safe-point
+  borrowed_from:
+  - mods/gatos/features/debug-cheats-teleport-refuel-warp
+- slug: reposition-or-rotate-a-vehicle-in-place
+  title: Rotate or lift a vehicle in place
+  summary: 'Flip an overturned craft or nudge it upward without teleporting: set position and attitude in the physics
+    state and zero its velocities in the same window.'
+  game_types:
+  - KSA.Vehicle
+  - KSA.PhysicsStates
+  engine_pointers:
+  - current/decomp/KSA/Vehicle.cs PrepareWorker
+  - current/decomp/KSA/PhysicsStates.cs
+  lifecycle:
+  - frame:dispatch-solvers
+  approaches:
+  - n: 1
+    title: Write PositionPhys, Body2Phys and zero velocities in the PrepareWorker prefix
+    mod: ksacars
+    features:
+    - mods/ksacars/features/prepareworker-impulse-injection
+    technique: harmony-prefix
+    note: The unflip action; explain why position, attitude and both velocities must change together.
+  related:
+  - apply-impulses-and-velocity-changes-to-a-vehicle
+  - place-a-vessel-on-a-surface-at-latitude-and-longitude
+  borrowed_from: []
+- slug: add-lift-hover-boost-and-downforce-to-a-craft
+  title: Add lift, hover, boost and downforce to a craft
+  summary: 'Give an unpowered or engineless craft extra control forces: lift thrust with an attitude hold, a hover
+    that cancels gravity, a boost and speed-dependent downforce.'
+  game_types:
+  - KSA.Vehicle
+  - KSA.PhysicsStates
+  - KSA.Celestial
+  - KSA.FlightComputer
+  engine_pointers:
+  - current/decomp/KSA/Vehicle.cs PrepareWorker
+  - current/decomp/KSA/Celestial.cs GetTerrainHeightFromDirCcf
+  lifecycle:
+  - frame:dispatch-solvers
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: Velocity and spin deltas gated by hatches in the PrepareWorker prefix
+    mod: ksacars
+    features:
+    - mods/ksacars/features/rocket-lift-hover-boost-downforce
+    technique: harmony-prefix
+    note: Lift with airborne attitude hold, hover cancelling gravity, boost and downforce all expressed as per-step
+      deltas; covers the 0.1 s hatch gating.
+  - n: 2
+    title: Hover and touchdown under real engine power with a PID
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/terminal-hover-touchdown
+    technique: harmony-prefix
+    note: Quadratic sink profile, per-axis PID with gravity feedforward and terrain height from the body-fixed frame;
+      contrasts commanding engines with injecting forces.
+  related:
+  - keep-custom-forces-stable-under-time-warp
+  - query-terrain-height-under-a-point
+  borrowed_from:
+  - mods/ksa-advancedflightcomputer/features/terminal-hover-touchdown
+- slug: keep-custom-forces-stable-under-time-warp
+  title: Keep custom forces stable under time warp
+  summary: A spring-damper force that is fine at 1x explodes when the step grows. Use exponential shares and per-step
+    caps so mod forces stay bounded at any warp.
+  game_types:
+  - KSA.SimStep
+  - KSA.PhysicsStates
+  - KSA.Vehicle
+  engine_pointers:
+  - current/decomp/KSA/SimStep.cs
+  - current/decomp/KSA/Vehicle.cs PrepareWorker
+  lifecycle:
+  - frame:dispatch-solvers
+  approaches:
+  - n: 1
+    title: Fractional (1 - exp(-k dt)) shares and per-step caps
+    mod: ksacars
+    features:
+    - mods/ksacars/features/rocket-lift-hover-boost-downforce
+    technique: custom-physics
+    note: Replace force-based damping with velocity shares that approach a target; derive the cap from the step
+      length.
+  - n: 2
+    title: Saturate a pushed velocity so nothing outruns the driving flow
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/blast-shove-impulse
+    technique: saturation
+    note: Clamp the induced velocity to the local wind speed rather than integrating an unbounded drag.
+  related:
+  - apply-impulses-and-velocity-changes-to-a-vehicle
+  - add-lift-hover-boost-and-downforce-to-a-craft
+  borrowed_from: []
+- slug: keep-a-pushed-craft-off-rails
+  title: Keep a craft under full physics while your mod pushes it
+  summary: A railed (analytic orbit) craft ignores velocity writes. Make the game keep the craft in the physics
+    bubble, and wake it correctly when it is already on rails.
+  game_types:
+  - KSA.PhysicsBubble
+  - KSA.Vehicle
+  - KSA.FlightComputer
+  engine_pointers:
+  - current/decomp/KSA/PhysicsBubble.cs KittenWantsWake
+  - current/decomp/KSA/Vehicle.cs TakeOffRails, UpdateFromAnalytic
+  lifecycle:
+  - startup:all-mods-loaded
+  - frame:dispatch-solvers
+  - physics:vehicle-solver
+  approaches:
+  - n: 1
+    title: Postfix PhysicsBubble.KittenWantsWake from a concurrent set
+    mod: ksacars
+    features:
+    - mods/ksacars/features/keep-thrusting-craft-off-rails
+    technique: harmony-postfix
+    note: Both rails decisions ask the per-craft wake check on the worker; answer true for marked craft. Wake a
+      landed craft with TakeOffRails and a coasting one by UpdateFromAnalytic with Maneuvering.
+  - n: 2
+    title: Request wake or off-rails from the flight computer command sink
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/flight-computer-command-sink
+    technique: harmony-postfix
+    note: Mod actuator writers merge wake and off-rails requests into the stock ComputeControl output instead of
+      patching the bubble.
+  related:
+  - apply-impulses-and-velocity-changes-to-a-vehicle
+  - write-worker-thread-safe-solver-patches
+  borrowed_from:
+  - mods/ksacars/features/keep-thrusting-craft-off-rails
+  - mods/ksa-advancedflightcomputer/features/flight-computer-command-sink
+- slug: replace-the-stock-aerodynamic-force-model
+  title: Replace the stock aerodynamic force model
+  summary: Swap KSA's box drag for your own lift and drag model that applies a body-axis force through the centre
+    of mass on every vehicle, even though the stock drag function is inlined.
+  game_types:
+  - KSA.PhysicsStates
+  - KSA.PhysicsEnvironment
+  - KSA.VehicleProperties
+  - KSA.BoundingBoxCdA
+  engine_pointers:
+  - current/decomp/KSA/PhysicsStates.cs ComputeDerivatives, ComputeDrag
+  - current/decomp/KSA/VehicleProperties.cs RecomputeAerodynamicProperties
+  lifecycle:
+  - physics:vehicle-solver
+  - startup:all-mods-loaded
+  approaches:
+  - n: 1
+    title: Call-site transpiler on ComputeDerivatives writing the Disturbances accumulator
+    mod: ksaero
+    features:
+    - mods/ksaero/features/body-of-revolution-aerodynamics
+    - mods/ksaero/features/computedrag-call-site-transpiler
+    - mods/ksaero/features/stock-drag-delegate-fallback
+    - mods/ksaero/features/mach-from-game-atmosphere
+    technique: harmony-transpiler
+    note: Swap the operand of the one ComputeDrag call whose arguments load AtmosphericDensity for a same-signature
+      method that adds a force to Disturbances; explains why patching the callee fails (AggressiveInlining), the
+      byref-parameter resolution and the stock-delegate fallback.
+  related:
+  - write-worker-thread-safe-solver-patches
+  - measure-drag-and-lift-of-the-active-aero-model
+  - compute-mach-number-from-the-game-atmosphere
+  - swap-one-call-inside-a-game-method-with-a-transpiler
+  borrowed_from:
+  - mods/ksaero/features/computedrag-call-site-transpiler
+  - mods/ksaero/features/stock-drag-delegate-fallback
+- slug: measure-drag-and-lift-of-the-active-aero-model
+  title: Measure drag and lift coefficients of the active aero model
+  summary: Read what the game (or an aero mod) actually does to a vehicle by calling the force model on a copy of
+    its state at chosen airspeeds, then fit Cd and CL over Mach and angle of attack.
+  game_types:
+  - KSA.PhysicsStates
+  - KSA.ReadOnlyPhysicsStates
+  - KSA.PhysicsEnvironment
+  - KSA.Vehicle
+  engine_pointers:
+  - current/decomp/KSA/PhysicsStates.cs ComputeDerivatives (static, ten parameters)
+  lifecycle:
+  - frame:dispatch-solvers
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: Static ComputeDerivatives on copied state with dt 0 and no thrusters
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/drag-table-measurement
+    - mods/ksa-advancedflightcomputer/features/aerodynamic-glide-impact-steering
+    technique: custom-physics
+    note: Copy the physics structs, set the airspeed per sample, read the returned force; automatically includes
+      any transpiled model such as KSAero. Feeds glide steering through the measured lift curve.
+  related:
+  - replace-the-stock-aerodynamic-force-model
+  - compute-mach-number-from-the-game-atmosphere
+  borrowed_from:
+  - mods/ksa-advancedflightcomputer/features/aerodynamic-glide-impact-steering
+- slug: compute-mach-number-from-the-game-atmosphere
+  title: Compute Mach number and the speed of sound in KSA
+  summary: KSA atmospheres are isothermal exponentials, so the speed of sound follows from pressure and density.
+    Compute it both inside the solver and on the main thread.
+  game_types:
+  - KSA.PhysicsEnvironment
+  - KSA.PhysicalAtmosphereReference
+  engine_pointers:
+  - current/decomp/KSA/PhysicsEnvironment.cs
+  - current/decomp/KSA/PhysicalAtmosphereReference.cs
+  lifecycle:
+  - physics:vehicle-solver
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: sqrt(1.4 p / rho) from PhysicsEnvironment inside the solver
+    mod: ksaero
+    features:
+    - mods/ksaero/features/mach-from-game-atmosphere
+    technique: custom-physics
+    note: Use the environment already filled for the vehicle; constant per body (about 340 m/s on Earth).
+  - n: 2
+    title: Speed of sound from the atmosphere reference for a measurement tool
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/drag-table-measurement
+    technique: custom-physics
+    note: Main-thread variant used to bin drag samples by Mach.
+  related:
+  - replace-the-stock-aerodynamic-force-model
+  - apply-quadratic-drag-to-a-mod-simulated-body
+  borrowed_from: []
+- slug: replace-a-bodys-atmosphere-density-profile
+  title: Replace a body's atmosphere density and pressure profile
+  summary: Make a planet's air follow a measured or generated profile for drag and engines, by redirecting the two
+    atmosphere functions the solver calls.
+  game_types:
+  - KSA.PhysicalAtmosphereReference
+  - KSA.AstronomicalTemplate
+  - KSA.PhysicsEnvironment
+  engine_pointers:
+  - current/decomp/KSA/PhysicalAtmosphereReference.cs GetAtmosphericDensityAtAltitude
+  - current/decomp/KSA/PhysicsEnvironment.cs RecomputePositionalValues
+  lifecycle:
+  - startup:asset-load
+  - physics:vehicle-solver
+  approaches:
+  - n: 1
+    title: Prefix the density and pressure functions and move the private boundary height
+    mod: realatmospheres
+    features:
+    - mods/realatmospheres/features/measured-flight-atmospheres
+    technique: harmony-prefix
+    note: Generate a table per reference in an OnDataLoad postfix, store it in a ConditionalWeakTable, set the private
+      _height and serve allocation-free lookups to worker threads.
+  related:
+  - write-worker-thread-safe-solver-patches
+  - apply-quadratic-drag-to-a-mod-simulated-body
+  - compute-mach-number-from-the-game-atmosphere
+  borrowed_from: []
+- slug: remove-the-ocean-from-a-region-of-a-body
+  title: Remove the ocean from a region below sea level
+  summary: Build something below the waterline (a basement, a dry dock) by zeroing the ocean in the physics environment
+    and skipping the ocean renderer for cameras inside.
+  game_types:
+  - KSA.PhysicsEnvironment
+  - KSA.Rendering.Water.Rendering.OceanRenderer
+  engine_pointers:
+  - current/decomp/KSA/PhysicsEnvironment.cs RecomputePositionalValues
+  lifecycle:
+  - startup:all-mods-loaded
+  - physics:vehicle-solver
+  - render:ocean
+  approaches:
+  - n: 1
+    title: Postfix PhysicsEnvironment.RecomputePositionalValues on the worker
+    mod: ksastructures
+    features:
+    - mods/ksastructures/features/dry-volume-below-sea-level
+    technique: harmony-postfix
+    note: Zero OceanRadius, Volume and SurfaceArea inside a radial column, except for craft that already float;
+      volatile data swap for the region.
+  related:
+  - write-worker-thread-safe-solver-patches
+  - query-terrain-height-under-a-point
+  borrowed_from:
+  - mods/ksastructures/features/dry-volume-below-sea-level
+- slug: apply-quadratic-drag-to-a-mod-simulated-body
+  title: Apply quadratic drag to a mod-simulated body
+  summary: 'Drag a ball, shell or missile through the same air and water the game uses: read density at a point,
+    scale quadratic drag against one reference air and handle airless and unreadable cases.'
+  game_types:
+  - KSA.PhysicalAtmosphereReference
+  - KSA.AtmosphereReference
+  - KSA.Rendering.Water.Data.OceanReference
+  - KSA.Celestial
+  - KSA.Astronomical
+  engine_pointers:
+  - current/decomp/KSA/PhysicalAtmosphereReference.cs GetAtmosphericDensityAtAltitude
+  - current/decomp/KSA/Celestial.cs
+  lifecycle:
+  - frame:draw-ui
+  - frame:celestials
+  - frame:after-on-frame
+  approaches:
+  - n: 1
+    title: Density ratio to one reference air, ocean density below the waterline
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/golf-ball-physics
+    technique: custom-physics
+    note: GetAtmosphericDensityAtAltitude and OceanReference.Density; never gate on IsValid; 0 for airless, 1 for
+      unreadable.
+  - n: 2
+    title: Shell and missile drag with the same density read
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/point-gravity-and-atmosphere-model
+    - mods/ksarmory/features/unguided-ballistic-lead
+    technique: quadratic-drag
+    note: Drag against a fixed reference air for every body; the ballistic-lead solver flies simulated shells through
+      the identical model.
+  - n: 3
+    title: Impact prediction in a co-rotating atmosphere
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/boostback-impact-prediction
+    technique: custom-physics
+    note: Integrate gravity and drag on air-relative velocity with the atmosphere rotating with the body.
+  related:
+  - apply-gravity-to-a-mod-simulated-body
+  - simulate-projectiles-and-balls-outside-the-vehicle-system
+  - replace-a-bodys-atmosphere-density-profile
+  borrowed_from:
+  - mods/ksa-advancedflightcomputer/features/boostback-impact-prediction
+- slug: apply-gravity-to-a-mod-simulated-body
+  title: Apply gravity to a mod-simulated body
+  summary: 'Give a hand-integrated object the right gravity: inverse-square toward its parent at the round''s own
+    instant, plus the parent''s fall toward its primary, or surface gravity from the body''s gravitational parameter.'
+  game_types:
+  - KSA.IParentBody
+  - KSA.Celestial
+  - KSA.Astronomical
+  engine_pointers:
+  - current/decomp/KSA/IParentBody.cs Mu (default interface member)
+  - current/decomp/KSA/Celestial.cs
+  lifecycle:
+  - frame:celestials
+  - frame:after-on-frame
+  approaches:
+  - n: 1
+    title: Point gravity at the back-dated sub-step plus the body's own fall
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/point-gravity-and-atmosphere-model
+    technique: custom-physics
+    note: mu / r^2 toward the parent evaluated at the sub-step epoch and the parent's acceleration toward its primary.
+  - n: 2
+    title: Body-fixed surface gravity from IParentBody.Mu
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/golf-ball-physics
+    technique: custom-physics
+    note: Mu is a default interface member so it needs a cast; the integrator works in the rotating body-fixed frame.
+  related:
+  - simulate-in-the-planet-fixed-frame
+  - apply-quadratic-drag-to-a-mod-simulated-body
+  borrowed_from: []
+- slug: advance-mod-physics-on-simulated-time
+  title: Advance mod physics on KSA's simulated step, not player time
+  summary: A mod integrator that uses frame delta time drifts under pause and time warp. Consume the span of simulated
+    time the engine actually applied, and measure the achieved simulation rate.
+  game_types:
+  - KSA.Universe
+  - KSA.SimStep
+  engine_pointers:
+  - current/decomp/KSA/Universe.cs GetLastSimStep, GetElapsedTime
+  - current/decomp/KSA/SimStep.cs
+  lifecycle:
+  - frame:after-on-frame
+  - frame:celestials
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: Deduplicate GetLastSimStep on NextTime and widen to the span since the last boundary
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/consume-applied-sim-step
+    technique: sim-clock
+    note: Verified contiguity and the two-frame delay; pause gives zero; also shows measuring simulated seconds
+      per wall second with the saturating achieved-speed fraction.
+  - n: 2
+    title: Integrate between GetLastSimStep boundaries for a ball
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/golf-ball-physics
+    technique: sub-stepping
+    note: Same idea in a simpler single-object mod; the paused span is 0.
+  related:
+  - simulate-projectiles-and-balls-outside-the-vehicle-system
+  - sample-world-state-at-a-consistent-epoch
+  borrowed_from: []
+- slug: simulate-projectiles-and-balls-outside-the-vehicle-system
+  title: Simulate fast projectiles and balls without spawning vehicles
+  summary: Run missiles, shells, bombs or a golf ball as plain objects the mod integrates itself in fixed sub-steps,
+    with no save, solver or Bepu footprint.
+  game_types:
+  - KSA.Universe
+  - KSA.SimStep
+  - KSA.Celestial
+  engine_pointers:
+  - current/decomp/KSA/Universe.cs GetLastSimStep
+  - current/decomp/KSA/Program.cs OnFrameCelestials
+  lifecycle:
+  - frame:celestials
+  - frame:after-on-frame
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: IProjectile objects with fixed 5 ms sub-steps and a faithful-step clamp
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/mod-simulated-rounds
+    technique: sub-stepping
+    note: One RoundDriver seam shared with the headless rig; end-of-step samples back-dated to the sub-step; rounds
+      never touch the save or the solver.
+  - n: 2
+    title: Ball integrated at up to 1/240 s in the body-fixed frame
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/golf-ball-physics
+    technique: sub-stepping
+    note: Flight, bounce, rolling resistance and rest in one integrator that runs from a Program.OnFrameCelestials
+      prefix.
+  related:
+  - prevent-tunnelling-of-fast-bodies
+  - advance-mod-physics-on-simulated-time
+  - apply-gravity-to-a-mod-simulated-body
+  - keep-physics-maths-free-of-game-types
+  borrowed_from: []
+- slug: prevent-tunnelling-of-fast-bodies
+  title: Detect hits for fast bodies without tunnelling
+  summary: Solve contact and proximity triggers in closed form over each sub-step so small fast objects cannot step
+    through targets, and know the burst instant within the frame.
+  game_types:
+  - KSA.Vehicle
+  - KSA.Part
+  - KSA.Celestial
+  engine_pointers:
+  - current/decomp/KSA/Part.cs RayCastEgo
+  lifecycle:
+  - frame:celestials
+  - frame:after-on-frame
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: Analytic closest approach t = -r.v / v.v clamped to the step
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/analytic-subframe-fuses
+    technique: analytic-closest-approach
+    note: Proximity, contact, timed, height and ground fuses; back-date once-per-frame target samples before differencing.
+  - n: 2
+    title: Sweep against a bounding sphere, then cast the hull triangles
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/swept-hull-contact
+    technique: continuous-collision
+    note: Closest approach over the step (not end-point distance) as the broad phase, an unknown vessel falls back
+      to the sphere.
+  related:
+  - hit-test-a-path-against-vessel-part-meshes
+  - collide-with-analytic-shapes-instead-of-meshes
+  - sample-world-state-at-a-consistent-epoch
+  borrowed_from: []
+- slug: collide-with-analytic-shapes-instead-of-meshes
+  title: Collide with analytic shapes instead of mesh triangles
+  summary: Model a course or arena as exact boxes, posts, ramps and a cup profile so a ball meets it without seam
+    snags, with the same dimensions driving code and Blender models; layer it over the planet's ground.
+  game_types:
+  - KSA.Celestial
+  engine_pointers:
+  - current/decomp/KSA/Celestial.cs GetTerrainHeightFromDirCce
+  lifecycle:
+  - frame:celestials
+  - frame:after-on-frame
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: Swept circle against grown boxes, posts and a regulation cup
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/course-surface-exact-shapes
+    technique: analytic-geometry
+    note: Rails and posts swept as circles against rounded-corner boxes; overlap moving in is a hit at t = 0; a
+      cup profile seen by the ball's centre; a ground provider falls through to the beyond-ground height field.
+  related:
+  - roll-and-bounce-a-ball-on-terrain
+  - prevent-tunnelling-of-fast-bodies
+  borrowed_from: []
+- slug: hit-test-a-path-against-vessel-part-meshes
+  title: Ray cast against a vessel's actual part meshes
+  summary: Resolve whether a short path segment hits a craft using KSA's watertight Part.RayCastEgo, in a local
+    metres frame so large-coordinate precision does not bite.
+  game_types:
+  - KSA.Part
+  - KSA.Vehicle
+  - KSA.Camera
+  engine_pointers:
+  - current/decomp/KSA/Part.cs RayCastEgo
+  - current/decomp/KSA/Part.cs GetMatrixAsmb2Ego
+  lifecycle:
+  - frame:celestials
+  - frame:after-on-frame
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: Round-centred ego origin and sphere broad phase
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/hull-triangle-hit-test
+    technique: engine-raycast
+    note: Pass the separation as the ego origin to GetMatrixAsmb2Ego so queries stay at metre scale.
+  - n: 2
+    title: Per-triangle cast in a mover-centred frame with no camera
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/swept-hull-contact
+    technique: ray-cast
+    note: Same call with a caller-chosen origin; the narrow phase for a ball hitting a craft.
+  related:
+  - prevent-tunnelling-of-fast-bodies
+  - pick-a-world-point-with-the-cursor
+  borrowed_from: []
+- slug: lead-a-moving-target-with-an-unguided-round
+  title: Lead a moving target with an unguided round
+  summary: Aim a gun by solving for time of flight against relative motion and acceleration, then refine by flying
+    simulated shells through the same drag and gravity.
+  game_types:
+  - KSA.Vehicle
+  - KSA.Celestial
+  engine_pointers: []
+  lifecycle:
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: Fixed-point iteration plus shooting method with Broyden updates
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/unguided-ballistic-lead
+    technique: shooting-method
+    note: Iterate time of flight to a tolerance, then fly rounds with the mod's drag and gravity and correct from
+      the turns already flown.
+  related:
+  - apply-gravity-to-a-mod-simulated-body
+  - apply-quadratic-drag-to-a-mod-simulated-body
+  - simulate-projectiles-and-balls-outside-the-vehicle-system
+  borrowed_from: []
+- slug: roll-and-bounce-a-ball-on-terrain
+  title: Roll and bounce a sphere on the terrain height field
+  summary: 'Contact a mod-simulated ball with KSA terrain: finite-difference normals, bounce, rolling resistance,
+    slope rest, kerbs as walls, and the waterline treated as ground.'
+  game_types:
+  - KSA.Celestial
+  - KSA.Rendering.Water.Data.OceanReference
+  engine_pointers:
+  - current/decomp/KSA/Celestial.cs GetTerrainHeightFromDirCcf
+  lifecycle:
+  - frame:celestials
+  - frame:after-on-frame
+  approaches:
+  - n: 1
+    title: Height-field integrator in the body-fixed frame
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/golf-ball-physics
+    technique: custom-physics
+    note: The height field returns the seabed, so treat sea level as ground separately; finite-difference normal,
+      rest slope, headless tests.
+  related:
+  - query-terrain-height-under-a-point
+  - collide-with-analytic-shapes-instead-of-meshes
+  - simulate-in-the-planet-fixed-frame
+  borrowed_from: []
+- slug: simulate-in-the-planet-fixed-frame
+  title: Simulate in the planet-fixed frame
+  summary: Use the body-fixed frame for ground contact and for objects that live on a rotating planet; analytic
+    orbit positions are metres off for landed craft and the ecliptic frame carries about 29.8 km/s.
+  game_types:
+  - KSA.PhysicsStates
+  - KSA.Celestial
+  engine_pointers:
+  - current/decomp/KSA/PhysicsStates.cs GetStatesCcf
+  - current/decomp/KSA/Celestial.cs GetTerrainHeightFromDirCce
+  lifecycle:
+  - frame:dispatch-solvers
+  - frame:celestials
+  - frame:after-on-frame
+  approaches:
+  - n: 1
+    title: Read GetStatesCcf in the PrepareWorker prefix
+    mod: ksacars
+    features:
+    - mods/ksacars/features/terrain-contact-under-wheels
+    technique: harmony-prefix
+    note: Position wheels in Ccf for ground queries, convert results back for the force write.
+  - n: 2
+    title: Integrate a free body in Ccf and convert to Ecl only to draw
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/golf-ball-physics
+    technique: custom-physics
+    note: The state carries no epoch; the rotating frame removes the need to chase the ground.
+  related:
+  - query-terrain-height-under-a-point
+  - sample-world-state-at-a-consistent-epoch
+  - ksa-coordinate-frames
+  borrowed_from: []
+- slug: sample-world-state-at-a-consistent-epoch
+  title: Sample vehicle and celestial state at a consistent epoch
+  summary: 'Pick the frame and instant for mod physics: keep state in Ecl at GetElapsedTime, back-date samples to
+    the sub-step, and anchor overlays and bursts to the camera-relative position rather than the analytic one.'
+  game_types:
+  - KSA.Universe
+  - KSA.Vehicle
+  - KSA.Camera
+  - KSA.Celestial
+  engine_pointers:
+  - current/decomp/KSA/Universe.cs ApplyVehicleSolvers
+  - current/decomp/KSA/Camera.cs GetPositionEgo
+  lifecycle:
+  - frame:draw-ui
+  - frame:celestials
+  - frame:after-on-frame
+  approaches:
+  - n: 1
+    title: Ecl state at GetElapsedTime with epoch back-dating
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/ecliptic-frames-and-epochs
+    technique: epoch-backdating
+    note: Which instant engine samples belong to (one parent-first walk in ApplyVehicleSolvers); Ecl, Ego, Cci and
+      Cce conversions; GetPositionEgo versus GetPositionEcl in a physics bubble.
+  - n: 2
+    title: End-of-step samples applied across a sub-stepped round
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/mod-simulated-rounds
+    - mods/ksarmory/features/analytic-subframe-fuses
+    technique: sim-boundary
+    note: How a moving target is read once per frame and back-dated before every sub-step.
+  related:
+  - simulate-in-the-planet-fixed-frame
+  - advance-mod-physics-on-simulated-time
+  - ksa-coordinate-frames
+  borrowed_from: []
+- slug: keep-physics-maths-free-of-game-types
+  title: Keep physics maths free of game types behind narrow seams
+  summary: Write the contact and flight maths as engine-free code (pass differences, not absolute positions) so
+    it runs in a headless rig with the same driver as the game.
+  game_types: []
+  engine_pointers: []
+  lifecycle:
+  - frame:celestials
+  - frame:after-on-frame
+  approaches:
+  - n: 1
+    title: Differences-only inputs and headless tests
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/swept-hull-contact
+    technique: headless-tests
+    note: Pass the mover-to-vessel difference so the maths needs no large coordinates and no game types.
+  - n: 2
+    title: One RoundDriver seam shared by the game and a headless rig
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/mod-simulated-rounds
+    technique: sim-boundary
+    note: The same driver steps rounds in game and in tests.
+  related:
+  - simulate-projectiles-and-balls-outside-the-vehicle-system
+  - headless-test-harness-for-game-mods
+  borrowed_from: []
+- slug: query-terrain-height-under-a-point
+  title: Query terrain height under a point
+  summary: Ask a celestial for the ground height under a direction vector, choose between the Ccf and Cce overloads
+    and between fast and accurate (bicubic with procedural modifiers) sampling.
+  game_types:
+  - KSA.Celestial
+  - KSA.PhysicsStates
+  engine_pointers:
+  - current/decomp/KSA/Celestial.cs GetTerrainHeightFromDirCcf, GetTerrainHeightFromDirCce
+  lifecycle:
+  - frame:dispatch-solvers
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: 'GetTerrainHeightFromDirCce with accurate: true from the worker window'
+    mod: ksacars
+    features:
+    - mods/ksacars/features/terrain-contact-under-wheels
+    technique: harmony-prefix
+    note: Per-wheel ground sampling; accurate toggles bicubic and procedural modifiers.
+  - n: 2
+    title: Height directly below the craft for a hover or touchdown
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/terminal-hover-touchdown
+    technique: harmony-prefix
+    note: Rotate the position into the body-fixed frame and use the Ccf overload; non-finite results fall back to
+      zero.
+  related:
+  - override-terrain-height-for-roofs-and-platforms
+  - simulate-in-the-planet-fixed-frame
+  - roll-and-bounce-a-ball-on-terrain
+  borrowed_from:
+  - mods/ksa-advancedflightcomputer/features/terminal-hover-touchdown
+- slug: override-terrain-height-for-roofs-and-platforms
+  title: Override the terrain height cameras and wheels see
+  summary: Make wheel and camera code treat a roof, ramp or floor as the ground without touching collision, by postfixing
+    the Cce overload and leaving the Ccf one that physics reads.
+  game_types:
+  - KSA.Celestial
+  - KSA.Vehicle
+  engine_pointers:
+  - current/decomp/KSA/Celestial.cs GetTerrainHeightFromDirCce
+  lifecycle:
+  - frame:dispatch-solvers
+  - frame:viewports
+  - frame:celestials
+  approaches:
+  - n: 1
+    title: Postfix GetTerrainHeightFromDirCce keyed on who is asking
+    mod: ksastructures
+    features:
+    - mods/ksastructures/features/terrain-height-roof-override
+    technique: harmony-postfix
+    note: Answer roof, slab, spiral level or floor depending on whether the asker is the vehicle being prepared
+      (thread-static set in PrepareWorker) or a camera.
+  related:
+  - query-terrain-height-under-a-point
+  - spawn-a-craft-on-top-of-a-structure
+  - write-worker-thread-safe-solver-patches
+  borrowed_from: []
+- slug: spawn-a-craft-on-top-of-a-structure
+  title: Set a craft down on top of a structure
+  summary: Place or spawn a craft on a roof by latitude and longitude, lending the structure's surface height for
+    the synchronous start-state computation and restoring it.
+  game_types:
+  - KSA.Vehicle
+  - KSA.LocationReference
+  - KSA.Celestial
+  engine_pointers:
+  - current/decomp/KSA/Vehicle.cs TeleportToLocation, CreateVehicle
+  lifecycle:
+  - frame:draw-ui
+  - event:teleport
+  approaches:
+  - n: 1
+    title: Lend the pad template's SurfaceHeight around TeleportToLocation
+    mod: ksastructures
+    features:
+    - mods/ksastructures/features/terrain-height-roof-override
+    technique: harmony-prefix
+    note: Set, call and restore so the start state is computed above the roof.
+  - n: 2
+    title: Build one-part craft in code and set them on the ground
+    mod: ksastructures
+    features:
+    - mods/ksastructures/features/office-furniture-craft
+    technique: harmony-prefix
+    note: ModLibrary.Get<PartTemplate>, Vehicle.CreateVehicle, then TeleportToLocation with the floor height lent.
+  related:
+  - place-a-vessel-on-a-surface-at-latitude-and-longitude
+  - override-terrain-height-for-roofs-and-platforms
+  borrowed_from:
+  - mods/ksastructures/features/office-furniture-craft
+- slug: raycast-the-surface-of-launch-pads
+  title: Find the surface of a launch pad or static object under a point
+  summary: The terrain height field holds only the levelled decal under a pad. Enumerate launch sites and read a
+    static object's colliders or drawn triangles to ray test its real top surface.
+  game_types:
+  - KSA.LocationReference
+  - KSA.LandmarkReference
+  - KSA.StaticObject
+  - KSA.ConstraintSim
+  - KSA.BodyTemplate
+  engine_pointers:
+  - current/decomp/KSA/StaticObject.cs
+  - current/decomp/KSA/ConstraintSim.cs UpdateStaticObjectCollider, UnlockShapes
+  lifecycle:
+  - frame:dispatch-solvers
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: Copy convex children under the shapes lock in an ExecuteNextVehicleSolvers prefix
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/launch-site-surface-raycast
+    technique: main-thread-sync-point
+    note: BodyTemplate.Locations, IsLaunchPad, GetStaticObject and GetAxesCcf; IConvexShape.RayTest needs no registry
+      once copied; private _models and MeshReference.PositionsCompare for drawn triangles.
+  - n: 2
+    title: Rebuild box and cylinder colliders from template data and drop a ray per wheel
+    mod: ksacars
+    features:
+    - mods/ksacars/features/launch-pad-surface-contact
+    technique: harmony-prefix
+    note: Pose colliders like ConstraintSim.UpdateStaticObjectCollider (up, east, north axes, GroundOffset, 300
+      m range) without taking the registry lock.
+  related:
+  - query-terrain-height-under-a-point
+  - mutate-the-shared-bepu-shape-registry
+  - add-static-colliders-to-physics-bubbles
+  borrowed_from:
+  - mods/ksacars/features/launch-pad-surface-contact
+- slug: pick-a-world-point-with-the-cursor
+  title: Pick a world point on hulls or terrain from a mouse click
+  summary: Turn a click into a ray and find the first hit on vessel meshes, kittens, cloth or the terrain height
+    field, for placing, launching or decorating.
+  game_types:
+  - KSA.Cursor
+  - KSA.Camera
+  - KSA.Part
+  - KSA.Celestial
+  engine_pointers:
+  - current/decomp/KSA/Part.cs RayCastEgo
+  - current/decomp/KSA/Cursor.cs GetEgoRay
+  lifecycle:
+  - frame:draw-ui
+  - frame:input
+  approaches:
+  - n: 1
+    title: Walk the ray over the height field in bounded steps
+    mod: ksacars
+    features:
+    - mods/ksacars/features/craft-mover-mouse-pick-place
+    technique: ray-cast
+    note: Convert the mouse position to camera framebuffer pixels before ScreenToEgoRay; step bounded by height
+      above ground.
+  - n: 2
+    title: Cast against hulls or terrain then launch the vessel there
+    mod: unscience
+    features:
+    - mods/unscience/features/dent-wizard-vessel-launcher
+    technique: ray-cast
+    note: 'Click target for the launcher: hull via RayCastEgo, otherwise terrain.'
+  - n: 3
+    title: Layered cast over cloth, part meshes, kitten sphere and a terrain march
+    mod: unscience
+    features:
+    - mods/unscience/features/graffiti-decal-placement-picking
+    technique: ray-cast
+    note: Ordered fallback chain used to anchor decals.
+  related:
+  - hit-test-a-path-against-vessel-part-meshes
+  - query-terrain-height-under-a-point
+  - place-a-vessel-on-a-surface-at-latitude-and-longitude
+  borrowed_from:
+  - mods/ksacars/features/craft-mover-mouse-pick-place
+  - mods/unscience/features/graffiti-decal-placement-picking
+- slug: simulate-wheels-and-suspension-without-a-wheel-module
+  title: Simulate wheels and suspension without a wheel module
+  summary: Hold a craft above the ground on per-wheel springs that sample terrain, with load-sized spring-dampers,
+    anti-roll bars, roll damping and bump stops; the hull colliders only touch in a crash.
+  game_types:
+  - KSA.Vehicle
+  - KSA.Celestial
+  - KSA.PhysicsStates
+  engine_pointers:
+  - current/decomp/KSA/Vehicle.cs PrepareWorker
+  - current/decomp/KSA/Celestial.cs GetTerrainHeightFromDirCce
+  lifecycle:
+  - frame:dispatch-solvers
+  approaches:
+  - n: 1
+    title: Raycast-style suspension impulses in the PrepareWorker prefix
+    mod: ksacars
+    features:
+    - mods/ksacars/features/wheel-suspension-tyre-model
+    - mods/ksacars/features/terrain-contact-under-wheels
+    technique: custom-physics
+    note: Spring sized from each wheel's static weight share, per-step impulses rather than forces, ground from
+      the height field plus pad colliders.
+  related:
+  - add-a-friction-circle-tyre-and-grip-limited-steering
+  - query-terrain-height-under-a-point
+  - keep-custom-forces-stable-under-time-warp
+  borrowed_from: []
+- slug: add-a-friction-circle-tyre-and-grip-limited-steering
+  title: Add a friction-circle tyre and grip-limited steering
+  summary: 'A stable tyre for a per-frame impulse model: cancel a share of side slip each step, clamp drive to what
+    remains of the friction circle, and limit steering lock by speed and grip.'
+  game_types:
+  - KSA.Vehicle
+  engine_pointers:
+  - current/decomp/KSA/Vehicle.cs PrepareWorker
+  lifecycle:
+  - frame:dispatch-solvers
+  approaches:
+  - n: 1
+    title: Side slip first, drive in the remaining circle
+    mod: ksacars
+    features:
+    - mods/ksacars/features/wheel-suspension-tyre-model
+    technique: custom-physics
+    note: Share-of-slip cancellation per step stays stable at any warp; steering lock shrinks with speed.
+  related:
+  - simulate-wheels-and-suspension-without-a-wheel-module
+  - keep-custom-forces-stable-under-time-warp
+  borrowed_from: []
+- slug: add-static-colliders-to-physics-bubbles
+  title: Add mod-owned static colliders to physics bubbles
+  summary: Make placed models or course geometry solid by adding Bepu statics to every nearby physics bubble each
+    pass, with bubble-relative poses.
+  game_types:
+  - KSA.ConstraintSim
+  - KSA.PhysicsBubble
+  - KSA.StaticObject
+  - BepuPhysics.Statics
+  engine_pointers:
+  - current/decomp/KSA/ConstraintSim.cs BeginStaticObjectPass, DetectCollisions, Simulate, UpdateStaticObjectCollider
+  lifecycle:
+  - physics:bepu
+  - physics:vehicle-solver
+  - frame:dispatch-solvers
+  approaches:
+  - n: 1
+    title: Per-bubble static handles from a BeginStaticObjectPass postfix
+    mod: unscience
+    features:
+    - mods/unscience/features/sphinx-static-colliders
+    - mods/unscience/features/sphinx-glb-statics-placement
+    technique: harmony-postfix
+    note: Global Bepu Box or two-sided Mesh per placed model; handles added each pass, global shape lifecycle handled
+      elsewhere.
+  - n: 2
+    title: Worker prefixes on DetectCollisions and Simulate with statics registered as ground clutter
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/course-colliders-as-clutter
+    technique: worker-thread-patch
+    note: Ccf bubbles only; bubble-relative poses; track pooled sims with a ConditionalWeakTable and a TryResetForPool
+      prefix.
+  - n: 3
+    title: Declare XML static objects and let the engine collide the nearest pad
+    mod: ksastructures
+    features:
+    - mods/ksastructures/features/office-landmarks-static-objects
+    technique: xml-asset
+    note: Add an IsLaunchPad LandmarkReference at AllModsLoaded; the engine allows only the nearest pad within 300
+      m as a static collider per body.
+  related:
+  - let-kittens-stand-on-mod-geometry
+  - mutate-the-shared-bepu-shape-registry
+  - choose-box-or-mesh-collision-for-imported-geometry
+  borrowed_from:
+  - mods/ksastructures/features/office-landmarks-static-objects
+- slug: let-kittens-stand-on-mod-geometry
+  title: Make kittens and vessels collide with mod geometry
+  summary: KSA's narrow-phase callbacks only admit contacts with a vehicle's own terrain or static collider; extend
+    or sidestep the filter so mod statics are accepted.
+  game_types:
+  - KSA.NarrowPhaseCallbacks
+  - KSA.ConstraintSim
+  - KSA.KittenEva
+  engine_pointers:
+  - current/decomp/KSA/NarrowPhaseCallbacks.cs
+  - current/decomp/BepuPhysics.CollisionDetection/INarrowPhaseCallbacks.cs
+  lifecycle:
+  - physics:bepu
+  - physics:vehicle-solver
+  approaches:
+  - n: 1
+    title: Transpile the stock contact filter
+    mod: unscience
+    features:
+    - mods/unscience/features/sphinx-static-colliders
+    technique: harmony-transpiler
+    note: Extend the AllowContactGeneration check to admit the mod's own statics.
+  - n: 2
+    title: Register geometry so the stock filter already accepts it
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/course-colliders-as-clutter
+    technique: reflection
+    note: Clutter, terrain blocks or own ground are accepted; private _statics, infinite mass never displaces, re-register
+      every pass.
+  related:
+  - add-static-colliders-to-physics-bubbles
+  - build-a-moving-platform-kittens-can-ride
+  borrowed_from: []
+- slug: mutate-the-shared-bepu-shape-registry
+  title: Create and free shapes in KSA's global Bepu shape registry
+  summary: ConstraintSim.UnlockShapes throws while the vehicle step runs. Create, cache and read shapes only at
+    the sync point, or block until the step ends.
+  game_types:
+  - KSA.ConstraintSim
+  - KSA.Universe
+  - BepuPhysics.Collidables.Shapes
+  engine_pointers:
+  - current/decomp/KSA/ConstraintSim.cs UnlockShapes, UnlockShapesBlocking, EndVehicleUpdate
+  lifecycle:
+  - frame:dispatch-solvers
+  - frame:apply-solvers
+  - physics:bepu
+  approaches:
+  - n: 1
+    title: Create shapes in an ExecuteNextVehicleSolvers prefix and cache by size
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/course-colliders-as-clutter
+    - mods/ksagolf/features/launch-site-surface-raycast
+    technique: main-thread-sync-point
+    note: The window after Apply and before the queue; reads are legal only between ApplyVehicleSolvers and ExecuteNextVehicleSolvers.
+  - n: 2
+    title: Add and free statics' shapes only while the solver is idle
+    mod: unscience
+    features:
+    - mods/unscience/features/sphinx-static-colliders
+    - mods/unscience/features/pebbles-clutter-colliders
+    technique: bepu-physics
+    note: Shape lifetime for placed models and clutter colliders.
+  - n: 3
+    title: UnlockShapesBlocking around vehicle construction
+    mod: ksacars
+    features:
+    - mods/ksacars/features/spawn-parked-craft
+    technique: reflection
+    note: Waits out the in-flight step so a mod can build a vehicle from a frame hook.
+  related:
+  - add-static-colliders-to-physics-bubbles
+  - mutate-vehicles-at-a-physics-safe-point
+  borrowed_from:
+  - mods/ksacars/features/spawn-parked-craft
+- slug: choose-box-or-mesh-collision-for-imported-geometry
+  title: Choose box or mesh collision for imported geometry
+  summary: Detect whether an imported model is a closed box and give it a cheap Box shape, otherwise a two-sided
+    Mesh, so thin walls do not leak.
+  game_types:
+  - BepuPhysics.Collidables.Box
+  - BepuPhysics.Collidables.Mesh
+  - KSA.ConstraintSim
+  engine_pointers:
+  - current/decomp/BepuPhysics.Collidables/Box.cs
+  lifecycle:
+  - physics:bepu
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: Conservative closed-box detection
+    mod: unscience
+    features:
+    - mods/unscience/features/sphinx-static-colliders
+    technique: bepu-physics
+    note: Box when the mesh is provably a box, two-sided Mesh otherwise.
+  related:
+  - add-static-colliders-to-physics-bubbles
+  - give-ground-clutter-custom-colliders
+  borrowed_from: []
+- slug: give-ground-clutter-custom-colliders
+  title: Give ground clutter custom colliders
+  summary: Map box, sphere, capsule, cylinder and convex-hull recipes onto KSA ColliderTemplate types so replaced
+    clutter objects collide natively, with correct hull centroid, volume and compound mass.
+  game_types:
+  - KSA.ColliderTemplate
+  - KSA.ClutterObjectTemplate
+  - KSA.ConstraintSim
+  - BepuPhysics.Collidables.ConvexHull
+  engine_pointers:
+  - current/decomp/KSA/ColliderTemplate.cs CreateShapeInto
+  - current/decomp/KSA/ClutterObjectTemplate.cs
+  lifecycle:
+  - frame:dispatch-solvers
+  - physics:vehicle-solver
+  - physics:bepu
+  approaches:
+  - n: 1
+    title: Subclass ColliderTemplate with an owned convex hull
+    mod: unscience
+    features:
+    - mods/unscience/features/pebbles-clutter-colliders
+    technique: subclass-game-type
+    note: Override CreateShapeInto, ShapeOffsetCollider and VolumeCubicMetres; stock-matching centroid and volume;
+      volume-weighted mass and centre of mass for multi-collider objects.
+  - n: 2
+    title: Swap clutter bundles in an ExecuteNextClothSolvers prefix
+    mod: unscience
+    features:
+    - mods/unscience/features/pebbles-ground-clutter-replacement
+    technique: harmony-prefix
+    note: Where the replaced colliders enter the game, with the originals kept for exact restore.
+  related:
+  - make-ground-clutter-react-to-vehicles
+  - mutate-the-shared-bepu-shape-registry
+  borrowed_from:
+  - mods/unscience/features/pebbles-ground-clutter-replacement
+- slug: make-ground-clutter-react-to-vehicles
+  title: Make ground clutter collide with and be pushed by vehicles
+  summary: Enable clutter collisions and tune displacement energy so a craft scoops up loose objects, or register
+    your own statics as clutter.
+  game_types:
+  - KSA.GroundClutterRenderer
+  - KSA.BubbleClutterStatics
+  - KSA.GameSettings
+  engine_pointers:
+  - current/decomp/KSA/BubbleClutterStatics.cs
+  - current/decomp/KSA/GameSettings.cs GroundClutterCollisions
+  lifecycle:
+  - frame:dispatch-solvers
+  - physics:bepu
+  - startup:asset-load
+  approaches:
+  - n: 1
+    title: GroundClutterCollisions setting and DisplaceEnergyPerKg
+    mod: ksacars
+    features:
+    - mods/ksacars/features/scoop-colliders-and-loose-clutter
+    technique: bepu-physics
+    note: Mass is read only when a static is built; scoop boxes interact with loose clutter.
+  - n: 2
+    title: Register course statics as clutter on every pass
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/course-colliders-as-clutter
+    technique: reflection
+    note: Infinite-mass statics never displace; re-register each pass.
+  related:
+  - give-ground-clutter-custom-colliders
+  - move-or-toggle-a-parts-colliders-at-runtime
+  borrowed_from: []
+- slug: move-or-toggle-a-parts-colliders-at-runtime
+  title: Move or toggle a part's colliders at runtime
+  summary: Stow collider boxes inside the hull in XML, then move them out by writing the collider's part-frame position
+    and NeedsColliderUpdate; hide unused subparts by scaling them to nothing.
+  game_types:
+  - KSA.ColliderModule
+  - KSA.Part
+  - KSA.SubPart
+  engine_pointers:
+  - current/decomp/KSA/ColliderModule.cs
+  - current/decomp/KSA/Part.cs
+  lifecycle:
+  - startup:asset-load
+  - frame:dispatch-solvers
+  - physics:bepu
+  approaches:
+  - n: 1
+    title: Write PositionPartAsmb and NeedsColliderUpdate
+    mod: ksacars
+    features:
+    - mods/ksacars/features/scoop-colliders-and-loose-clutter
+    technique: bepu-physics
+    note: Declare stowed boxes in XML; a subpart has no visibility switch so scale it to 0.001 inside the hull.
+  related:
+  - scale-a-vessels-colliders-at-runtime
+  - make-ground-clutter-react-to-vehicles
+  borrowed_from:
+  - mods/ksacars/features/pose-subparts-at-runtime
+- slug: scale-a-vessels-colliders-at-runtime
+  title: Scale a vessel's collision shapes at runtime
+  summary: Resize collision geometry independently of render and mass by overriding the scale ColliderModule receives
+    and rebuilding the compound, without changing the physics bubble bounds.
+  game_types:
+  - KSA.ColliderModule
+  - KSA.Vehicle
+  - KSA.ConstraintSim
+  engine_pointers:
+  - current/decomp/KSA/ColliderModule.cs SetScale
+  - current/decomp/KSA/Vehicle.cs UpdateCollisionGeometry
+  lifecycle:
+  - frame:prepare
+  - physics:vehicle-solver
+  - physics:bepu
+  approaches:
+  - n: 1
+    title: Override ColliderModule.SetScale and call UpdateCollisionGeometry
+    mod: unscience
+    features:
+    - mods/unscience/features/godzilla-collider-scaling
+    - mods/unscience/features/godzilla-vessel-scaling
+    technique: harmony-prefix
+    note: Prefix, postfix and finalizer on SetScale and the centre getter, then the private UpdateCollisionGeometry
+      at the handoff; keep bubble bounds unchanged.
+  related:
+  - move-or-toggle-a-parts-colliders-at-runtime
+  - mutate-vehicles-at-a-physics-safe-point
+  borrowed_from:
+  - mods/unscience/features/godzilla-vessel-scaling
+- slug: suppress-collisions-for-one-vessel
+  title: Disable collisions for one vessel without touching others
+  summary: Remove a vessel from Bepu broad-phase for the duration of each constraint-sim pass by swapping its shape
+    for an empty one and restoring it in a finalizer.
+  game_types:
+  - KSA.ConstraintSim
+  - BepuPhysics.BodyReference
+  engine_pointers:
+  - current/decomp/KSA/ConstraintSim.cs DetectCollisions, Simulate
+  lifecycle:
+  - frame:prepare
+  - physics:vehicle-solver
+  - physics:bepu
+  approaches:
+  - n: 1
+    title: BodyReference.SetShape(default) in a prefix with a restoring finalizer
+    mod: unscience
+    features:
+    - mods/unscience/features/garrys-torch-scoped-collision-suppression
+    technique: harmony-finalizer
+    note: Scope the swap to one pass so exceptions cannot leave the shape removed.
+  related:
+  - weld-one-vessel-to-another
+  - write-worker-thread-safe-solver-patches
+  borrowed_from: []
+- slug: run-your-own-bepu-simulation
+  title: Run your own Bepu simulation alongside KSA's
+  summary: Simulate loose props in a separate Bepu world with its own buffer pool and shapes, driven in the vessel's
+    frame, and write the poses onto subparts.
+  game_types:
+  - BepuPhysics.Simulation
+  - KSA.Part
+  - KSA.SubPart
+  - KSA.Vehicle
+  engine_pointers:
+  - current/decomp/BepuPhysics/Simulation.cs
+  lifecycle:
+  - frame:draw-ui
+  - frame:after-on-frame
+  approaches:
+  - n: 1
+    title: Single-threaded Timestep with own BufferPool in the assembly frame
+    mod: gatos
+    features:
+    - mods/gatos/features/iva-cabin-physics-bepu
+    technique: bepu-physics
+    note: Pose results go to SubParts via PositionParentAsmb and Asmb2ParentAsmb only.
+  related:
+  - apply-fictitious-forces-in-a-moving-vessel
+  - suppress-collisions-for-one-vessel
+  borrowed_from: []
+- slug: apply-fictitious-forces-in-a-moving-vessel
+  title: Apply apparent forces inside a moving vessel
+  summary: Make objects in an accelerating, rotating cabin behave by feeding proper acceleration plus Euler, Coriolis
+    and centrifugal terms into a private simulation.
+  game_types:
+  - KSA.Vehicle
+  - KSA.PhysicsStates
+  engine_pointers: []
+  lifecycle:
+  - frame:draw-ui
+  - frame:after-on-frame
+  approaches:
+  - n: 1
+    title: Accelerometer and body rates into a private Bepu world
+    mod: gatos
+    features:
+    - mods/gatos/features/iva-cabin-physics-bepu
+    technique: custom-physics
+    note: Derive proper acceleration from the vehicle and apply the rotating-frame terms to each prop.
+  related:
+  - run-your-own-bepu-simulation
+  borrowed_from: []
+- slug: build-a-moving-platform-kittens-can-ride
+  title: Build a moving platform or elevator kittens can ride
+  summary: Move a collider-only static object by rewriting its template GroundOffset each simulated step under the
+    contact recovery speed, and wake riders so they follow.
+  game_types:
+  - KSA.StaticObject
+  - KSA.ConstraintSim
+  - KSA.KittenEva
+  engine_pointers:
+  - current/decomp/KSA/ConstraintSim.cs UpdateStaticObjectCollider
+  - current/decomp/KSA/StaticObject.cs
+  lifecycle:
+  - frame:dispatch-solvers
+  - frame:draw-ui
+  - physics:bepu
+  approaches:
+  - n: 1
+    title: Rewrite GroundOffset of a dedicated launch-pad object
+    mod: ksastructures
+    features:
+    - mods/ksastructures/features/lift-moving-landmark
+    technique: harmony-prefix
+    note: Keep speed below MaximumRecoveryVelocity; UpdateSimFromVehicle only updates the static collider for off-rails
+      bodies, so wake sleeping riders and write their state from the PrepareWorker prefix.
+  related:
+  - let-kittens-stand-on-mod-geometry
+  - mutate-vehicles-at-a-physics-safe-point
+  borrowed_from: []
+- slug: weld-one-vessel-to-another
+  title: Hold one vessel at a fixed offset from another
+  summary: Pin a vessel to another vessel or part by re-teleporting it onto the anchor pose every frame, stamped
+    with the correct sim-step time.
+  game_types:
+  - KSA.Vehicle
+  - KSA.SimStep
+  - KSA.Universe
+  engine_pointers:
+  - current/decomp/KSA/Vehicle.cs Teleport
+  - current/decomp/KSA/SimStep.cs
+  lifecycle:
+  - frame:prepare
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: BeforePhysics callback at the PrepareFrame handoff
+    mod: unscience
+    features:
+    - mods/unscience/features/garrys-torch-vehicle-welding
+    - mods/unscience/features/garrys-torch-scoped-collision-suppression
+    technique: harmony-transpiler
+    note: Teleport at the handoff stamped with SimStep.PreviousTime; suppress collisions between welded vessels.
+  - n: 2
+    title: VehicleSolver.Wait then teleport stamped with the next sim step
+    mod: gatos
+    features:
+    - mods/gatos/features/welds-vessel-anchoring
+    technique: kinematic-teleport
+    note: Frame-hook variant without a transpiler.
+  related:
+  - animate-a-weld-with-eased-queues
+  - suppress-collisions-for-one-vessel
+  - teleport-a-vessel-by-building-a-new-orbit
+  - mutate-vehicles-at-a-physics-safe-point
+  borrowed_from: []
+- slug: animate-a-weld-with-eased-queues
+  title: Animate a weld with eased queues
+  summary: Interpolate weld offset, rotation and scale with per-weld eased animation queues advanced at the physics
+    handoff.
+  game_types:
+  - KSA.Vehicle
+  engine_pointers: []
+  lifecycle:
+  - frame:prepare
+  approaches:
+  - n: 1
+    title: Per-weld eased animation queues in player time
+    mod: unscience
+    features:
+    - mods/unscience/features/garrys-torch-weld-animation-and-presets
+    technique: custom-physics
+    note: Queues advance at the physics handoff, not in the UI.
+  related:
+  - weld-one-vessel-to-another
+  - store-named-presets-in-toml-with-tomlyn
+  borrowed_from: []
+- slug: store-named-presets-in-toml-with-tomlyn
+  title: Store named presets in a TOML file with Tomlyn
+  summary: Persist reusable settings as named presets in TOML and migrate legacy keys.
+  game_types: []
+  engine_pointers: []
+  lifecycle:
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: Preset file with legacy-key migration
+    mod: unscience
+    features:
+    - mods/unscience/features/garrys-torch-weld-animation-and-presets
+    technique: toml-config
+    note: Reusable weld settings as presets.
+  related:
+  - animate-a-weld-with-eased-queues
+  borrowed_from: []
+- slug: teleport-a-vessel-by-building-a-new-orbit
+  title: Teleport a vessel to a state vector by building a new orbit
+  summary: Move a vessel, EVA kitten or debris to an arbitrary position and velocity with Orbit.CreateFromStateCci
+    and Vehicle.Teleport at a safe window.
+  game_types:
+  - KSA.Vehicle
+  - KSA.Orbit
+  - KSA.Universe
+  engine_pointers:
+  - current/decomp/KSA/Orbit.cs CreateFromStateCci
+  - current/decomp/KSA/Vehicle.cs Teleport
+  lifecycle:
+  - frame:prepare
+  - frame:dispatch-solvers
+  approaches:
+  - n: 1
+    title: Teleport at the PrepareFrame handoff and fire at a clicked point
+    mod: unscience
+    features:
+    - mods/unscience/features/dent-wizard-vessel-launcher
+    technique: harmony-transpiler
+    note: Teleport vessel to the camera, aim at the hull or terrain hit, build the orbit.
+  - n: 2
+    title: Teleport to CCI state vectors in the solver-dispatch window
+    mod: gatos
+    features:
+    - mods/gatos/features/debug-cheats-teleport-refuel-warp
+    technique: harmony-prefix
+    note: Orbit.CreateFromStateCci with Vehicle.Teleport.
+  - n: 3
+    title: Orbit solved backwards from a requested pass
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/spawn-and-teleport-test-craft
+    technique: harmony-prefix
+    note: Rotate Ecl to CCI first; used for test drones.
+  related:
+  - place-a-vessel-on-a-surface-at-latitude-and-longitude
+  - weld-one-vessel-to-another
+  borrowed_from:
+  - mods/gatos/features/debug-cheats-teleport-refuel-warp
+  - mods/ksarmory/features/spawn-and-teleport-test-craft
+- slug: place-a-vessel-on-a-surface-at-latitude-and-longitude
+  title: Place a vessel on a body's surface at a latitude and longitude
+  summary: Use Vehicle.TeleportToLocation, which queues an input event applied at the next PrepareFrame, and correct
+    its bounds-based clearance when the vessel is not nose-up.
+  game_types:
+  - KSA.Vehicle
+  - KSA.InputEvents
+  - KSA.Celestial
+  engine_pointers:
+  - current/decomp/KSA/Vehicle.cs TeleportToLocation, GetInitialKinematicStateForLocation
+  - current/decomp/KSA/InputEvents.cs
+  lifecycle:
+  - frame:draw-ui
+  - frame:input
+  - frame:prepare
+  approaches:
+  - n: 1
+    title: Queue TeleportToLocation once per action
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/craft-mover
+    - mods/ksacars/features/craft-mover-mouse-pick-place
+    technique: starmap-lifecycle
+    note: Pick, then set down; the placement is deferred to the next PrepareFrame.
+  - n: 2
+    title: Transpile the GetInitialKinematicStateForLocation call for head-up bounds
+    mod: unscience
+    features:
+    - mods/unscience/features/iron-man-surface-teleport-correction
+    technique: harmony-transpiler
+    note: GetInitialKinematicStateForLocation assumes body +X is up and measures clearance below the min-X face.
+  related:
+  - teleport-a-vessel-by-building-a-new-orbit
+  - spawn-a-craft-on-top-of-a-structure
+  borrowed_from:
+  - mods/ksagolf/features/craft-mover
+  - mods/unscience/features/iron-man-surface-teleport-correction
+- slug: make-a-vessel-indestructible
+  title: Make a vessel indestructible or immune to g-load
+  summary: 'Veto force-based destruction for chosen vessels without editing shared part templates: patch the crash-tolerance
+    getter, the structural-failure detector or the single g-load read.'
+  game_types:
+  - KSA.Part
+  - KSA.PhysicsBubble
+  - KSA.Universe
+  - KSA.StructuralLoad
+  engine_pointers:
+  - current/decomp/KSA/Part.cs CrashTolerancePascals
+  - current/decomp/KSA/PhysicsBubble.cs DetectStructuralFailure
+  - current/decomp/KSA/Universe.cs DestroyVehicleFromEvent
+  lifecycle:
+  - physics:vehicle-solver
+  - physics:bepu
+  - frame:apply-solvers
+  - event:vehicle-destroyed
+  approaches:
+  - n: 1
+    title: Prefixes on CrashTolerancePascals and DetectStructuralFailure
+    mod: unscience
+    features:
+    - mods/unscience/features/the-tick-vessel-indestructibility
+    technique: harmony-prefix
+    note: Per-instance override in a worker-safe registry; prefix and postfix pair on the detector.
+  - n: 2
+    title: Veto Universe.DestroyVehicleFromEvent and set part crash tolerance
+    mod: ksacars
+    features:
+    - mods/ksacars/features/crash-veto
+    technique: harmony-prefix
+    note: 'Two destruction paths: veto the main-thread event and raise CrashTolerance for the other. Pascals; non-positive
+      derived from mass over collider volume, clamped to 0.1..100 MPa.'
+  - n: 3
+    title: Filter only the g-load read with a guarded transpiler
+    mod: unscience
+    features:
+    - mods/unscience/features/kitchen-sink-g-load-protection
+    technique: harmony-transpiler
+    note: Insert a static filter after the single StructuralLoad.GLoadFraction getter; require exactly one match.
+  related:
+  - write-worker-thread-safe-solver-patches
+  - persist-vessel-references-across-save-and-load
+  borrowed_from:
+  - mods/ksacars/features/crash-veto
+- slug: persist-vessel-references-across-save-and-load
+  title: Persist vessel references by id and rebind after load
+  summary: Keep a per-vessel mod setting across saves by storing a stable identity in a sidecar and rebinding unambiguously
+    on load.
+  game_types:
+  - KSA.Vehicle
+  - KSA.GameSave
+  engine_pointers: []
+  lifecycle:
+  - event:save
+  - event:load
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: Sidecar keyed on vessel identity
+    mod: unscience
+    features:
+    - mods/unscience/features/kitchen-sink-g-load-protection
+    technique: save-sidecar
+    note: Rebind references after load without ambiguity.
+  related:
+  - make-a-vessel-indestructible
+  borrowed_from: []

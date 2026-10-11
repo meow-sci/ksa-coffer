@@ -1,0 +1,982 @@
+category: celestials
+description: 'Celestial data and surface placement: star systems and the body tree, atmosphere, cloud and ring data,
+  star catalogs, terrain queries and modifiers, static objects on a planet surface and ground clutter.'
+topics:
+- slug: enumerate-star-systems-and-bodies
+  title: Enumerate every star system, star, planet and moon of the loaded universe
+  summary: One loaded universe can hold several star systems, each rooted at a FixedStar or a Barycenter, with stars,
+    planets, moons, minor bodies and even vehicles all reachable from the same tree. This topic shows the three
+    walks mods use (roots then Children, a flat CelestialSystem.All scan, and a UI-selected root) and the type traps
+    in each (the star is a StellarBody and not a Celestial, Children also lists vehicles).
+  game_types: [KSA.Universe, KSA.CelestialSystem, KSA.IIndependentRoot, KSA.IParentBody, KSA.IOrbiter, KSA.Astronomical,
+    KSA.Celestial, KSA.StellarBody, KSA.FixedStar, KSA.OrbitingStar, KSA.Barycenter]
+  engine_pointers: ['current/decomp/KSA/Universe.cs LoadSystem (caches Roots, Stars, WorldSun)', 'current/decomp/KSA/CelestialSystem.cs
+      All, CreateTreeFromRoot, HomeBody', current/decomp/KSA/IIndependentRoot.cs RootOf, current/decomp/KSA/IParentBody.cs
+      Children]
+  lifecycle: ['startup:game-loaded', 'frame:draw-ui', 'frame:viewports']
+  approaches:
+  - n: 1
+    title: Roots then IParentBody.Children into an immutable forest
+    mod: ksa-deltavmap
+    features: [mods/ksa-deltavmap/features/live-celestial-system-graph]
+    technique: system-graph
+    note: CelestialSystem.All.OfType<IIndependentRoot>() then recursive IParentBody.Children, keeping only children
+      that are IParentBody and Astronomical so vehicles drop out; children sorted once (bound orbits by semi-major
+      axis, open orbits after).
+  - n: 2
+    title: Universe.Roots, RootOf and a selected root, collecting only Celestial or only stars
+    mod: compendium
+    features: [mods/compendium/features/star-systems-and-body-tree]
+    technique: game-object-graph
+    note: Universe.Roots span, IIndependentRoot.RootOf(body) walks Parent upward, CollectAllCelestials recurses
+      Children through stars and barycenters, CollectSystemStars finds the star-like children. Includes the Children-moved-to-IParentBody
+      API note.
+  - n: 3
+    title: Flat scan of CurrentSystem.All plus an explicit WorldSun
+    mod: gatos
+    features: [mods/gatos/features/celestial-body-catalog-reads]
+    technique: immutable-snapshot
+    note: All.UnsafeAsList() holds every Astronomical; the root star is a StellarBody and not a Celestial so the
+      reader adds Universe.WorldSun itself when the walk did not list it. Cheapest walk when parent/child structure
+      is not needed (read Parent per body instead).
+  related: [handle-multi-star-systems-and-barycenters, cache-derived-data-per-loaded-celestial-system, read-celestial-orbit-and-body-data,
+    attach-extra-data-to-bodies-by-stable-key, reparent-a-celestial-body, detect-vessel-and-soi-changes-from-ui]
+  borrowed_from: []
+- slug: handle-multi-star-systems-and-barycenters
+  title: Handle multiple star systems, barycenters and moving world suns correctly
+  summary: 'Interstellar content means a root is not always a star: Barycenter.IsStar() is false, OrbitingStar is
+    an IOrbiter under a barycenter, exoplanets may be authored as MinorBody, and Universe.WorldSun follows the camera
+    each frame. This topic collects the rules that keep a body list, a map or a selector correct for any loaded
+    universe.'
+  game_types: [KSA.Barycenter, KSA.FixedStar, KSA.OrbitingStar, KSA.StellarBody, KSA.MinorBody, KSA.IIndependentRoot,
+    KSA.Universe, KSA.Celestial]
+  engine_pointers: [current/decomp/KSA/Barycenter.cs IsStar, current/decomp/KSA/OrbitingStar.cs, current/decomp/KSA/FixedStar.cs,
+    current/decomp/KSA/Universe.cs UpdateWorldSun / WorldSun, current/decomp/KSA/Program.cs Render (moves WorldSun
+      to the star nearest the camera)]
+  lifecycle: ['startup:game-loaded', 'frame:draw-ui']
+  approaches:
+  - n: 1
+    title: Role rules in a game-type-free ForestRules class
+    mod: ksa-deltavmap
+    features: [mods/ksa-deltavmap/features/live-celestial-system-graph]
+    technique: system-graph
+    note: StellarBody means star, a non-star IIndependentRoot means barycenter, hubs have no surface; MinorBody
+      children of a barycenter with no major planet are treated as that system planets; IsMoon misfires under barycenters
+      so test the parent type. Rules are kept free of game types so they unit-test offline.
+  - n: 2
+    title: Keep your own selected root because WorldSun is not stable
+    mod: compendium
+    features: [mods/compendium/features/star-systems-and-body-tree]
+    technique: game-object-graph
+    note: GetSelectedRoot keeps the player choice while it is still in Universe.Roots and only falls back to the
+      root of WorldSun, which Program.Render moves to the nearest star every frame. Also covers OrbitingStar facts,
+      distance in light years from HomeBody root.
+  related: [enumerate-star-systems-and-bodies, read-celestial-orbit-and-body-data, plan-multi-leg-delta-v-routes,
+    estimate-interstellar-trip]
+  borrowed_from: []
+- slug: attach-extra-data-to-bodies-by-stable-key
+  title: Key per-body data so it survives repeated ids and extra star systems
+  summary: 'Body ids repeat across systems and moons share names, so mod data about bodies (descriptions, categories,
+    overrides) needs a key that is unique and resolvable back to the live object. Two designs are shown: a dotted
+    parent-path key resolved by tree search, and a prefix-keyed JSON catalog that other mods can extend without
+    referencing your assembly.'
+  game_types: [KSA.Celestial, KSA.IIndependentRoot, KSA.CelestialSystem]
+  engine_pointers: ['current/decomp/KSA/Celestial.cs Parent, Id', current/decomp/KSA/IIndependentRoot.cs RootOf]
+  lifecycle: ['startup:immediate-load', 'startup:game-loaded', 'frame:draw-ui']
+  approaches:
+  - n: 1
+    title: Dotted path of Celestial ids from the top-level body down
+    mod: compendium
+    features: [mods/compendium/features/star-systems-and-body-tree]
+    technique: game-object-graph
+    note: Key like Jupiter.Io built by walking Celestial.Parent and stopping at the star; FindCelestialByKey matches
+      the last segment and the parent depth-first under a root; the data lookup further prefixes root or system
+      id.
+  - n: 2
+    title: Prefix-keyed JSON files discovered in every installed mod folder
+    mod: compendium
+    features: [mods/compendium/features/cross-mod-json-catalog, mods/compendium/features/derived-body-properties]
+    technique: json-config
+    note: A file counts only if its root has the marker key; each other root key is a system or star-root prefix,
+      with deterministic precedence so another mod can add bodies or override text. Entries are attached to live
+      bodies on the first UI frame with a universe.
+  related: [enumerate-star-systems-and-bodies, cache-derived-data-per-loaded-celestial-system, find-own-mod-folder]
+  borrowed_from: [mods/compendium/features/cross-mod-json-catalog]
+- slug: cache-derived-data-per-loaded-celestial-system
+  title: Cache derived body data per loaded system without going stale
+  summary: 'Body mass, radius, orbit elements and templates are constant for a loaded system, so recomputing them
+    each frame is waste, but the cache must die when the system is reloaded or a body object is replaced. Three
+    invalidation strategies are shown: a reference latch on CurrentSystem, a ConditionalWeakTable keyed by body,
+    and a once-only attach on the first UI frame that has a universe.'
+  game_types: [KSA.Universe, KSA.CelestialSystem, KSA.Celestial, KSA.IParentBody, KSA.Orbit]
+  engine_pointers: ['current/decomp/KSA/Universe.cs CurrentSystem, LoadSystem, DeserializeSave', current/decomp/KSA/CelestialSystem.cs]
+  lifecycle: ['frame:draw-ui', 'frame:viewports', 'startup:game-loaded']
+  approaches:
+  - n: 1
+    title: Latch on the Universe.CurrentSystem reference, not its Id
+    mod: ksa-deltavmap
+    features: [mods/ksa-deltavmap/features/live-celestial-system-graph]
+    technique: per-system-cache
+    note: Reloading the same system id builds new body objects, so rebuild the graph, the transfer cost cache and
+      the palette only when !ReferenceEquals(graph.System, system); everything per-root resets with it.
+  - n: 2
+    title: ConditionalWeakTable of immutable statics per Celestial
+    mod: gatos
+    features: [mods/gatos/features/celestial-body-catalog-reads]
+    technique: conditional-weak-table-cache
+    note: Everything except position and velocity is cached once per body; each sample reads only GetPositionEcl
+      and GetVelocityEcl; unchanged lists are re-published by reference so consumers compare cheaply.
+  - n: 3
+    title: One-shot attach on the first UI frame with a universe
+    mod: compendium
+    features: [mods/compendium/features/derived-body-properties]
+    technique: starmap-lifecycle
+    note: Data loaded at immediate-load, before any celestial exists, is matched to bodies the first frame WorldSun
+      is set, guarded by a static flag; derived numbers are computed once and only orbital speed is read live.
+  related: [enumerate-star-systems-and-bodies, throttle-expensive-ui-computation, detect-vessel-and-soi-changes-from-ui,
+    detect-save-load]
+  borrowed_from: []
+- slug: read-atmosphere-and-ocean-parameters-of-a-body
+  title: Read a body's atmosphere, ocean and ring data
+  summary: Atmosphere height, sea-level pressure and density, scale height, ocean density and level, and ring presence
+    are all reachable from IParentBody and the body template without touching private state. This topic shows how
+    to read them safely (either may be null), sample density and pressure by altitude, and turn them into decisions
+    such as a low-orbit altitude or a gas-giant test.
+  game_types: [KSA.IParentBody, KSA.AtmosphereReference, KSA.PhysicalAtmosphereReference, KSA.Rendering.Water.Data.OceanReference,
+    KSA.AstronomicalTemplate, KSA.PlanetaryRingsReference]
+  engine_pointers: [current/decomp/KSA/PhysicalAtmosphereReference.cs GetAtmosphericDensityAtAltitude / GetAtmosphericPressureAtAltitude,
+    current/decomp/KSA/AtmosphereReference.cs Physical, 'current/decomp/KSA/AstronomicalTemplate.cs AtmosphereReference,
+      RingsReference', current/decomp/KSA.Rendering.Water.Data/OceanReference.cs]
+  lifecycle: ['frame:draw-ui']
+  approaches:
+  - n: 1
+    title: IParentBody.GetAtmosphereReference and GetOceanReference projected into a snapshot
+    mod: gatos
+    features: [mods/gatos/features/celestial-body-catalog-reads]
+    technique: immutable-snapshot
+    note: Height, ScaleHeight, SeaLevelPressure and SeaLevelDensity from Physical; ocean Density; read through the
+      interface so a body type rename surfaces in one place. Ocean presence means OceanReference non-null with Density
+      > 0.
+  - n: 2
+    title: Atmosphere height, density and ring templates feeding classification decisions
+    mod: ksa-deltavmap
+    features: [mods/ksa-deltavmap/features/body-state-ladder-and-you-are-here]
+    technique: system-graph
+    note: Physical.Height and SeaLevelDensity drive low-orbit altitude, ascent loss and aerobrake markers; BodyTemplate.RingsReference
+      marks ringed bodies; atmosphere plus a 15,000 km radius marks a gas giant (no solid surface); GetNearSurfaceRadius
+      for clearance.
+  - n: 3
+    title: Sample the live density and pressure model by altitude
+    mod: compendium
+    features: [mods/compendium/features/atmosphere-profile-graph, mods/compendium/features/derived-body-properties]
+    technique: imgui-drawlist
+    note: 101 samples from 0 to Physical.Height through the game atmosphere functions, so the numbers follow a mod
+      that replaces the profile; atmosphere strings for the body page come from the same template.
+  related: [read-celestial-orbit-and-body-data, replace-a-bodys-atmosphere-density-profile, tune-atmosphere-scattering-in-system-xml,
+    draw-a-chart-with-imdrawlist, classify-vessel-orbit-state]
+  borrowed_from: [mods/compendium/features/atmosphere-profile-graph, mods/ksa-deltavmap/features/body-state-ladder-and-you-are-here]
+- slug: read-rotation-tilt-and-tidal-lock-of-a-body
+  title: Read a body's rotation, axial tilt, tidal lock and inclination
+  summary: Spin rate, sidereal period, axial tilt, retrograde and tidal-lock flags, and the inclination of an orbit
+    relative to the parent equator or the star plane live in templates and transforms rather than one property.
+    This topic shows where each number comes from and the corrections moons need.
+  game_types: [KSA.Celestial, KSA.RotationTemplate, KSA.AstronomicalTemplate, KSA.Orbit, KSA.IParentBody]
+  engine_pointers: [current/decomp/KSA/RotationTemplate.cs, 'current/decomp/KSA/Celestial.cs Inclination, GetCci2Orb,
+      GetAngularVelocity', current/decomp/KSA/IParentBody.cs GetAngularVelocity]
+  lifecycle: ['frame:draw-ui']
+  approaches:
+  - n: 1
+    title: Template and transform reads for tilt, periods and inclination
+    mod: compendium
+    features: [mods/compendium/features/derived-body-properties]
+    technique: reflection
+    note: BodyTemplate.Rotation.Tilt for star orbiters, X angle of GetCci2Orb().Inverse() for moons, SiderealPeriod,
+      IsTidallyLocked, IsRetrograde; inclination relative to parent equator and to the star plane; OrbitLineMode
+      read by reflection inside a try.
+  - n: 2
+    title: Angular velocity as a rate for telemetry
+    mod: gatos
+    features: [mods/gatos/features/celestial-body-catalog-reads]
+    technique: immutable-snapshot
+    note: GetAngularVelocity() reported in rad/s alongside orbit elements as altitudes over the parent.
+  - n: 3
+    title: Angular velocity to a stationary orbit radius
+    mod: ksa-deltavmap
+    features: [mods/ksa-deltavmap/features/body-state-ladder-and-you-are-here]
+    technique: system-graph
+    note: T = 2 pi / abs(omega); r = cbrt(mu T^2 / 4 pi^2); rung only if inside the SOI and above the low orbit.
+  related: [understand-ksa-coordinate-frames, build-a-local-site-frame, read-celestial-orbit-and-body-data, read-orbit-elements-and-timing]
+  borrowed_from: [mods/ksa-deltavmap/features/body-state-ladder-and-you-are-here]
+- slug: reposition-a-celestial-body-at-runtime
+  title: Reposition a planet or moon at runtime by swapping its orbit
+  summary: Bodies are on rails, so moving one means giving it a new Orbit at a moment when the orbit solver will
+    pick it up. This topic builds the orbit from the target's state vectors, swaps it in a first-priority prefix
+    on the solver dispatch, orders chained updates, and restores the original orbit on unweld and across saves.
+  game_types: [KSA.Celestial, KSA.Orbit, KSA.StateVectors, KSA.Universe, KSA.CelestialUpdateTask, KSA.UniverseTime,
+    KSA.GameSave]
+  engine_pointers: [current/decomp/KSA/Celestial.cs SetOrbit, current/decomp/KSA/Orbit.cs CreateFromStateCci, 'current/decomp/KSA/Universe.cs
+      ApplyOrbitSolvers, ExecuteNextVehicleSolvers, ExecuteNextOrbitSolvers, DeserializeSave', current/decomp/KSA/GameSave.cs
+      Populate]
+  lifecycle: ['frame:dispatch-solvers', 'frame:draw-ui', 'event:save', 'event:load']
+  approaches:
+  - n: 1
+    title: Priority.First prefix on ExecuteNextVehicleSolvers builds a fresh orbit from target state vectors
+    mod: unscience
+    features: [mods/unscience/features/kiwis-marbles-celestial-welding]
+    technique: harmony-prefix
+    note: Offset in the target parent CCI frame, Orbit.CreateFromStateCci around the target parent, SetOrbit before
+      the CelestialUpdateTask snapshot; UI-time swaps are overwritten by the orbit workers. Chained welds are updated
+      in topological order; originals restored on unweld; welds captured and replayed through save hooks.
+  related: [reparent-a-celestial-body, mutate-vehicles-at-a-physics-safe-point, teleport-a-vessel-to-an-orbit-or-site,
+    teleport-a-vessel-by-building-a-new-orbit, save-sidecar-state-per-scene]
+  borrowed_from: []
+- slug: reparent-a-celestial-body
+  title: Change a celestial body's parent safely
+  summary: Celestial.SetOrbit changes only the Orbit field. The Children lists of the old and new parents, cached
+    transforms, sphere of influence and rank are not updated, and KSA re-parents only vessels automatically. This
+    topic explains how the parent/child tree drives per-frame refresh, encounter search and UI lists, and how to
+    move a body between parents without leaving it listed twice or in a cycle.
+  game_types: [KSA.Celestial, KSA.IParentBody, KSA.IOrbiter, KSA.Orbit, KSA.CelestialSystem, KSA.Vehicle, KSA.PatchedConic,
+    KSA.FlightPlan]
+  engine_pointers: ['current/decomp/KSA/Celestial.cs SetOrbit, UpdatePerFrameData, SphereOfInfluence, Rank', 'current/decomp/KSA/IParentBody.cs
+      Children, UpdatePerFrameDataTree', current/decomp/KSA/Vehicle.cs SetFlightPlan (ApplyPendingParentChildrenFix)]
+  lifecycle: ['frame:dispatch-solvers', 'event:load']
+  approaches:
+  - n: 1
+    title: SetOrbit plus manual Children surgery and UpdatePerFrameDataTree, with cycle guards on replay
+    mod: unscience
+    features: [mods/unscience/features/kiwis-marbles-cross-parent-reparenting, mods/unscience/features/kiwis-marbles-celestial-welding]
+    technique: celestial-reparenting
+    note: Record old parent, SetOrbit, remove from oldParent.Children and add to newParent.Children when the parent
+      differs, refresh the moved subtree before anything samples it; saved welds are replayed with parent-graph
+      checks. Documents which state SetOrbit does and does not update.
+  related: [reposition-a-celestial-body-at-runtime, enumerate-star-systems-and-bodies]
+  borrowed_from: []
+- slug: choose-which-body-the-game-renders-in-detail
+  title: Control which body the game picks as the camera's nearby celestial
+  summary: The game draws one body per camera in full detail (terrain, volumetric clouds, full atmosphere) and every
+    other body as a distant sphere, chosen by CelestialSystem.GetNearbyAstronomical. A small moon passing close
+    to its planet can steal that slot and make the planet flicker, especially under time warp. This topic shows
+    how to change the ranking in place with a guarded transpiler.
+  game_types: [KSA.CelestialSystem, KSA.Astronomical, KSA.Program, KSA.Camera]
+  engine_pointers: [current/decomp/KSA/CelestialSystem.cs GetNearbyAstronomical, 'current/decomp/KSA/Program.cs
+      OnFrameCelestials, UpdateShaderData, FindNearbyCelestial', current/decomp/KSA/Astronomical.cs MeanRadius]
+  lifecycle: ['startup:starmap-before-main', 'frame:celestials', 'frame:render']
+  approaches:
+  - n: 1
+    title: Transpile the distance comparison into a ranking call that favours a body within 25 radii
+    mod: realatmospheres
+    features: [mods/realatmospheres/features/nearby-body-transpiler]
+    technique: harmony-transpiler
+    note: 'Shape-check the single get_MeanRadius, replace sub/clt with a static Take(...) that writes best by reference,
+      bail out returning the original IL on any mismatch; runs once at patch time, one static call per body per
+      frame. Callers: OnFrameCelestials, UpdateShaderData, FindNearbyCelestial.'
+  related: [write-a-harmony-transpiler, branch-per-body-inside-shared-game-shaders, keep-vessels-rendered-at-any-distance]
+  borrowed_from: [mods/realatmospheres/features/nearby-body-transpiler]
+- slug: change-stock-system-and-body-xml-without-editing-core
+  title: Change the stock system and body XML without editing Core
+  summary: Sol's bodies live in the Core body library (Astronomicals.xml) and the inline system templates (SolSystem*.xml);
+    a mod that wants to change an atmosphere, cloud deck or surface cannot ship a second copy of a Core file. This
+    topic shows how to write a patched copy and make the game load it instead, and how two mods can cooperate on
+    the same files.
+  game_types: [KSA.Mod, KSA.ModLibrary, KSA.SystemTemplate, KSA.AstronomicalTemplate, KSA.AtmosphericBodyTemplate,
+    KSA.PlanetaryBodyTemplate]
+  engine_pointers: ['current/decomp/KSA/Mod.cs Assets, SystemTemplates, LoadAssetBundles, LoadSystems, PrepareSystems',
+    'current/Content/Core/ (Astronomicals.xml, SolSystem.xml, SolSystemDense.xml, SolSystemInterstellar.xml)']
+  lifecycle: ['startup:starmap-before-main', 'startup:asset-load']
+  approaches:
+  - n: 1
+    title: Write patched copies and swap the file names in Core mod lists for absolute paths
+    mod: realatmospheres
+    features: [mods/realatmospheres/features/core-xml-entry-redirect, mods/realatmospheres/features/atmosphere-optics-in-system-xml]
+    technique: xml-patch
+    note: Prefixes on Mod.LoadAssetBundles / LoadSystems / PrepareSystems replace the Astronomicals.xml and system
+      template entries; Path.Combine returns a rooted second argument unchanged so no further patch is needed; idempotent,
+      and PrepareSystems stores XmlName so both system methods are patched. Edits are anchor-verified text edits
+      of the XML.
+  - n: 2
+    title: One shared patched copy built by two cooperating mods
+    mod: realatmospheres
+    features: [mods/realatmospheres/features/cross-mod-shared-shadow]
+    technique: xml-patch
+    note: A named mutex, a once-per-launch reset token (process start time), a callback of marker-guarded idempotent
+      edits and source shared between projects, so the second mod patches on top of the first mod rather than clobbering
+      it.
+  related: [redirect-game-xml-loading, coordinate-file-edits-between-mods, patch-game-glsl-with-anchored-text-edits,
+    add-an-atmosphere-to-an-airless-body]
+  borrowed_from: [mods/realatmospheres/features/core-xml-entry-redirect, mods/realatmospheres/features/cross-mod-shared-shadow]
+- slug: add-an-atmosphere-to-an-airless-body
+  title: Give an airless body an atmosphere in system XML
+  summary: A body authored as a plain planetary or minor body has no atmosphere renderer or flight atmosphere. Promoting
+    it means renaming the template element to AtmosphericBody and appending a complete Atmosphere block, including
+    the Ozone and StartHeight elements the validity check requires. Pluto and Triton are promoted this way.
+  game_types: [KSA.AtmosphericBodyTemplate, KSA.PlanetaryBodyTemplate, KSA.MinorBodyTemplate, KSA.VisualAtmosphereReference,
+    KSA.PhysicalAtmosphereReference, KSA.SystemTemplate]
+  engine_pointers: [current/decomp/KSA/AtmosphericBodyTemplate.cs, current/decomp/KSA/VisualAtmosphereReference.cs
+      IsValid, current/decomp/KSA/PhysicalAtmosphereReference.cs, current/decomp/KSA/AstronomicalTemplate.cs OnDataLoad]
+  lifecycle: ['startup:starmap-before-main', 'startup:asset-load']
+  approaches:
+  - n: 1
+    title: Rename the element to AtmosphericBody and splice an Atmosphere block into the XML copy
+    mod: realatmospheres
+    features: [mods/realatmospheres/features/atmosphere-optics-in-system-xml]
+    technique: xml-patch
+    note: Include Ozone and StartHeight so IsValid passes; ties into the measured flight tables registered per template
+      id; delivered through the Core XML redirect.
+  related: [change-stock-system-and-body-xml-without-editing-core, tune-atmosphere-scattering-in-system-xml, replace-a-bodys-atmosphere-density-profile,
+    add-a-volumetric-cloud-layer-to-a-body]
+  borrowed_from: []
+- slug: tune-atmosphere-scattering-in-system-xml
+  title: Tune a body's atmosphere scattering and absorption in XML
+  summary: Rayleigh and Mie coefficients, asymmetry, the absorption multiplier and the ozone tent are all XML data
+    on VisualAtmosphereReference. This topic shows how to derive per-body values, use the ozone tent as a general
+    per-channel absorber, and treat scale heights and asymmetry sentinels as keys the patched shaders recognise.
+  game_types: [KSA.VisualAtmosphereReference, KSA.AtmosphericBodyTemplate, KSA.PlanetaryBodyTemplate, KSA.MinorBodyTemplate,
+    KSA.SystemTemplate]
+  engine_pointers: [current/decomp/KSA/VisualAtmosphereReference.cs, current/Content/Core/Astronomicals.xml (stock
+      Atmosphere blocks), current/Content/Shaders (Atmosphere*.comp)]
+  lifecycle: ['startup:starmap-before-main', 'startup:asset-load']
+  approaches:
+  - n: 1
+    title: Generated optical values spliced into ten XML copies, with data-as-key conventions
+    mod: realatmospheres
+    features: [mods/realatmospheres/features/atmosphere-optics-in-system-xml]
+    technique: xml-patch
+    note: Generated Rayleigh, Mie and ozone values per body; the ozone tent reused as a per-channel absorber; scale
+      height and asymmetry values chosen so a patched shader can recognise the body (see the shader-side topics).
+  related: [add-an-atmosphere-to-an-airless-body, branch-per-body-inside-shared-game-shaders, dispatch-shader-variants-with-sentinel-values,
+    read-atmosphere-and-ocean-parameters-of-a-body, generate-measured-atmosphere-tables-offline]
+  borrowed_from: []
+- slug: add-a-volumetric-cloud-layer-to-a-body
+  title: Add a volumetric cloud layer to a body in system XML
+  summary: Clouds is a sibling of Atmosphere in the body XML, with coverage masks, detail tiles, a flowmap, a colour
+    map and cloud types per layer. This topic shows templated decks for gas giants, thin laminae for Mars cirrus
+    and Titan haze, how each layer's light distance follows from its geometry, and how a layer references textures
+    that live in your mod folder from a Core-resident XML file. It also covers calibrating a layer flow speed to
+    a real wind speed (velocity = peak flow x displacement / loop duration, used for measured giant-planet jets
+    and Venus superrotation).
+  game_types: [KSA.CloudsReference, KSA.CloudLayerReference, KSA.VolumetricCloudReference, KSA.RaymarchingReference]
+  engine_pointers: [current/decomp/KSA/CloudsReference.cs, current/decomp/KSA/CloudLayerReference.cs, current/decomp/KSA/VolumetricCloudReference.cs,
+    current/decomp/KSA/Mod.cs GetPath (rooted paths pass through)]
+  lifecycle: ['startup:starmap-before-main', 'startup:asset-load']
+  approaches:
+  - n: 1
+    title: Templated decks and laminae with absolute asset paths
+    mod: realatmospheres
+    features: [mods/realatmospheres/features/cloud-layers-in-system-xml]
+    technique: xml-patch
+    note: 'One deck template per giant with per-planet mask and flowmap; Jupiter and Venus rebuilt; Mars cirrus
+      and Titan haze added; absolute (rooted) texture paths pass through Mod.GetPath so Core XML can point into
+      a mod folder; light distance derived from layer geometry. Flow speed: velocity = peak flow x displacement
+      / loop duration, per-planet jets from measurements, Venus superrotation computed.'
+  related: [build-cloud-masks-and-flowmaps-for-ksa, change-stock-system-and-body-xml-without-editing-core, fix-volumetric-cloud-lighting-and-the-2d-handover,
+    edit-exhaust-and-cloud-templates-live]
+  borrowed_from: []
+- slug: build-cloud-masks-and-flowmaps-for-ksa
+  title: Build cloud coverage masks, detail tiles and flowmaps for KSA
+  summary: KSA clouds are driven by textures in specific channel layouts (coverage in alpha, cloud type in red)
+    and BC-compressed flowmaps. This topic shows offline scripts that turn equirectangular planet maps or exports
+    into those assets and how to derive game-dependent ones at install time when redistribution is not allowed.
+  game_types: [KSA.CloudLayerReference, KSA.VolumetricCloudReference, KSA.TextureReference]
+  engine_pointers: ['current/Content/Core (stock mask, detail and flowmap textures)', current/Content/Shaders (GetCoverageAndCloudType)]
+  lifecycle: ['startup:asset-load']
+  approaches:
+  - n: 1
+    title: Python asset scripts with encodings matched to the shader that reads them
+    mod: realatmospheres
+    features: [mods/realatmospheres/features/texture-and-phase-asset-scripts, mods/realatmospheres/features/cloud-layers-in-system-xml]
+    technique: xml-asset
+    note: Channel layout follows GetCoverageAndCloudType; flowmap encoding follows stock Jupiter (BC5); zonal jets
+      from band brightness; scripts checked in while large derived textures are not.
+  related: [add-a-volumetric-cloud-layer-to-a-body, composite-png-over-stock-texture, ship-lookup-data-inside-glsl-source]
+  borrowed_from: [mods/realatmospheres/features/texture-and-phase-asset-scripts]
+- slug: generate-measured-atmosphere-tables-offline
+  title: Generate measured atmosphere tables from reference profiles
+  summary: 'KSA''s flight atmosphere is one isothermal exponential per body. To feed drag, back-pressure and shaders
+    with measured values, build compact altitude tables offline from probe and reference-atmosphere data: integrate
+    hydrostatically, apply KSA''s own boundary rule, decimate to the nodes that reproduce ln density within tolerance,
+    and emit one generated source file used by both the flight patch and the shader tables.'
+  game_types: [KSA.PhysicalAtmosphereReference, KSA.AstronomicalTemplate, KSA.AtmosphereReference]
+  engine_pointers: ['current/decomp/KSA/PhysicalAtmosphereReference.cs (boundary thresholds 1e-9 kg/m3 and 1e-4
+      Pa, GetAtmosphericDensityAtAltitude)']
+  lifecycle: ['startup:asset-load', 'physics:vehicle-solver']
+  approaches:
+  - n: 1
+    title: Python generator emitting checked-in C# tables for flight and shaders
+    mod: realatmospheres
+    features: [mods/realatmospheres/features/measured-atmosphere-generator, mods/realatmospheres/features/measured-flight-atmospheres]
+    technique: xml-asset
+    note: Per-body profile functions, hydrostatic integration on an altitude or log-pressure grid, boundary rule
+      matched to the game, decimation that mirrors runtime linear-in-log interpolation, visual tables paired with
+      radius and scale-height keys; build needs no Python because output is checked in.
+  related: [replace-a-bodys-atmosphere-density-profile, tune-atmosphere-scattering-in-system-xml, ship-lookup-data-inside-glsl-source,
+    branch-per-body-inside-shared-game-shaders]
+  borrowed_from: [mods/realatmospheres/features/measured-atmosphere-generator, mods/realatmospheres/features/measured-flight-atmospheres]
+- slug: add-planetary-rings-to-a-body
+  title: Add planetary rings to a celestial body at runtime
+  summary: KSA draws only rings that a body's XML declares. A mod can build the same PlanetaryRingsReference tree
+    in code, assign it to the body template and make the game recreate its rings renderer, so any moon or planet
+    gains a ring without changing game files, and the ring can be removed again.
+  game_types: [KSA.PlanetaryRingsReference, KSA.PlanetaryRingsVolumeReference, KSA.RingRaymarchingStepReference,
+    KSA.RingObjectsReference, KSA.RingLodReference, KSA.MeshFileReference, KSA.PbrMaterialReference, KSA.AstronomicalTemplate,
+    KSA.PlanetTransparenciesRenderer, KSA.Program, KSA.StaticCelestial, KSA.DistantSphereRenderer]
+  engine_pointers: [current/decomp/KSA/PlanetaryRingsReference.cs OnDataLoad (MathEx.ToDeviationAngle / ToCompassAngle),
+    'current/decomp/KSA/PlanetTransparenciesRenderer.cs _ringsRenderer, _ringRendererCreated, _anyRings', current/decomp/KSA/Program.cs
+      RebuildRenderer / _planetTransparenciesRenderer, current/decomp/KSA/RingObjectsReference.cs, current/decomp/KSA/RingLodReference.cs]
+  lifecycle: ['frame:draw-ui', 'frame:prepare', 'render:atmosphere', 'render:scene-opaque']
+  approaches:
+  - n: 1
+    title: Build the reference tree, assign to BodyTemplate.RingsReference, dispose and recreate the rings renderer
+    mod: unscience
+    features: [mods/unscience/features/bloomin-onion-runtime-planetary-rings, mods/unscience/features/bloomin-onion-painted-ring-textures]
+    technique: reflection
+    note: Validate and resolve every asset before constructing anything (stock Saturn assets as fallbacks); construct
+      every class the XML loader would; dispose PlanetaryRingsRenderer, refresh the transparencies renderer's body
+      list and _anyRings, call Program.RebuildRenderer; Remove restores the previous reference. Procedural band
+      textures are the rendering topic.
+  related: [render-planetary-rings-with-custom-textures, swap-planetary-ring-meshes-and-textures, change-loaded-game-data-and-make-the-renderer-notice,
+    handle-renderer-rebuilds]
+  borrowed_from: [mods/unscience/features/bloomin-onion-painted-ring-textures]
+- slug: swap-planetary-ring-meshes-and-textures
+  title: Swap the meshes and textures of existing planetary rings
+  summary: A ring is a flat band texture plus an instanced rock field of up to five LOD meshes, all public XML-backed
+    data read only when the rings renderer is constructed. Replace the LOD meshes, rock material, band texture or
+    field settings, snapshot the originals, and force the renderer to rebuild; any loaded mesh, even a part mesh,
+    can become a ring rock once it has the right GPU form.
+  game_types: [KSA.PlanetaryRingsReference, KSA.RingObjectsReference, KSA.RingLodReference, KSA.MeshFileReference,
+    KSA.MeshReference, KSA.PbrMaterialReference, KSA.TexturePowerReference, KSA.DistanceReference, KSA.DoubleReference,
+    KSA.PlanetTransparenciesRenderer, KSA.Program]
+  engine_pointers: ['current/decomp/KSA/RingObjectsReference.cs Lods, MaterialReference, Size, Thickness, RenderDistance,
+      Density', 'current/decomp/KSA/MeshReference.cs Simple, Interleaved, HostPrimitives, Bind', current/decomp/KSA/PlanetTransparenciesRenderer.cs,
+    current/decomp/KSA/Program.cs RebuildRenderer]
+  lifecycle: ['frame:draw-ui', 'frame:prepare', 'render:scene-opaque', 'render:atmosphere']
+  approaches:
+  - n: 1
+    title: Mutate the public ring reference tree, snapshot originals, recreate the rings renderer
+    mod: unscience
+    features: [mods/unscience/features/rocky-mcrock-face-ring-asset-swap, mods/unscience/features/rocky-mcrock-face-interleaved-mesh-clone,
+      mods/unscience/features/rocky-mcrock-face-asset-catalog]
+    technique: reflection
+    note: Resolve all meshes and textures before writing; snapshot each tree once keyed by the PlanetaryRingsReference
+      instance; reflect _ringsRenderer and _ringRendererCreated and call RebuildRenderer; interleaved atlas meshes
+      are cloned into Simple meshes via the private HostPrimitives backing field and MeshReference.Bind with a private
+      StagingPool; Restore Defaults writes the snapshot back.
+  related: [add-planetary-rings-to-a-body, render-planetary-rings-with-custom-textures, change-loaded-game-data-and-make-the-renderer-notice]
+  borrowed_from: [mods/unscience/features/rocky-mcrock-face-asset-catalog, mods/unscience/features/rocky-mcrock-face-interleaved-mesh-clone]
+- slug: change-loaded-game-data-and-make-the-renderer-notice
+  title: Change loaded game data at runtime and make the renderer rebuild from it
+  summary: 'Many KSA renderers bake XML-backed reference data into GPU buffers in their constructor, so editing
+    the reference object does nothing until the renderer is recreated. Three patterns for a runtime edit are shown:
+    mutate-and-recreate a single renderer, a transactional apply/restore around a scene change, and a full Program.RebuildRenderer
+    after the edit.'
+  game_types: [KSA.Program, KSA.PlanetTransparenciesRenderer, KSA.GroundClutterRenderer, KSA.PlanetRenderer, KSA.AstronomicalTemplate]
+  engine_pointers: ['current/decomp/KSA/Program.cs RebuildRenderer, RendererRebuildNeeded', current/decomp/KSA/PlanetTransparenciesRenderer.cs,
+    'current/decomp/KSA/PlanetRenderer.cs RebuildFrameResources, RebuildGroundClutterResources']
+  lifecycle: ['frame:prepare', 'frame:dispatch-solvers', 'frame:draw-ui']
+  approaches:
+  - n: 1
+    title: Snapshot, mutate the public tree, recreate one renderer via reflection
+    mod: unscience
+    features: [mods/unscience/features/rocky-mcrock-face-ring-asset-swap]
+    technique: reflection
+    note: Everything resolved before any write; snapshot keyed by reference instance; renderer recreated by clearing
+      its created flag; restore is the same path with the snapshot.
+  - n: 2
+    title: Transactional apply and exact restore of a body's clutter data
+    mod: unscience
+    features: [mods/unscience/features/pebbles-ground-clutter-replacement]
+    technique: harmony-prefix
+    note: Private bundles built in a prefix on Universe.ExecuteNextClothSolvers, originals retained, restore on
+      scene change, hooks on GroundClutterRenderer RebuildFrameResources and Dispose so a renderer recreation rebuilds
+      the override.
+  - n: 3
+    title: Assign to the template and call Program.RebuildRenderer
+    mod: unscience
+    features: [mods/unscience/features/bloomin-onion-runtime-planetary-rings]
+    technique: reflection
+    note: 'Heavier hammer: dispose the specific renderer then ask the whole renderer to rebuild; a short hitch is
+      the cost.'
+  related: [handle-renderer-rebuilds, add-planetary-rings-to-a-body, swap-planetary-ring-meshes-and-textures, replace-ground-clutter-on-a-body,
+    make-the-game-rebuild-shaders-and-luts-after-a-change]
+  borrowed_from: []
+- slug: bundle-and-query-a-star-catalog
+  title: Bundle a real star catalog and join it to the game's sky
+  summary: The game's star field is a binary of anonymous positions. To name stars, find them by constellation,
+    Bayer designation or proper name, or point at them, ship a catalog (a reduced AT-HYG CSV) keyed by Hipparcos
+    number, convert equatorial J2000 to the game's ecliptic directions and parsecs to light years, and special-case
+    the central star with its live position.
+  game_types: [KSA.Program, KSA.Camera, KSA.Vehicle]
+  engine_pointers: [current/decomp/KSA/Universe.cs WorldSun (central star live position), 'current/decomp/KSA/Program.cs
+      (star technique, sky camera)', current/Content/Core (stock star binaries)]
+  lifecycle: ['startup:all-mods-loaded', 'frame:draw-ui']
+  approaches:
+  - n: 1
+    title: Header-indexed CSV parse into HIP-keyed ecliptic directions with synthetic keys
+    mod: ohmystars
+    features: [mods/ohmystars/features/hyg-star-catalog]
+    technique: data-file-parsing
+    note: Header lookups rather than column numbers; 330k rows reduced; synthetic keys for named stars without HIP
+      numbers; live WorldSun position for the sun; browse by constellation, proper name and Bayer with a searchable
+      combo.
+  related: [load-stellarium-sky-cultures, read-stock-star-binaries, convert-sky-coordinates-to-the-game-frame, draw-lines-on-the-sky,
+    add-search-to-imgui-combos-and-lists]
+  borrowed_from: []
+- slug: load-stellarium-sky-cultures
+  title: Load Stellarium constellation data as selectable sky cultures
+  summary: Stellarium's legacy constellation files (constellationship.fab line segments and constellation_names
+    labels) describe dozens of cultures' star patterns by Hipparcos number. This topic parses 53 culture folders,
+    resolves segments and centroid labels when the culture changes, and filters segments to stars the game's own
+    binary contains by matching float direction bits.
+  game_types: [KSA.ModLibrary, KSA.Mod]
+  engine_pointers: ['current/decomp/KSA/Mod.cs StarBinaries, LoadStarBinaries', Stellarium skycultures format (constellationship.fab)]
+  lifecycle: ['startup:all-mods-loaded', 'frame:draw-ui']
+  approaches:
+  - n: 1
+    title: Parse .fab and names files, filter to stars present in the stock binary
+    mod: ohmystars
+    features: [mods/ohmystars/features/stellarium-sky-cultures]
+    technique: data-file-parsing
+    note: HIP-keyed joins; centroid labels; segments dropped when either end does not match a star direction in
+      the stock binary; resolves on culture switch rather than every frame.
+  related: [bundle-and-query-a-star-catalog, read-stock-star-binaries, draw-lines-on-the-sky, draw-a-sky-coordinate-grid]
+  borrowed_from: []
+- slug: read-stock-star-binaries
+  title: Read KSA's star binary files
+  summary: 'KSA stores its star field as .bin files named by mod.toml: an int32 count followed by 16-byte records
+    (three floats of direction, a scale float and RGB bytes). Reading them yourself lets a mod match stars to a
+    catalog, count or sample them, or build a replacement set in the same format.'
+  game_types: [KSA.Mod, KSA.ModLibrary, KSA.InstancedStarTechnique]
+  engine_pointers: ['current/decomp/KSA/Mod.cs StarBinaries, LoadStarBinaries (record layout)', current/decomp/KSA/InstancedStarTechnique.cs
+      AddInstance]
+  lifecycle: ['startup:all-mods-loaded']
+  approaches:
+  - n: 1
+    title: Mirror Mod.LoadStarBinaries when parsing
+    mod: ohmystars
+    features: [mods/ohmystars/features/stellarium-sky-cultures, mods/ohmystars/features/star-binary-switcher]
+    technique: data-file-parsing
+    note: Count then fixed-size records; float direction bits used as identity for joining catalog entries; the
+      same loader feeds the star technique when the binary is switched.
+  related: [load-stellarium-sky-cultures, reload-or-replace-the-star-field-at-runtime, bundle-and-query-a-star-catalog,
+    restyle-background-stars]
+  borrowed_from: []
+- slug: reload-or-replace-the-star-field-at-runtime
+  title: Reload or replace the star field at runtime
+  summary: The star field is built once from the mods' star binaries and uploaded as instances. To let a player
+    swap star sets (dense, sparse, catalog-derived) without restarting, rewrite Mod.StarBinaries, reset the instanced
+    star technique, re-add instances with proportional quotas and update the instance buffer per viewport.
+  game_types: [KSA.ModLibrary, KSA.Mod, KSA.Program, KSA.InstancedStarTechnique, KSA.ViewportRegistry, KSA.Popup,
+    KSA.TimedAlert]
+  engine_pointers: [current/decomp/KSA/Mod.cs LoadStarBinaries, current/decomp/KSA/InstancedRenderTechnique.cs ResetInstances,
+    'current/decomp/KSA/InstancedStarTechnique.cs AddInstance, UpdateInstanceBuffer', current/decomp/KSA/Program.cs
+      _starStarTechnique, 'current/decomp/KSA/ModLibrary.cs (Lookup is internal, GetList)', current/decomp/KSA/Popup.cs]
+  lifecycle: ['startup:all-mods-loaded', 'frame:draw-ui']
+  approaches:
+  - n: 1
+    title: Reflect Mod.StarBinaries, reset and refill the star technique, confirm through a game Popup
+    mod: ohmystars
+    features: [mods/ohmystars/features/star-binary-switcher]
+    technique: reflection
+    note: Enumerate loaded mods through reflection (ModLibrary.Lookup is internal); list *.bin in mod and Core folders;
+      stride sampling with proportional quotas to cap instance count; named presets in an ini; confirmations as
+      a KSA.Popup subclass.
+  related: [restyle-background-stars, read-stock-star-binaries, show-a-game-styled-popup]
+  borrowed_from: []
+- slug: query-the-terrain-height-field
+  title: Query the engine's terrain height field
+  summary: 'KSA has no terrain raycast a mod can use; it has one function, Celestial.GetTerrainHeightFromDirCcf/Cce/Cci(direction,
+    accurate), returning metres above MeanRadius along a direction from the body centre. Everything a mod needs
+    from the ground is built on it: picking the right frame entry point, clamping to sea level over oceans, choosing
+    the body under a point, and answering as a centre and radius for cheap repeated tests.'
+  game_types: [KSA.Celestial, KSA.Astronomical, KSA.CelestialSystem, KSA.Universe, KSA.Rendering.Water.Data.OceanReference,
+    KSA.TerrainRadiusCache, KSA.PhysicsEnvironment]
+  engine_pointers: ['current/decomp/KSA/Celestial.cs GetTerrainHeightFromDirCcf / Cce / Cci, GetSurfacePositionEclFromCce',
+    current/decomp/KSA/TerrainRadiusCache.cs ComputeRadiusCcf, current/decomp/KSA/PhysicsEnvironment.cs RecomputePositionalValues,
+    current/decomp/KSA.Rendering.Water.Data/OceanReference.cs]
+  lifecycle: ['frame:draw-ui', 'frame:celestials', 'frame:after-on-frame']
+  approaches:
+  - n: 1
+    title: Ccf versus Cce entry points, sea clamp, and a no-claim result type
+    mod: ksagolf
+    features: [mods/ksagolf/features/terrain-height-queries]
+    technique: custom-physics
+    note: Cce direction from position minus centre in Ecl (Cce shares ecliptic axes), Ccf for body-fixed positions;
+      passing one to the other rotates by the planet's current phase; sea detected by OceanReference non-null with
+      Density > 0, never IsValid; ITerrainHeights.TryHeight false means no claim, never zero.
+  - n: 2
+    title: Answer as a body centre and surface radius, pick the body by depth below the mean sphere
+    mod: ksarmory
+    features: [mods/ksarmory/features/terrain-ground-impact-test]
+    technique: terrain-query
+    note: IGroundTest.TryGround returns centreEcl and surfaceRadius so a round tests its height every sub-step by
+      subtraction; nearest body by depth below MeanRadius with last-body caching; any exception or non-finite answers
+      false.
+  related: [choose-accurate-or-coarse-terrain-sampling, check-line-of-sight-across-terrain, stop-a-mod-simulated-body-at-the-ground,
+    query-terrain-height-under-a-point, override-terrain-height-for-roofs-and-platforms, raycast-terrain-from-the-cursor,
+    convert-position-to-latitude-longitude]
+  borrowed_from: []
+- slug: choose-accurate-or-coarse-terrain-sampling
+  title: Choose accurate or coarse terrain sampling
+  summary: 'The accurate flag does more than switch interpolation: false skips every procedural modifier, including
+    launch-site levelling decals and your own terrain decals, while true is what vehicle physics stands on. This
+    topic explains what each setting drops and how to keep accurate queries affordable with a caching decorator.'
+  game_types: [KSA.Celestial, KSA.TerrainRadiusCache, KSA.TerrainPatch, KSA.TerrainImpactFinder, KSA.PhysicsEnvironment,
+    KSA.ProceduralModifiersReference]
+  engine_pointers: ['current/decomp/KSA/Celestial.cs GetTerrainHeightFromDirCcf (SampleHeightBicubic vs SampleHeightMapBilinear,
+      modifier loop gated on accurate)', current/decomp/KSA/TerrainRadiusCache.cs, current/decomp/KSA/TerrainPatch.cs
+      BaseQuadWidth, current/decomp/KSA/TerrainImpactFinder.cs]
+  lifecycle: ['frame:draw-ui', 'frame:celestials']
+  approaches:
+  - n: 1
+    title: Document what accurate changes and sample non-accurate only where drift is harmless
+    mod: ksagolf
+    features: [mods/ksagolf/features/terrain-height-queries]
+    technique: custom-physics
+    note: Bicubic vs bilinear, modifier loop gated, early returns when no heightmap or biome materials, single-precision
+      direction pack giving a third of a metre staircase on Earth; physics samples accurate true with a 0.25 m arc
+      reuse; TerrainImpactFinder samples false.
+  - n: 2
+    title: Cache decorator that reuses a sample until near the ground or moved
+    mod: ksarmory
+    features: [mods/ksarmory/features/terrain-ground-impact-test, mods/ksagolf/features/terrain-height-queries]
+    technique: decorator-cache
+    note: CoarseGroundTest re-samples only when within 600 m of the cached surface or 250 m from the sample point;
+      radar horizon masks use accurate false because tens of samples per contact per scan.
+  related: [query-the-terrain-height-field, add-terrain-decals-from-code, flatten-or-dig-terrain-for-a-site, draw-a-static-object-the-engine-culls]
+  borrowed_from: []
+- slug: check-line-of-sight-across-terrain
+  title: Test whether a ridge hides one point from another
+  summary: 'A sensor, a radio link or a camera needs to know whether the planet''s terrain blocks the line between
+    two points. Test the segment against the mean sphere first, then sample the real height field only inside the
+    band below the terrain ceiling, with a fixed sample budget. It also covers the terrain ceiling those band tests
+    need: Celestial.MaxTerrainHeightApprox is a 16,384-direction sample taken in the constructor and underestimates
+    peaks, so use Astronomical.MaxTerrainRadius minus MeanRadius plus about 8,000 m of headroom for procedural modifiers.'
+  game_types: [KSA.Celestial, KSA.Astronomical]
+  engine_pointers: [current/decomp/KSA/Celestial.cs GetTerrainHeightFromDirCce, current/decomp/KSA/Celestial.cs
+      MaxTerrainHeightApprox (_maxTerrainHeightApprox), current/decomp/KSA/Astronomical.cs MaxTerrainRadius]
+  lifecycle: ['frame:draw-ui']
+  approaches:
+  - n: 1
+    title: Closed-form band below the terrain ceiling, fixed interior sample count
+    mod: ksagolf
+    features: [mods/ksagolf/features/terrain-height-queries]
+    technique: closed-form-geometry
+    note: 'LineOfSight (segment vs sphere strictly between endpoints, horizon range as the sum of tangent lengths)
+      and TerrainMask.TryBandBelow solving the quadratic; no-claim samples treated as unknown, not zero. Ceiling
+      bound: MaxTerrainRadius - MeanRadius + 8,000 m, not MaxTerrainHeightApprox.'
+  - n: 2
+    title: Radar horizon mask over non-accurate height samples
+    mod: ksarmory
+    features: [mods/ksarmory/features/terrain-ground-impact-test]
+    technique: terrain-query
+    note: TerrainHeights(body) with accurate false via KsaWorld.IsHiddenByTerrain, tens of samples per contact per
+      scan.
+  related: [model-sensor-field-of-view-and-line-of-sight, choose-accurate-or-coarse-terrain-sampling]
+  borrowed_from: []
+- slug: measure-ground-slope-and-surface-normal
+  title: Measure ground slope and the surface normal at a point
+  summary: 'Placing a model flush on a hill, rolling a ball or aiming a shot needs the local gradient of the ground.
+    Two ways to get it from the height field: a centred-difference gradient in a local east/north frame, and a normal
+    from a cross product of chords between neighbouring surface samples.'
+  game_types: [KSA.Celestial, KSA.Astronomical]
+  engine_pointers: [current/decomp/KSA/Celestial.cs GetTerrainHeightFromDirCcf]
+  lifecycle: ['frame:draw-ui']
+  approaches:
+  - n: 1
+    title: Gradient from centred east/west/north/south differences, roughness from a ring of spokes
+    mod: ksagolf
+    features: [mods/ksagolf/features/terrain-height-queries]
+    technique: closed-form-geometry
+    note: GroundSlope uses the gradient, not the median of a ring of spokes; returns aim-loop gain slope / tan(arrival);
+      local frame with north from the spin axis.
+  - n: 2
+    title: Normal from four 1 m samples and a cross product, radial fallback
+    mod: unscience
+    features: [mods/unscience/features/sphinx-glb-statics-placement]
+    technique: glb-model
+    note: GroundPlacement.At samples east, west, north and south, crosses the two chords, flips outward, falls back
+      to radial; the frame up is the slope normal when the user wants alignment.
+  related: [build-a-local-site-frame, anchor-a-placed-model-to-the-ground, query-the-terrain-height-field]
+  borrowed_from: []
+- slug: stop-a-mod-simulated-body-at-the-ground
+  title: Detect when a mod-simulated point hits the ground
+  summary: Rounds, balls and debris that are not KSA vehicles get no ground contact from the engine. Sample the
+    height field once per frame as a centre and radius, test each sub-step by subtraction, interpolate the contact
+    point, and correct for the body having moved and rotated since the sample.
+  game_types: [KSA.Celestial, KSA.Astronomical, KSA.CelestialSystem, KSA.Universe, KSA.IParentBody, KSA.PhysicsEnvironment,
+    KSA.TerrainImpactFinder]
+  engine_pointers: [current/decomp/KSA/Celestial.cs GetTerrainHeightFromDirCce, current/decomp/KSA/TerrainImpactFinder.cs,
+    current/decomp/KSA/Program.cs OnFrameCelestials]
+  lifecycle: ['frame:draw-ui', 'frame:celestials', 'frame:after-on-frame']
+  approaches:
+  - n: 1
+    title: Per-frame centre and radius with height fuse, epoch back-dating and near-surface resample
+    mod: ksarmory
+    features: [mods/ksarmory/features/terrain-ground-impact-test]
+    technique: custom-physics
+    note: was/now crossing test per sub-step, linear interpolation to the burst point, centre drift by body velocity
+      and query drift by ground velocity, 200 m resample band with false-position refine; only fuse on a crossing
+      from above for interceptors.
+  related: [query-the-terrain-height-field, prevent-tunnelling-of-fast-bodies, simulate-projectiles-and-balls-outside-the-vehicle-system,
+    sample-positions-at-a-consistent-epoch, roll-and-bounce-a-ball-on-terrain]
+  borrowed_from: []
+- slug: add-terrain-decals-from-code
+  title: Add a terrain heightmap decal from code at load
+  summary: Terrain modifiers are XML data that shape the planet's height field, its rendering and its clutter. A
+    mod can deserialize DecalModifierReference XML from a string, add it to a body's TerrainReference and have the
+    dug or levelled ground drawn, collided with and queried consistently, but only before the renderer sizes its
+    modifier buffers.
+  game_types: [KSA.DecalModifierReference, KSA.ModifierReference, KSA.TerrainReference, KSA.ProceduralModifiersReference,
+    KSA.ProceduralModifiersRenderData, KSA.DistanceReference, KSA.Celestial, KSA.CelestialTemplate, KSA.PlanetRenderer,
+    KSA.PlanetMeshLibrary, KSA.GroundClutterRenderer]
+  engine_pointers: [current/decomp/KSA/DecalModifierReference.cs, 'current/decomp/KSA/TerrainReference.cs ProcessModifiers,
+      TerrainModifiers', current/decomp/KSA/ProceduralModifiersRenderData.cs, current/decomp/KSA/Program.cs (PlanetMeshLibrary.Create
+      then new PlanetRenderer), current/decomp/KSA/Celestial.cs GetTerrainHeightFromDirCcf (modifier loop)]
+  lifecycle: ['startup:all-mods-loaded']
+  approaches:
+  - n: 1
+    title: XmlSerializer into DecalModifierReference, add to both modifier lists, re-sort by Order
+    mod: ksastructures
+    features: [mods/ksastructures/features/terrain-decal-pits]
+    technique: terrain-modifier
+    note: OnDataLoad(owner mod) so the height map path resolves, HeightMap.Load, add to ProceduralModifiers.Modifiers
+      (count) and TerrainModifiers (walked), only at StarMapAllModsLoaded because the count sizes the render data
+      and storage buffer in the Program constructor; the mod therefore cannot be toggled live.
+  related: [flatten-or-dig-terrain-for-a-site, choose-accurate-or-coarse-terrain-sampling, project-decals-onto-scene-geometry,
+    keep-ground-clutter-off-a-site, change-stock-system-and-body-xml-without-editing-core]
+  borrowed_from: []
+- slug: flatten-or-dig-terrain-for-a-site
+  title: Flatten or dig the terrain under a custom site
+  summary: A building, garage or pad needs level ground or a hole in it. Combine an absolute-level decal (Additive
+    false) with an additive height-map decal, copy the stock launch-pad flattening so the new ground meets the pad
+    without a step, and give structures that must look like the terrain the terrain shader.
+  game_types: [KSA.DecalModifierReference, KSA.TerrainReference, KSA.StaticObjectModel, KSA.PartModelModule, KSA.GroundClutterRenderer]
+  engine_pointers: ['current/decomp/KSA/DecalModifierReference.cs (Location, Radius, AltitudeOffset, SmoothFactor,
+      Additive, HeightMap)', 'current/Content/Core/Astronomicals.xml (LC-39A decal, Order 9999)', current/decomp/KSA/PartModelModule.cs
+      Terrain]
+  lifecycle: ['startup:all-mods-loaded']
+  approaches:
+  - n: 1
+    title: Leveling decal plus additive pit height map, ordered after the stock pad decal
+    mod: ksastructures
+    features: [mods/ksastructures/features/terrain-decal-pits, mods/ksastructures/features/generated-deep-ramp]
+    technique: terrain-modifier
+    note: Orders 10000 to 10020 sort after Core's 9999; AltitudeOffset Km is read raw and effectively used as metres;
+      clutter follows because the generator dispatches per modifier; PartModel <Terrain>true</Terrain> routes a
+      mesh to the OpaqueTerrain bucket so ramps and pit walls shade like ground.
+  related: [add-terrain-decals-from-code, edit-planet-biome-materials-live, place-a-static-object-landmark-on-a-planet,
+    sloped-colliders-for-static-objects]
+  borrowed_from: [mods/ksastructures/features/generated-deep-ramp]
+- slug: edit-planet-biome-materials-live
+  title: Change planet biome material parameters at runtime
+  summary: The planet renderer keeps every body's biome materials in one persistently mapped storage buffer that
+    the game's own terrain editor writes in place. A mod can reflect into it, change one value (such as slope displacement
+    near a site), and restore it afterwards, without touching assets.
+  game_types: [KSA.PlanetRenderer, KSA.BiomeMaterialReference, KSA.BiomeMaterialsReference, KSA.TerrainReference,
+    KSA.Celestial, KSA.Camera, KSA.Program]
+  engine_pointers: ['current/decomp/KSA/PlanetRenderer.cs _biomeMaterialsMap, _biomeMaterialSlot, BiomeMaterial',
+    current/decomp/KSA/BiomeMaterialReference.cs ToBiomeMaterial, current/decomp/KSA/Program.cs GetPlanetRenderer]
+  lifecycle: ['frame:draw-ui', 'frame:celestials', 'frame:after-on-frame', 'render:scene-opaque']
+  approaches:
+  - n: 1
+    title: Reflect the mapped buffer and slot, clamp when the camera is near, restore on leaving
+    mod: ksastructures
+    features: [mods/ksastructures/features/live-terrain-material-override]
+    technique: reflection
+    note: Two BiomeMaterial structs per biome (ground at k*2, slope at k*2+1); save originals and write min(slope,
+      ground) within 300 m; act only when the near state changes; logs once and disables itself if the fields are
+      missing; a renderer rebuild restores stock values.
+  related: [flatten-or-dig-terrain-for-a-site, edit-exhaust-and-cloud-templates-live, handle-renderer-rebuilds]
+  borrowed_from: []
+- slug: place-a-static-object-landmark-on-a-planet
+  title: Place a static building on a planet at a latitude and longitude
+  summary: Static objects declared in XML are stood on a planet by LandmarkReferences in the body template's Locations
+    list. Adding an IsLaunchPad landmark in code before the engine resolves static objects gets a multi-part building
+    with render models and Bepu colliders that kittens can walk on, without editing Core files.
+  game_types: [KSA.LandmarkReference, KSA.LocationReference, KSA.CelestialTemplate, KSA.StaticObject, KSA.StaticObjectTemplate,
+    KSA.StaticSubObjectTemplate, KSA.ConstraintSim, KSA.ModLibrary, KSA.Celestial]
+  engine_pointers: [current/decomp/KSA/LandmarkReference.cs, 'current/decomp/KSA/LocationReference.cs GetAxesCcf,
+      UpdateStaticObjectRenderData', current/decomp/KSA/CelestialTemplate.cs Locations, 'current/decomp/KSA/StaticObject.cs
+      ResolveAll, Find', 'current/decomp/KSA/ConstraintSim.cs ResolveLaunchPads, UpdateStaticObjectCollider', current/decomp/KSA/ModLibrary.cs
+      AttachGameData]
+  lifecycle: ['startup:all-mods-loaded', 'frame:render', 'physics:bepu']
+  approaches:
+  - n: 1
+    title: Append IsLaunchPad LandmarkReferences to Earth's CelestialTemplate at StarMapAllModsLoaded
+    mod: ksastructures
+    features: [mods/ksastructures/features/office-landmarks-static-objects]
+    technique: xml-asset
+    note: StaticSubObject + StaticObject XML with GroundOffset, SurfaceHeight, FootprintRadius; Latitude and Longitude
+      as RadianReferences and OnDataLoad(Mod.Empty) to compute ForwardCcf; AllModsLoaded precedes AttachGameData
+      so ResolveAll picks the landmark up; asset frame +X up, +Y east, +Z north; the nearest launch pad within 300
+      m is a body's only static collider (use it as a doorway).
+  related: [draw-a-static-object-the-engine-culls, keep-ground-clutter-off-a-site, flatten-or-dig-terrain-for-a-site,
+    add-static-colliders-to-physics-bubbles, raycast-the-surface-of-launch-pads, build-a-moving-platform-kittens-can-ride,
+    anchor-a-placed-model-to-the-ground]
+  borrowed_from: []
+- slug: draw-a-static-object-the-engine-culls
+  title: Draw a static object yourself when the engine culls it
+  summary: LocationReference.UpdateStaticObjectRenderData draws a static object only when the camera is above the
+    tangent plane at the landmark point, and that test samples the terrain with accurate false, so a pit dug by
+    a decal can hide the object from inside it. A postfix can redraw it per viewport with the right matrix.
+  game_types: [KSA.LocationReference, KSA.StaticObject, KSA.Camera, KSA.Program]
+  engine_pointers: [current/decomp/KSA/LocationReference.cs UpdateStaticObjectRenderData, current/decomp/KSA/Camera.cs
+      IsVisibleTo, current/decomp/KSA/StaticObject.cs UpdateRenderData]
+  lifecycle: ['frame:render']
+  approaches:
+  - n: 1
+    title: Postfix UpdateStaticObjectRenderData and call StaticObject.UpdateRenderData with your own matrix
+    mod: ksastructures
+    features: [mods/ksastructures/features/office-landmarks-static-objects]
+    technique: harmony-postfix
+    note: Runs inside Program.Render per visible viewport; same matrix the engine would have built (axes plus up
+      * GroundOffset); only when the tangent-plane cull hid it.
+  related: [place-a-static-object-landmark-on-a-planet, choose-accurate-or-coarse-terrain-sampling, draw-mod-meshes-with-the-engine-renderers]
+  borrowed_from: []
+- slug: anchor-a-placed-model-to-the-ground
+  title: Anchor a placed model or structure to a planet's surface
+  summary: 'Something stood on the ground must follow the planet''s rotation, stay put across floating-origin shifts
+    and be restorable from a save. Store the placement in the body-fixed frame (body, Ccf position, surface normal
+    or latitude, longitude and heading) and rebuild the camera-relative matrix every frame. It also covers grounding
+    and centering a scaled, rotated model: transform the eight corners of the original import bounds, then translate
+    so it is centred horizontally with its lowest point at Y = 0, always starting from the import bounds so edits
+    never accumulate.'
+  game_types: [KSA.Celestial, KSA.Camera, KSA.Cursor, KSA.Program, KSA.Vehicle, KSA.IViewport, KSA.JobSystems, KSA.Universe]
+  engine_pointers: ['current/decomp/KSA/Celestial.cs GetTerrainHeightFromDirCcf, GetCcf2Cce', current/decomp/KSA/Camera.cs
+      GetPositionEgo, current/decomp/KSA/StaticObjectRenderer.cs UpdateRenderData, current/decomp/KSA/JobSystems.cs
+      VehicleSolver]
+  lifecycle: ['frame:draw-ui', 'frame:render', 'event:save', 'event:load']
+  approaches:
+  - n: 1
+    title: GroundAnchor (Celestial, Ccf position, normal) composed each frame into a camera-relative matrix
+    mod: unscience
+    features: [mods/unscience/features/sphinx-glb-statics-placement, mods/unscience/features/sphinx-static-object-render-hooks]
+    technique: glb-model
+    note: FrameCcf x Ccf2Cce x translation(camera.GetPositionEgo(body)); east from UnitZ x radial with a pole fallback;
+      placed by terrain click or beside a vessel after waiting for solvers; drawn through postfixes on StaticObjectRenderer;
+      restored from scene saves. PlacementMath.GroundedLocal (scale 0.01 to 1000 per axis, rotations X Y Z in degrees)
+      grounds and centres from the import bounds; tested with 200 random cases.
+  - n: 2
+    title: Course frame anchored at the kitten and saved as latitude, longitude, heading and floor height
+    mod: ksagolf
+    features: [mods/ksagolf/features/course-grid-and-save-file, mods/ksagolf/features/minigolf-course-builder, mods/ksagolf/features/mod-mesh-draw-hook]
+    technique: custom-physics
+    note: Body-fixed frame with up from the feet direction, +J from the facing projected to horizontal, floor at
+      terrain plus 2 cm and releveled to the highest corner; saved as lat/lon/heading/floor height above ground
+      rather than an absolute radius; meshes drawn per viewport after ClearBuckets with Ccf2Cce plus ego translation.
+  related: [place-a-static-object-landmark-on-a-planet, keep-effects-fixed-to-a-rotating-body, anchor-a-point-to-a-rotating-body,
+    draw-mod-meshes-with-the-engine-renderers, pick-a-world-point-with-the-cursor]
+  borrowed_from: [mods/ksagolf/features/course-grid-and-save-file, mods/ksagolf/features/minigolf-course-builder,
+    mods/ksagolf/features/mod-mesh-draw-hook, mods/unscience/features/sphinx-static-object-render-hooks]
+- slug: click-a-planet-to-get-latitude-and-longitude
+  title: Convert a click on a planet to latitude and longitude, and measure between points
+  summary: Ray-test the cursor against each body's mean-radius sphere, lift the hit to Ecl, convert through Cce
+    and the body-fixed frame to latitude and longitude, store the pin as lat/lon so it turns with the planet, and
+    compute great-circle distance, chord and initial bearing.
+  game_types: [KSA.Celestial, KSA.Camera, KSA.Ray, KSA.BoundingSphere3D]
+  engine_pointers: ['current/decomp/KSA/Camera.cs ScreenToEgoRay, EgoToEcl', current/decomp/KSA/Ray.cs Raycast(BoundingSphere3D...),
+    current/decomp/KSA/Astronomical.cs GetPositionCceFromEcl, 'current/decomp/KSA/Celestial.cs GetLatitudeFromCce,
+      GetLongitudeFromCce, GetPositionEclFromLatLon']
+  lifecycle: ['frame:input', 'frame:draw-ui']
+  approaches:
+  - n: 1
+    title: Sphere pick, GetLatitudeFromCce/GetLongitudeFromCce, haversine, chord and bearing
+    mod: ksa-measuretools
+    features: [mods/ksa-measuretools/features/surface-great-circle-tool]
+    technique: screen-to-world-ray
+    note: Nearest positive hit from outside the sphere; second pin restricted to the first pin's body; lift using
+      ray origin so orthographic works; resolve each frame via GetPositionEclFromLatLon; haversine in atan2 form;
+      bearing 0..360 from north.
+  related: [draw-a-great-circle-arc-over-a-planet, cursor-to-world-ray, raycast-terrain-from-the-cursor, convert-position-to-latitude-longitude,
+    anchor-a-point-to-a-rotating-body, block-game-hotkeys-while-typing]
+  borrowed_from: []
+- slug: draw-a-great-circle-arc-over-a-planet
+  title: Draw a great-circle arc over a planet without drawing through it
+  summary: Sample a great circle between two surface points with Rodrigues' rotation, interpolate the radius between
+    the pins, and draw each segment only while its outward normal faces the camera so the line breaks at the limb
+    instead of cutting across the disc.
+  game_types: [KSA.Celestial, KSA.Camera]
+  engine_pointers: [current/decomp/KSA/Camera.cs (world to screen), current/decomp/KSA/Celestial.cs GetPositionEclFromLatLon]
+  lifecycle: ['frame:draw-ui']
+  approaches:
+  - n: 1
+    title: 48 Rodrigues samples with a back-face test and midpoint label
+    mod: ksa-measuretools
+    features: [mods/ksa-measuretools/features/surface-great-circle-tool]
+    technique: imgui-drawlist
+    note: Axis = normalized cross product, angle = acos of the radial unit vectors; skip samples where dot(dir,
+      cameraPos - point) <= 0; coincident or antipodal pins have no unique circle.
+  related: [click-a-planet-to-get-latitude-and-longitude, project-world-to-screen, occlude-overlays-behind-bodies,
+    draw-markers-and-annotations-on-world-objects]
+  borrowed_from: []
+- slug: keep-ground-clutter-off-a-site
+  title: Keep grass, rocks and trees off a custom site
+  summary: KSA clears ground clutter only around the first four launch pads in a body's Locations list, so a launch-pad
+    landmark appended by a mod never gets a zone. Postfix the private method that fills the four exclusion zones
+    and refill them with the pads nearest the camera, noting that the zones are baked once when the clutter renderer
+    is built.
+  game_types: [KSA.GroundClutterPlacementData, KSA.ClutterCubeCellGrid, KSA.ClutterEcotypeRenderData, KSA.ClutterEcotypePhysicalData,
+    KSA.GroundClutterRenderer, KSA.PlanetRenderer, KSA.LandmarkReference, KSA.StaticObject, KSA.Celestial, KSA.Camera]
+  engine_pointers: ['current/decomp/KSA/GroundClutterPlacementData.cs PopulateLaunchPadExclusionZones, BuildEcotypeData',
+    current/decomp/KSA/ClutterEcotypeRenderData.cs BuildRenderResources, current/decomp/KSA/PlanetRenderer.cs RebuildGroundClutterResources]
+  lifecycle: ['startup:all-mods-loaded', 'startup:game-loaded']
+  approaches:
+  - n: 1
+    title: Harmony postfix on the private PopulateLaunchPadExclusionZones with ____celestial injection
+    mod: ksastructures
+    features: [mods/ksastructures/features/ground-clutter-exclusion-zones]
+    technique: harmony-postfix
+    note: AccessTools.Method by name for the private target; four nearest pads with positive FootprintRadius to
+      the main camera (the lift landmark has footprint 0 so is never a candidate); engine's formula float4(ForwardCcf,
+      (Footprint + 50 m) / MeanRadius); zones are evaluated once at renderer build.
+  related: [place-a-static-object-landmark-on-a-planet, add-terrain-decals-from-code, patch-private-method-with-field-injection,
+    replace-ground-clutter-on-a-body]
+  borrowed_from: []
+- slug: replace-ground-clutter-on-a-body
+  title: Replace a planet's ground clutter meshes, materials and colliders
+  summary: Chosen clutter types (rocks, grass, trees) on one body can be swapped for imported models with their
+    own materials, scale and colliders by building private native clutter bundles at the solver-dispatch window
+    while keeping the originals so the swap can be undone exactly.
+  game_types: [KSA.Universe, KSA.GroundClutterRenderer, KSA.PlanetRenderer, KSA.GroundClutterPlacementData, KSA.ClutterEcotypeRenderData,
+    KSA.ClutterEcotypePhysicalData, KSA.GroundClutterReference, KSA.ClutterEcotypeReference, KSA.ClutterObjectTemplate,
+    KSA.GroundClutterLodReference, KSA.PhysicsBubble, KSA.BubbleClutterStatics, KSA.CelestialTemplate]
+  engine_pointers: ['current/decomp/KSA/Universe.cs ExecuteNextClothSolvers, SyncGroundClutter', 'current/decomp/KSA/GroundClutterRenderer.cs
+      RebuildFrameResources, Dispose', current/decomp/KSA/GroundClutterPlacementData.cs, current/decomp/KSA/GroundClutterLodReference.cs
+      BuildMaterialIndirection (private)]
+  lifecycle: ['frame:dispatch-solvers', 'frame:draw-ui', 'event:renderer-rebuild', 'event:load']
+  approaches:
+  - n: 1
+    title: Prefix on ExecuteNextClothSolvers builds private bundles; originals captured for exact restore
+    mod: unscience
+    features: [mods/unscience/features/pebbles-ground-clutter-replacement, mods/unscience/features/pebbles-private-clutter-materials]
+    technique: harmony-prefix
+    note: Wait for the cloth and vehicle workers, swap placement data and bubble statics in one window; postfix
+      RebuildFrameResources and prefix Dispose so a renderer recreation rebuilds or releases the override; HiddenUiFrameHook
+      replays updates while the HUD is hidden. Collider authoring and GLB import are the physics and assets topics.
+  related: [keep-ground-clutter-off-a-site, keep-clutter-removals-across-swaps-and-saves, give-ground-clutter-custom-colliders,
+    change-loaded-game-data-and-make-the-renderer-notice, make-ground-clutter-react-to-vehicles, handle-renderer-rebuilds,
+    mutate-vehicles-at-a-physics-safe-point]
+  borrowed_from: [mods/unscience/features/pebbles-private-clutter-materials]
+- slug: keep-clutter-removals-across-swaps-and-saves
+  title: Carry knocked-out and displaced clutter across swaps and saves
+  summary: Since KSA 5447, hitting a rock or tree knocks it loose as a dynamic body and records the removed or displaced
+    instance in the placement data. Any mod that rebuilds a body's clutter placement would forget this; remember
+    it per grid spacing, replay it into whichever placement uses the same grid and split saving between the native
+    save and a sidecar.
+  game_types: [KSA.GroundClutterRenderer, KSA.GroundClutterPlacementData, KSA.BubbleClutterStatics, KSA.Universe,
+    KSA.GameSave]
+  engine_pointers: ['current/decomp/KSA/GroundClutterPlacementData.cs SerializeSave, DeserializeDisplacedObject,
+      ExcludeCell, GetExclusionData', 'current/decomp/KSA/GroundClutterRenderer.cs ExclusionData, QueueExclusionUpload',
+    current/decomp/KSA/Universe.cs SyncGroundClutter]
+  lifecycle: ['frame:dispatch-solvers', 'event:save', 'event:load']
+  approaches:
+  - n: 1
+    title: Per-grid memory with AND-merge, public-API snapshot and replay, native plus sidecar saves
+    mod: unscience
+    features: [mods/unscience/features/pebbles-clutter-state-persistence]
+    technique: save-sidecar
+    note: Memory keyed by ecotype and separation; removed instances are never resurrected; snapshot before BubbleClutterStatics.Clear
+      so in-flight objects keep pose and velocity; replay skips slots that no longer exist; native saves cover stock
+      grids, the sidecar covers override-only grids.
+  related: [replace-ground-clutter-on-a-body, detect-save-load, save-sidecar-state-per-scene]
+  borrowed_from: [mods/unscience/features/pebbles-clutter-state-persistence]

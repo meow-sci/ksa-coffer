@@ -1,0 +1,5 @@
+# Send per-frame values and time to a shader with push constants, written at the right point in the frame history
+
+## 2026-10-10
+* **Creation**: Added [Send per-frame values and time to a shader with push constants, written at the right point in the frame](overview.md) (4 approaches): [Push constants for a shader: one element per pass with an enabled flag and time, written from OnFrameEditor](send-push-constants-to-a-shaderextensions-shader-1.md), [Push constants for a shader: per-side clock and strengths in a settings-driven mod](send-push-constants-to-a-shaderextensions-shader-2.md), [Time in a shader: the ShaderTime block at binding 1 of every ShaderEx set](send-push-constants-to-a-shaderextensions-shader-3.md), [Time in a stock shader: signed simulation seconds smuggled through a stock atmosphere field](send-push-constants-to-a-shaderextensions-shader-4.md). Written from the pinned mod checkouts and verified against the decompiled game build 2026.10.10.5554.
+* **Update**: Independent review (claude-code/sonnet-5.5): article 2 now links the cited `effect-shader-contract` feature page; article 1 XML excerpt header corrected to HudAssests.xml L7-L13.

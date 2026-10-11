@@ -1,0 +1,5 @@
+# Deploy a mod on every build and debug it from an IDE history
+
+## 2026-10-10
+* **Creation**: Added [Deploy a mod on every build and debug it from an IDE](overview.md) (engine background, approach comparison) and 5 how-to articles: [Import a shared ModDeploy.targets that diagnoses a locked DLL](deploy-a-mod-on-every-build-1.md), [Point OutputPath straight at the mods folder](deploy-a-mod-on-every-build-2.md), [Share one payload list between the deploy copy and the release zip](deploy-a-mod-on-every-build-3.md), [Add a plain post-build copy with an overridable KSAGameDir](deploy-a-mod-on-every-build-4.md), [Generate a launchSettings profile so Rider or Visual Studio runs StarMap and hits mod breakpoints](deploy-a-mod-on-every-build-5.md). Verified against the decompiled game build 2026.10.10.5554 and the pinned reference repositories.
+* **Update**: Review fix in [Share one payload list between the deploy copy and the release zip](deploy-a-mod-on-every-build-3.md): an unregistered folder under `mods/` is added by KSA as a new, disabled mod (new-mod dialog, StarMap restart), not silently ignored.

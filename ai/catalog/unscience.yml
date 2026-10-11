@@ -1,0 +1,1941 @@
+mod: unscience
+repo: unscience
+ref: 1829b3b298dd0fa5a67342cafff29074c8c29286
+summary: >-
+  unscience is a meow-sci monorepo "supermod" for Kitten Space Agency: 31 feature sub-mods (vessel welding
+  and scaling, celestial welding, decals, parachute and vehicle paint, exhaust plumes, planetary rings, ground
+  clutter and GLB statics, part-mounted cameras, kitten spawning, animation and rocket flight, runtime part loading,
+  lights, music, themes, auto saves) built as ISubmod libraries and shipped as one StarMap mod with one Harmony
+  instance, one ImGui toolbox, a shared ksa-abstractions library (PrepareFrame physics handoff, part render filter,
+  hotkey guard, hidden-HUD hook) and a versioned scene-save sidecar beside native saves.
+features:
+  - id: mods/unscience/features/blinky-engine-pixel-feed-wiring
+    title: "Feed runtime-created engines through their declared feed connectors"
+    category: vehicles-and-parts
+    submod: blinky
+    summary: "Blinky connects each pixel engine's RocketCore.FeedConnectors entry to a tank part, aligns its stage, rebuilds the resource managers and reads Combustor.ResourceManager.ConsumptionOrder to prove every engine can reach propellant"
+    novelty: high
+    techniques: [runtime-part-creation, resource-graph-wiring]
+    lifecycle: [frame:draw-ui, frame:prepare, event:load]
+    hooks: ["starmap StarMapAfterGui (via unscience ISubmod.RenderContent: Create, Repair Feed, Diagnose, Ignite)"]
+    game_types: [KSA.RocketCore, KSA.PlumbedCore, KSA.Combustor, KSA.Part, KSA.ResourceManager, KSA.ResourceManagerBase, KSA.FlowOrder, KSA.ResourceGroupList, KSA.PartTree, KSA.ConnectorCapabilityExtensions, KSA.Vehicle, KSA.VehicleEngine, KSA.FlightComputerBurnMode]
+    key_paths: [blinky.lib/LcdGridBuilder.cs, blinky.lib/PropellantFeedDiagnostics.cs, blinky.lib/BlinkySubmod.cs]
+    howto_topics:
+      - slug: wire-runtime-engine-propellant-feed
+        title: "Feed a runtime-created engine from a tank through its feed connectors"
+        note: "KSA only routes through declared RocketCore.FeedConnectors"
+      - slug: diagnose-engine-resource-reachability
+        title: "Check which tanks an engine can actually draw from"
+        note: "ResourceManager.ConsumptionOrder"
+  - id: mods/unscience/features/blinky-runtime-part-grid-builder
+    title: "Build NxM grids of real engine parts on a live vessel at runtime"
+    category: vehicles-and-parts
+    submod: blinky
+    summary: "Blinky creates hundreds of engine parts from a PartTemplate, wires them under the vessel root by hand through TreeParent and TreeChildren, and rebuilds the vessel with one PartTree.CreateFromNewPartTree call instead of merging part by part"
+    novelty: high
+    techniques: [runtime-part-creation, part-tree-rebuild]
+    lifecycle: [frame:draw-ui, frame:prepare, event:load]
+    hooks: ["starmap StarMapAfterGui (via unscience ISubmod.RenderContent: Create button)", "starmap StarMapBeforeGui (via unscience ISubmod.Update: deferred destroy queue)"]
+    game_types: [KSA.Part, KSA.PartTree, KSA.PartTemplate, KSA.Vehicle, KSA.ModLibrary, KSA.EngineController, KSA.DerivedData]
+    key_paths: [blinky.lib/LcdGridBuilder.cs, blinky.lib/LcdGridConfig.cs, blinky.lib/PixelGrid.cs, blinky.lib/BlinkyPixelGrid.cs, blinky.lib/BlinkyGridManager.cs, blinky.lib/BlinkySubmod.cs]
+    howto_topics:
+      - slug: create-parts-at-runtime-on-a-live-vessel
+        title: "Create and attach parts to a live vessel at runtime"
+        note: "manual TreeParent/TreeChildren wiring and one PartTree.CreateFromNewPartTree rebuild"
+      - slug: batch-part-tree-rebuild
+        title: "Batch many part additions into one part-tree rebuild"
+  - id: mods/unscience/features/blinky-scroll-animation-and-patterns
+    title: "Drive a pixel display by switching engine controllers on and off"
+    category: vehicles-and-parts
+    submod: blinky
+    summary: "Blinky lights grid pixels with buffered EngineController.SetIsActive calls, offering pattern presets, a diffing static display and a column-stepped scrolling marquee, while the shared PartRenderFilter hides the tiny engine meshes"
+    novelty: medium
+    techniques: [engine-activation, input-event-buffer]
+    lifecycle: [frame:draw-ui, frame:input, frame:render, event:load]
+    hooks: ["starmap StarMapBeforeGui (via unscience ISubmod.Update: BlinkyGridManager.TickAll)", "starmap StarMapAfterGui (via unscience ISubmod.RenderContent: pattern buttons)", "harmony-prefix KSA.PartTreeRenderData.Compose / ComposeDynamic / ComposeGlass (shared PartRenderFilter, owner blinky)", "harmony-postfix KSA.PartTreeRenderData.Compose / ComposeDynamic / ComposeGlass (shared PartRenderFilter, owner blinky)"]
+    game_types: [KSA.EngineController, KSA.InputEvents, KSA.Vehicle, KSA.VehicleEngine, KSA.Part]
+    key_paths: [blinky.lib/ScrollAnimation.cs, blinky.lib/BlinkyGridManager.cs, blinky.lib/PixelPatterns.cs, blinky.lib/BuiltInScrollPixels.cs, blinky.lib/NonLcdEngineCache.cs, blinky.lib/BlinkyPatches.cs]
+    howto_topics:
+      - slug: drive-engine-controllers-from-code
+        title: "Switch engines on and off from code"
+        note: "buffered EngineController.SetIsActive"
+      - slug: pixel-display-from-parts
+        title: "Build a dot-matrix display out of vessel parts"
+  - id: mods/unscience/features/bloomin-onion-painted-ring-textures
+    title: "Procedural ring band textures uploaded through the game's own TextureReference.Bind"
+    category: rendering
+    submod: bloomin-onion
+    summary: "Bloomin' Onion rasterizes stripes and ringlet noise into a 2048x1 RGBA8 band plus a control strip, wraps each in a TextureReference subclass whose private TextureAsset is seeded by reflection, and binds it through the game so it gets a bindless handle like any stock texture"
+    novelty: high
+    techniques: [reflection, vulkan-texture, imgui-drawlist]
+    lifecycle: [frame:draw-ui, frame:prepare, render:atmosphere]
+    hooks: ["starmap StarMapAfterGui (via unscience ISubmod.RenderContent; Apply builds the textures, the panel draws a preview strip)", "reflection KSA.TextureReference.<TextureAsset>k__BackingField"]
+    game_types: [KSA.TextureReference, RenderCore.TextureAsset, Brutal.TextureApi.Abstractions.GenericTexture, Brutal.VulkanApi.Abstractions.StagingPool, KSA.Rendering.Rings.Rendering.PlanetaryRingsRenderData, KSA.PlanetaryRingsReference]
+    key_paths: [bloomin-onion.lib/PaintedTextureReference.cs, bloomin-onion.lib/RingBandPainter.cs, bloomin-onion.lib/RingTextureFactory.cs, bloomin-onion.lib/RingDefinitionController.cs, bloomin-onion.lib/RingReferenceBuilder.cs, bloomin-onion.lib/BloominOnionSubmod.UiSections.cs]
+    howto_topics:
+      - slug: runtime-procedural-texture-through-texturereference
+        title: "Bind a procedural texture through the game's TextureReference pipeline"
+        note: "TextureReference subclass, bindless handle"
+      - slug: paint-ring-band-textures
+        title: "Generate planetary ring band textures procedurally"
+  - id: mods/unscience/features/bloomin-onion-runtime-planetary-rings
+    title: "Add planetary rings to any celestial at runtime"
+    category: celestials
+    submod: bloomin-onion
+    summary: "Bloomin' Onion builds a complete PlanetaryRingsReference tree in code, assigns it to a body template and forces the planetary rings renderer to be recreated so the ring appears without touching game data"
+    novelty: high
+    techniques: [reflection, xml-asset, vulkan-buffer, imgui-window]
+    lifecycle: [frame:draw-ui, frame:prepare, render:atmosphere, render:scene-opaque]
+    hooks: ["starmap StarMapAfterGui (via unscience ISubmod.RenderContent; Apply / Remove buttons)", "starmap StarMapBeforeGui (via unscience ISubmod.Update; body and asset refresh every 2 s)", "reflection KSA.Program._planetTransparenciesRenderer", "reflection KSA.PlanetTransparenciesRenderer._ringsRenderer", "reflection KSA.PlanetTransparenciesRenderer._ringRendererCreated", "reflection KSA.PlanetTransparenciesRenderer._anyRings", "reflection KSA.StaticCelestial._distantRenderer", "reflection KSA.DistantSphereRenderer._material (AccessTools.FieldRefAccess)"]
+    game_types: [KSA.PlanetaryRingsReference, KSA.PlanetaryRingsVolumeReference, KSA.RingRaymarchingStepReference, KSA.RingObjectsReference, KSA.RingLodReference, KSA.MeshFileReference, KSA.PbrMaterialReference, KSA.AstronomicalTemplate, KSA.Celestial, KSA.PlanetTransparenciesRenderer, KSA.Rendering.Rings.Rendering.PlanetaryRingsRenderer, KSA.Rendering.Rings.Rendering.PlanetaryRingsRenderData, KSA.Program, KSA.StaticCelestial, KSA.DistantSphereRenderer, KSA.DistantSphereMaterialData, KSA.MathEx]
+    key_paths: [bloomin-onion.lib/RingReferenceBuilder.cs, bloomin-onion.lib/RingRendererRebuilder.cs, bloomin-onion.lib/RingDefinitionController.cs, bloomin-onion.lib/RingDefinition.cs, bloomin-onion.lib/StockRingAssets.cs, bloomin-onion.lib/RingDefinitionSerializer.cs]
+    howto_topics:
+      - slug: add-planetary-rings-at-runtime
+        title: "Add planetary rings to a celestial body at runtime"
+        note: "build PlanetaryRingsReference in code and rebuild the renderer"
+      - slug: force-renderer-rebuild
+        title: "Force the game to rebuild its renderer after changing render data"
+        note: "Program.RebuildRenderer"
+  - id: mods/unscience/features/byo-music-vessel-3d-audio
+    title: "Play imported sound files in 3D at a vessel through nonblocking FMOD streams on the game's Sfx group"
+    category: audio
+    submod: byo-music
+    summary: "BYO Music plays imported OGG, WAV or MP3 files as nonblocking 3D FMOD streams on KSA's own system and Sfx group, positioned at a vessel each frame through SpatialAudio, with loops, real-time gaps and scene saves"
+    novelty: medium
+    techniques: [fmod-audio, imgui-window, save-sidecar]
+    lifecycle: [frame:draw-ui, frame:post-render, event:save, event:load, frame:prepare]
+    hooks: ["starmap StarMapBeforeGui (ByoMusicSubmod.Update ticks every VesselSound; hidden-HUD replay in unscience)", "starmap StarMapAfterGui (panel in ISubmod.RenderContent, import browser in RenderFloatingWindows)", "unscience save participant byo-music (order 220) via the shared native save hooks"]
+    game_types: [KSA.GameAudio, KSA.SpatialAudio, KSA.ChannelGroupReference, KSA.ChannelWrapper, KSA.ModLibrary, KSA.MusicPlayList, KSA.Vehicle, KSA.Program, Brutal.FmodApi.FmodSystem, Brutal.FmodApi.Sound, Brutal.FmodApi.Channel, Brutal.FmodApi.Mode, Brutal.FmodApi.OpenState, Brutal.FmodApi.Result]
+    key_paths: [byo-music.lib/VesselSound.cs, byo-music.lib/RepeatPlayback.cs, byo-music.lib/ByoMusicSubmod.cs, byo-music.lib/ByoMusicSubmod.Saves.cs, ksa-abstractions.lib/SoundLibrary.cs]
+    howto_topics:
+      - slug: play-custom-sound-at-vessel
+        title: "Play a custom sound file positioned at a vessel in 3D"
+      - slug: use-game-fmod-system
+        title: "Use KSA's FMOD system, channel groups and SpatialAudio from a mod"
+        note: "no listener calls; positions are camera view space"
+      - slug: nonblocking-fmod-stream-loading
+        title: "Load FMOD streams without blocking the game thread"
+      - slug: repeat-with-real-time-gaps
+        title: "Repeat a sound with a real-time gap after each completed play"
+  - id: mods/unscience/features/camera-controller-override-camera-animations
+    title: "Cinematic camera moves by pre-empting the Orbit and Fly controllers"
+    category: camera
+    submod: camera-controller-override
+    summary: "A shared Harmony prefix on OrbitController.OnFrame and FlyController.OnFrame hands the controller's live Camera to an animation player while a sequence plays, so ten eased, target-relative moves (zooms, spirals, orbits, loopy orbit, shake, pan, rotate) replace the stock camera math for that frame"
+    novelty: medium
+    techniques: [harmony-prefix, reflection]
+    lifecycle: [frame:viewports, frame:draw-ui]
+    hooks: ["harmony-prefix KSA.OrbitController.OnFrame (resolved by name)", "harmony-prefix KSA.FlyController.OnFrame (resolved by name)", "starmap StarMapAfterGui (via unscience ISubmod.RenderContent, Play/Pause/Stop buttons)"]
+    game_types: [KSA.OrbitController, KSA.FlyController, KSA.Controller, KSA.Camera, KSA.Transform3D, KSA.IFollowable, KSA.GameViewport, KSA.Program]
+    key_paths: [camera-controller-override.lib/CameraControllerOverridePatches.cs, camera-controller-override.lib/Animation/KeyframeSequencePlayer.cs, camera-controller-override.lib/Animation/IKeyframeAnimation.cs, camera-controller-override.lib/Animation/AnimationHelpers.cs, ksa-abstractions.lib/EasingHelper.cs, camera-controller-override.lib/Animation/Animations/OrbitAnimation.cs]
+    howto_topics:
+      - slug: animate-the-flight-camera
+        title: "Animate the flight camera with eased moves"
+        note: "prefix OrbitController/FlyController.OnFrame"
+      - slug: take-over-a-camera-controller-temporarily
+        title: "Temporarily take over a stock camera controller"
+  - id: mods/unscience/features/camera-controller-override-keyframe-sequences
+    title: "Keyframe camera sequences with parallel groups, return-to-start and saved recipes"
+    category: camera
+    submod: camera-controller-override
+    summary: "KeyframeSequencePlayer chains camera animations into a played, paused or stopped sequence, composes simultaneous moves as one keyframe, blends back to the captured start pose, and saves the authored sequence as validated recipe JSON with the scene"
+    novelty: medium
+    techniques: [harmony-prefix, save-sidecar, json-config]
+    lifecycle: [frame:viewports, frame:draw-ui, event:save, event:load]
+    hooks: ["harmony-prefix KSA.OrbitController.OnFrame (via CameraControllerOverridePatches)", "harmony-prefix KSA.FlyController.OnFrame (via CameraControllerOverridePatches)", "starmap StarMapAfterGui (via unscience ISubmod.RenderContent, sequence panel)", "unscience ISaveParticipantSource (scene save record camera-controller-override)"]
+    game_types: [KSA.Controller, KSA.Transform3D, KSA.Camera, KSA.OrbitController, KSA.FlyController]
+    key_paths: [camera-controller-override.lib/Animation/KeyframeSequencePlayer.cs, camera-controller-override.lib/Animation/Keyframe.cs, camera-controller-override.lib/Animation/AnimationGroup.cs, camera-controller-override.lib/Animation/SavedAnimation.cs, camera-controller-override.lib/CameraControllerOverrideSubmod.Saves.cs, camera-controller-override.lib/CameraControllerOverrideSubmod.cs]
+    howto_topics:
+      - slug: keyframe-camera-sequences
+        title: "Chain camera moves into keyframe sequences"
+      - slug: persist-animation-recipes-in-saves
+        title: "Persist authored animation recipes with a save"
+  - id: mods/unscience/features/dent-wizard-vessel-launcher
+    title: "Camera-origin vessel launcher with target-relative velocity"
+    category: physics
+    submod: dent-wizard
+    summary: "Dent Wizard teleports a chosen vessel, EVA kitten or debris to the camera and fires it at a clicked hull or terrain point by building a new orbit and calling Vehicle.Teleport at the PrepareFrame physics handoff"
+    novelty: medium
+    techniques: [starmap-lifecycle, imgui-drawlist, custom-physics, harmony-transpiler]
+    lifecycle: [frame:draw-ui, frame:prepare]
+    hooks: ["starmap StarMapAfterGui (via unscience ISubmod.RenderFloatingWindows, click capture)", "starmap StarMapBeforeGui (via unscience ISubmod.Update, source validation)", "harmony-transpiler KSA.Program.PrepareFrame (shared PhysicsFrameHook.BeforePhysics, launch)"]
+    game_types: [KSA.Vehicle, KSA.Orbit, KSA.FlightPlan, KSA.Program, KSA.Cursor, KSA.Camera, KSA.Celestial, KSA.IParentBody, KSA.Part, KSA.Ray, KSA.KittenEva, KSA.SimStep, KSA.JobSystems, KSA.VehicleUpdateTask]
+    key_paths: [dent-wizard.lib/LaunchRequest.cs, dent-wizard.lib/LaunchMath.cs, dent-wizard.lib/DentWizardPicker.cs, dent-wizard.lib/DentWizardSubmod.Ui.cs, dent-wizard.lib/DentWizardSubmod.cs, unscience/Patcher.cs]
+    howto_topics:
+      - slug: teleport-a-vessel-with-a-new-orbit
+        title: "Teleport a vessel and give it a velocity by building a new orbit"
+        note: "Vehicle.Teleport at the PrepareFrame handoff"
+      - slug: pick-world-points-with-the-cursor
+        title: "Pick a world point on hulls or terrain from a mouse click"
+  - id: mods/unscience/features/doh-kitten-spawning
+    title: "Spawn EVA kittens anywhere by replicating EVADoor.CreateKittenEva"
+    category: kittens
+    submod: doh
+    summary: "doh builds KittenEva vessels beside a chosen vehicle by copying the stock EVA door sequence (backpack part with its own tree, eight-argument constructor, CreateFromStateCci orbit, Teleport) after waiting out the vehicle solver"
+    novelty: high
+    techniques: [reflection, imgui-window, vehicle-spawning]
+    lifecycle: [frame:draw-ui]
+    hooks: ["starmap StarMapAfterGui (Spawn and Despawn buttons in ISubmod.RenderContent)", "starmap StarMapBeforeGui (ISubmod.Update prunes kittens the game removed)", "reflection KSA.ModLibrary.AllParts", "reflection KSA.ModLibrary.AllCharacters"]
+    game_types: [KSA.KittenEva, KSA.EVADoor, KSA.Vehicle, KSA.Astronomical, KSA.CelestialSystem, KSA.LookupCollection, KSA.Part, KSA.PartTree, KSA.Tank, KSA.SubstanceLibrary, KSA.MixtureReaction, KSA.ModLibrary, KSA.SerializedCollection, KSA.CharacterReference, KSA.Orbit, KSA.StateVectors, KSA.Universe, KSA.JobSystems, Brutal.Concurrency.Jobs.JobScheduler, KSA.ConstraintSim, KSA.VehicleUpdateTask, KSA.InputEvents]
+    key_paths: [doh.lib/Spawning/KittenSpawner.cs, doh.lib/Spawning/KittenSpawner.Positioning.cs, doh.lib/Spawning/KittenSpawner.Catalog.cs, doh.lib/Spawning/SpawnRequest.cs, doh.lib/Spawning/SpawnedKittenRegistry.cs, doh.lib/DohSubmod.cs]
+    howto_topics:
+      - slug: spawn-eva-kitten-programmatically
+        title: "Spawn an EVA kitten from code"
+        note: "replicate EVADoor.CreateKittenEva; the public eight-argument KittenEva constructor"
+      - slug: create-or-dispose-vehicles-outside-frame-sync
+        title: "Create or dispose vehicles while the vehicle solver may be stepping"
+        note: "ConstraintSim shapes lock; either JobSystems.VehicleSolver.Wait() or stage like InputEvents.EvaSpawnBuffer"
+      - slug: standalone-part-with-own-tree
+        title: "Build a standalone Part with its own PartTree"
+        note: "Part ctor stopped creating a tree in 5482; CreateOwnTree"
+      - slug: place-vessel-relative-to-vessel
+        title: "Place a new vessel at a body-frame offset from another vessel"
+        note: "take position, velocity and epoch from one StateVectors"
+      - slug: stable-vehicle-selection-in-pickers
+        title: "Keep vehicle picker selections stable across vehicle removal"
+        note: "LookupCollection.Deregister swap-removes; hold objects, not indices"
+      - slug: clean-up-partially-constructed-vehicle
+        title: "Recover from a vehicle constructor that throws after registration"
+  - id: mods/unscience/features/doh-runtime-gpu-materials
+    title: "Per-kitten tints by cloning GPU materials inside the fixed 512-slot material pool"
+    category: kittens
+    submod: doh
+    summary: "doh clones each kitten's materials into new GpuMaterialSystem slots with a custom AlbedoColor, swaps MaterialIndices to the clones, and budgets and frees slots in the fixed 512-slot pool"
+    novelty: high
+    techniques: [reflection, vulkan-buffer, save-sidecar, imgui-window]
+    lifecycle: [frame:draw-ui, event:save, event:load, frame:prepare]
+    hooks: ["starmap StarMapAfterGui (spawn, recolour and despawn from DohSubmod.RenderContent)", "starmap StarMapBeforeGui (DohSubmod.Update prunes kittens and releases stale sets)", "reflection KSA.Program.MaterialSystem, KSA.Program.SuperMeshRenderSystem, KSA.Program.CharacterRenderSystem", "reflection KSA.AssetManager.AssetMap (protected), GetOrLoad", "reflection KSA.GpuObjectSystem.CreateObject, DeviceCtx (protected), BigBufferAllocator (protected)", "reflection KSA.KittenEva._renderable -> KSA.KittenRenderable._characterAvatar (private)", "reflection KSA.AnimatedRenderable.MaterialIndices / StaticMeshRenderable.MaterialIndices / CatFurRenderable.MaterialIndices (protected)", "reflection KSA.CharacterRenderSystem._resources", "unscience save participant doh (order 60) via the shared native save hooks"]
+    game_types: [KSA.Program, KSA.GpuMaterialSystem, KSA.GpuObjectSystem, KSA.AssetManager, KSA.GpuObjectAssetRef, KSA.LoadedAssetRef, KSA.MaterialData, Brutal.Collections.FreeListIndexPool, KSA.GpuTextureSystem, KSA.GltfPbrSystem, KSA.SuperMeshRenderSystem, KSA.CharacterRenderSystem, KSA.CharacterRenderResources, KSA.CharacterAvatar, KSA.CharacterReference, KSA.CharacterTexturesReference, KSA.PbrMaterialReference, KSA.ModLibrary, KSA.KittenEva, KSA.KittenRenderable, KSA.AnimatedRenderable, KSA.StaticMeshRenderable, KSA.CatFurRenderable, RenderCore.VkUtils, Brutal.VulkanApi.Abstractions.StagingPool]
+    key_paths: [doh.lib/Materials/MaterialSystemAccessor.cs, doh.lib/Materials/MaterialSystemAccessor.Pool.cs, doh.lib/Materials/MaterialFactory.cs, doh.lib/Materials/MaterialFactory.Lifetime.cs, doh.lib/Materials/KittenMaterialSet.cs, doh.lib/DohSubmod.Persistence.cs]
+    howto_topics:
+      - slug: create-runtime-gpu-materials
+        title: "Create new GPU materials at runtime"
+        note: "GpuObjectSystem.CreateObject allocates before checking the name"
+      - slug: per-instance-material-tint
+        title: "Give one instance of a shared model its own material"
+        note: "swap protected MaterialIndices handles in place"
+      - slug: gpu-material-pool-budget
+        title: "Budget and free slots in the fixed 512-slot material pool"
+      - slug: write-material-albedo-on-gpu
+        title: "Change a material's colour with a staged BigBuffer write"
+      - slug: persist-runtime-gpu-resources-across-loads
+        title: "Rebind mod-owned GPU resources to natively restored objects after a load"
+  - id: mods/unscience/features/dont-stifle-me-editor-free-scaling
+    title: "Don't Stifle Me editor free scaling (unclamped, per-axis, unsnapped)"
+    category: vehicles-and-parts
+    submod: dont-stifle-me
+    summary: "Don't Stifle Me widens VehicleEditor.ScaleBoundsFor with a postfix, replaces the uniform UpdateSelectedScale drag with a per-axis one that reuses the game's private QuantizeScale and ForEachPartWithSymmetry through delegates, and can bypass the 0.25 m snapping"
+    novelty: medium
+    techniques: [harmony-prefix, harmony-postfix, reflection, method-delegate, imgui-menu]
+    lifecycle: [editor:on-frame, editor:pre-render, frame:input, frame:draw-ui]
+    hooks: ["harmony-postfix KSA.VehicleEditor.ScaleBoundsFor", "harmony-prefix KSA.VehicleEditor.UpdateSelectedScale", "harmony-prefix KSA.VehicleEditor.QuantizeScale", "harmony-postfix KSA.VehicleEditor.UpdateScaleGizmo", "reflection KSA.VehicleEditor.QuantizeScale (AccessTools.MethodDelegate)", "reflection KSA.VehicleEditor.ScaleBoundsFor (AccessTools.MethodDelegate)", "reflection KSA.VehicleEditor.ForEachPartWithSymmetry (AccessTools.MethodDelegate)", "harmony-postfix KSA.Program.DrawProgramMenusHook (standalone host only)"]
+    game_types: [KSA.VehicleEditor, KSA.Part, KSA.PartTree, KSA.ScaleFactors, KSA.GenericGizmo, KSA.Camera, KSA.IViewport, KSA.Program]
+    key_paths: [dont-stifle-me.lib/EditorScalePatches.cs, dont-stifle-me.lib/PerAxisScaleDrag.cs, dont-stifle-me.lib/EditorScaleSettings.cs, dont-stifle-me.lib/DontStifleMeMenu.cs, dont-stifle-me/MenuBarPatch.cs, unscience/Patcher.cs]
+    howto_topics:
+      - slug: call-private-game-methods-via-method-delegate
+        title: "Call private game helpers through typed delegates instead of copying them"
+        note: "AccessTools.MethodDelegate on private static VehicleEditor helpers"
+      - slug: unclamp-vehicle-editor-part-scale
+        title: "Remove the vehicle editor's part-scale limits and restore per-axis scaling"
+        note: "one postfix on the bounds method lifts the clamp everywhere it is read"
+      - slug: replace-a-game-method-with-a-skipping-prefix
+        title: "Replace a private game method with a skipping prefix and fall back to stock on error"
+      - slug: non-uniform-part-scale-limits
+        title: "What non-uniform part scale does and does not affect in KSA"
+        note: "ScaleFactors collapses double3 to the largest axis for connectors, mass and IRescale"
+  - id: mods/unscience/features/dont-stifle-me-parachute-diameter-unclamp
+    title: "Parachute diameter unclamp (\"jpl said no clamps\")"
+    category: vehicles-and-parts
+    submod: dont-stifle-me
+    summary: "Don't Stifle Me widens each parachute's runtime Tuning.MinDiameterM and MaxDiameterM to 2-1000 m from prefixes on VehicleEditor.DrawParachuteSection and Parachute.SetDiameter, tracking every touched instance so disabling or unloading restores the authored bounds"
+    novelty: medium
+    techniques: [harmony-prefix, reflection, save-sidecar]
+    lifecycle: [editor:draw-ui, frame:draw-ui, event:save, event:load, event:unload]
+    hooks: ["harmony-prefix KSA.VehicleEditor.DrawParachuteSection", "harmony-prefix KSA.Parachute.SetDiameter"]
+    game_types: [KSA.VehicleEditor, KSA.Parachute, KSA.ChuteTuning, KSA.Part, KSA.ChuteTuningWindow, KSA.Program]
+    key_paths: [dont-stifle-me.lib/EditorValueLimitPatches.cs, dont-stifle-me.lib/EditorLimitSettings.cs, dont-stifle-me.lib/DontStifleMeSubmod.Saves.cs, dont-stifle-me.lib/DontStifleMeSubmod.cs]
+    howto_topics:
+      - slug: widen-editor-value-ranges
+        title: "Widen a vehicle-editor value range without editing part templates"
+        note: "patch both the slider's displayed bounds and the setter's clamp"
+      - slug: reversible-runtime-overrides
+        title: "Make runtime overrides of game objects reversible"
+        note: "record the original per instance on first touch, restore on toggle-off and unload"
+      - slug: parachute-tuning-runtime
+        title: "How parachute tuning is stored and saved in KSA"
+        note: "bounds are not saved; ApplySaveData re-clamps DiameterM against template bounds"
+  - id: mods/unscience/features/eternal-flame-resource-refill
+    title: "Infinite fuel and battery refill before the vehicle solver snapshot"
+    category: vehicles-and-parts
+    submod: eternal-flame
+    summary: "Eternal Flame refills tanks with Vehicle.RefillConsumables and batteries with Battery.Refill from a Priority.First prefix on Universe.ExecuteNextVehicleSolvers so the refill lands before the vehicle worker snapshots module state"
+    novelty: medium
+    techniques: [harmony-prefix]
+    lifecycle: [frame:dispatch-solvers]
+    hooks: ["harmony-prefix KSA.Universe.ExecuteNextVehicleSolvers (priority First)"]
+    game_types: [KSA.Universe, KSA.Vehicle, KSA.PartTree, KSA.ResourceManager, KSA.Battery, KSA.ModuleStateful, KSA.ModuleStateUpdaters, KSA.VehicleUpdateData, KSA.InputEvents]
+    key_paths: [unscience/Patcher.cs, eternal-flame.lib/EternalFlameLib.cs, eternal-flame/Patcher.cs, eternal-flame.lib/EternalFlameSubmod.cs, eternal-flame.lib/EternalFlameSubmod.Saves.cs]
+    howto_topics:
+      - slug: refill-fuel-and-batteries
+        title: "Refill fuel tanks and batteries from a mod"
+        note: "Vehicle.RefillConsumables, Battery.Refill"
+      - slug: mutate-module-state-before-vehicle-solver-snapshot
+        title: "Change part module state before the vehicle solver snapshots it"
+        note: "prefix Universe.ExecuteNextVehicleSolvers"
+  - id: mods/unscience/features/fixme-mod-name-standalone-mod-template
+    title: "Minimal standalone StarMap mod template with a separate feature library"
+    category: getting-started
+    submod: fixme-mod-name
+    summary: "The fixme-mod-name project pair is the repo's scaffold for a new mod, a StarMap entry class with the four lifecycle attributes, a Harmony patcher that always applies the hotkey guard, an F11 ImGui window and a sibling .lib project, copied and renamed by mkmod.ts"
+    novelty: low
+    techniques: [starmap-lifecycle, harmony-prefix, imgui-window, toml-config]
+    lifecycle: [startup:all-mods-loaded, frame:draw-ui]
+    hooks: ["starmap StarMapImmediateLoad (zero-argument signature: never dispatched)", "starmap StarMapAllModsLoaded", "starmap StarMapBeforeGui", "starmap StarMapAfterGui", "starmap StarMapUnload", "harmony-prefix KSA.GameSettings.OnKeyAll (HotkeyGuard)"]
+    game_types: [KSA.GameSettings]
+    key_paths: [fixme-mod-name/Mod.cs, fixme-mod-name/Patcher.cs, fixme-mod-name/mod.toml, fixme-mod-name/fixme-mod-name.csproj, fixme-mod-name.lib/FixmeModNameLib.cs, mkmod.ts]
+    howto_topics:
+      - slug: starmap-mod-skeleton
+        title: "Minimal StarMap mod skeleton with Harmony and an ImGui window"
+      - slug: scaffold-new-mod-from-template
+        title: "Scaffold new mods from a template project"
+        note: "mkmod.ts copy-and-rename"
+  - id: mods/unscience/features/free-fallin-canopy-material-substitution
+    title: "Swap every parachute canopy's material at draw time"
+    category: vehicles-and-parts
+    submod: free-fallin
+    summary: "A Harmony prefix on ChuteRenderable.Draw reflects the private AnimatedRenderable and overwrites slot 0 of its protected MaterialIndices with one runtime MaterialData (tint, PBR multipliers or uniform PBR, custom albedo), capturing and later restoring each canopy's native material handle"
+    novelty: high
+    techniques: [harmony-prefix, reflection, vulkan-buffer]
+    lifecycle: [startup:all-mods-loaded, frame:draw-ui, event:load, frame:render]
+    hooks: ["harmony-prefix KSA.ChuteRenderable.Draw", "reflection KSA.ChuteRenderable._renderable (private)", "reflection KSA.AnimatedRenderable.MaterialIndices (protected)", "starmap StarMapAfterGui (via unscience ISubmod.RenderContent; Apply / Restore Stock)"]
+    game_types: [KSA.ChuteRenderable, KSA.AnimatedRenderable, KSA.Parachute, KSA.Vehicle, KSA.GpuMaterialSystem, KSA.GpuObjectSystem, KSA.MaterialData, KSA.PbrMaterialReference, KSA.SuperMeshRenderSystem, KSA.GltfPbrSystem, KSA.GpuTextureSystem, KSA.ModLibrary, KSA.Program]
+    key_paths: [free-fallin.lib/FreeFallinPatches.cs, free-fallin.lib/CanopyMaterialController.cs, free-fallin.lib/CanopyMaterialSettings.cs, free-fallin.lib/FreeFallinSubmod.cs, free-fallin.lib/FreeFallinSubmod.Saves.cs]
+    howto_topics:
+      - slug: override-a-renderable-material-at-draw-time
+        title: "Substitute a renderable's material at draw time"
+        note: "prefix ChuteRenderable.Draw, MaterialIndices"
+      - slug: create-runtime-gpu-materials
+        title: "Create runtime MaterialData entries in the GPU material system"
+  - id: mods/unscience/features/free-fallin-canopy-projection-shader
+    title: "Material-gated full-canopy projection by patching KSA's model shaders in memory"
+    category: shaders
+    submod: free-fallin
+    summary: "Prefixes on Utils.SetShaderFromMod and ShaderModuleUtils.FromFile recompile Model.vert, Model_Skinned.vert and ModelPbr.frag from patched source, adding a bind-pose projection UV that ModelPbr.frag uses for albedo only on materials whose ExtraData carries Free Fallin's marker"
+    novelty: high
+    techniques: [harmony-prefix, glsl-shader, shader-patching]
+    lifecycle: [startup:all-mods-loaded, frame:prepare, frame:render]
+    hooks: ["harmony-prefix KSA.Rendering.Utils.SetShaderFromMod", "harmony-prefix RenderCore.ShaderModuleUtils.FromFile"]
+    game_types: [KSA.Rendering.Utils, RenderCore.ShaderModuleUtils, KSA.ShaderReference, KSA.SuperMeshRenderSystem, KSA.CharacterRenderResources, KSA.ChuteCanopyBones, KSA.GltfPbrSystem, KSA.MaterialData, KSA.Program, RenderCore.Pipelines.SimplePipeline]
+    key_paths: [free-fallin.lib/CanopyProjectionShaders.cs, free-fallin.lib/CanopyMaterialController.cs, free-fallin.lib/FreeFallinPatches.cs]
+    howto_topics:
+      - slug: patch-game-shaders-in-memory
+        title: "Patch and recompile a game shader in memory"
+        note: "prefix ShaderModuleUtils.FromFile"
+      - slug: material-gated-shader-variant
+        title: "Gate a shader change on a specific material"
+  - id: mods/unscience/features/free-fallin-canopy-texture-compositing
+    title: "Runtime canopy textures from PNGs, CPU compositing over a BC7 stock texture, and owned GPU assets"
+    category: assets
+    submod: free-fallin
+    summary: "Free Fallin builds canopy textures on the CPU (PNG decode, a centred decal over the stock BC7 albedo re-opened from KTX2 with an RGBA32 transcode, a 1x1 PBR map), registers them with GpuTextureSystem.TryAddTexture and releases its own entries through the protected AssetMap"
+    novelty: medium
+    techniques: [vulkan-texture, reflection]
+    lifecycle: [frame:draw-ui, event:load]
+    hooks: ["starmap StarMapAfterGui (via unscience ISubmod.RenderContent; Apply)", "reflection KSA.AssetManager.AssetMap (protected)"]
+    game_types: [KSA.GpuTextureSystem, KSA.GpuTextureAssetRef, KSA.AssetManager, KSA.LoadedAssetRef, KSA.TextureReference, KSA.PbrMaterialReference, KSA.GpuMaterialSystem, Brutal.TextureApi.TextureLoader, Brutal.TextureApi.Abstractions.GenericTexture, RenderCore.TextureAsset, KSA.Rendering.RetiredResourceQueue, KSA.Program]
+    key_paths: [free-fallin.lib/CanopyMaterialController.cs, free-fallin.lib/CanopyGpuAssets.cs, free-fallin.lib/CanopyTextureMode.cs, ksa-abstractions.lib/PngLibrary.cs]
+    howto_topics:
+      - slug: upload-runtime-textures-to-gputexturesystem
+        title: "Register runtime textures with the game's GPU texture system"
+        note: "GpuTextureSystem.TryAddTexture"
+      - slug: composite-png-over-stock-texture
+        title: "Composite an image over a stock compressed texture on the CPU"
+        note: "KTX2/BC7 transcode"
+  - id: mods/unscience/features/garrys-torch-per-axis-part-scaling
+    title: "Non-cumulative per-axis part scaling with captured baselines"
+    category: vehicles-and-parts
+    submod: garrys-torch
+    summary: "Garry's Torch multiplies each full part's captured Part.Scale by independent XYZ factors, lets sub-parts inherit, restores the originals on unweld, extends kitten avatars to XYZ with a Harmony postfix and excludes Godzilla through VehicleScaleOwnership"
+    novelty: medium
+    techniques: [harmony-postfix, reflection]
+    lifecycle: [frame:draw-ui, frame:prepare, frame:render]
+    hooks: ["harmony-postfix KSA.KittenRenderable.ModelToBodyMatrix (private, by name)", "reflection KSA.KittenRenderable._characterAvatar", "starmap StarMapAfterGui (via unscience ISubmod.RenderContent, UI scale edits)", "harmony-transpiler KSA.Program.PrepareFrame (shared PhysicsFrameHook, animated scale edits)"]
+    game_types: [KSA.Part, KSA.PartTree, KSA.Vehicle, KSA.KittenEva, KSA.KittenRenderable, KSA.CharacterAvatar]
+    key_paths: [garrys-torch.lib/WeldScaleSnapshot.cs, garrys-torch.lib/KittenScalePatches.cs, ksa-abstractions.lib/VehicleScaleOwnership.cs, garrys-torch.lib/WeldEngine.Scaling.cs, garrys-torch.lib/WeldScale.cs, garrys-torch.lib/WeldScaleSnapshot.Persistence.cs]
+    howto_topics:
+      - slug: scale-parts-non-uniformly
+        title: "Scale vessel parts per axis at runtime"
+        note: "Part.Scale with captured baselines"
+      - slug: restore-original-part-scale
+        title: "Capture and restore original part scales exactly"
+  - id: mods/unscience/features/garrys-torch-scoped-collision-suppression
+    title: "Per-vessel collision suppression by bracketing ConstraintSim passes"
+    category: physics
+    submod: garrys-torch
+    summary: "Garry's Torch removes welded sources from Bepu broad-phase collision for the duration of each ConstraintSim.DetectCollisions and Simulate call with a prefix that calls BodyReference.SetShape(default) and a finalizer that restores the exact shape"
+    novelty: high
+    techniques: [harmony-prefix, harmony-finalizer, bepu-physics]
+    lifecycle: [frame:prepare, physics:vehicle-solver, physics:bepu]
+    hooks: ["harmony-prefix KSA.ConstraintSim.DetectCollisions(double)", "harmony-finalizer KSA.ConstraintSim.DetectCollisions(double)", "harmony-prefix KSA.ConstraintSim.Simulate(double, in SimStep)", "harmony-finalizer KSA.ConstraintSim.Simulate(double, in SimStep)", "harmony-transpiler KSA.Program.PrepareFrame (shared PhysicsFrameHook, publishes the source set)"]
+    game_types: [KSA.ConstraintSim, KSA.VehicleUpdateState, KSA.PhysicsBubble, KSA.NarrowPhaseCallbacks, BepuPhysics.BodyReference, BepuPhysics.Bodies, BepuPhysics.Collidables.Collidable, BepuPhysics.Collidables.TypedIndex]
+    key_paths: [garrys-torch.lib/WeldCollisionPatches.cs, garrys-torch.lib/GarrysTorchPatches.cs, garrys-torch.lib/WeldEntry.cs, garrys-torch.lib/PresetManager.cs]
+    howto_topics:
+      - slug: disable-collisions-for-one-vessel
+        title: "Disable collisions for one vessel without touching others"
+        note: "BodyReference.SetShape around ConstraintSim passes"
+      - slug: bepu-shape-swap-with-finalizer
+        title: "Temporarily swap Bepu shapes with a prefix and finalizer pair"
+  - id: mods/unscience/features/garrys-torch-vehicle-welding
+    title: "Part-anchored vehicle welding by per-frame teleport at the physics handoff"
+    category: physics
+    submod: garrys-torch
+    summary: "Garry's Torch holds a source vessel at a fixed offset from a part on a target vessel by teleporting it every frame from a PhysicsFrameHook.BeforePhysics callback stamped with SimStep.PreviousTime"
+    novelty: high
+    techniques: [harmony-transpiler, custom-physics, inter-mod-api]
+    lifecycle: [frame:prepare, frame:draw-ui]
+    hooks: ["harmony-transpiler KSA.Program.PrepareFrame (shared PhysicsFrameHook.BeforePhysics)", "starmap StarMapAfterGui (via unscience ISubmod.RenderContent, weld editing UI)"]
+    game_types: [KSA.Vehicle, KSA.Part, KSA.Orbit, KSA.IParentBody, KSA.SimStep, KSA.PhysicsBubble, KSA.JobSystems, KSA.VehicleUpdateTask]
+    key_paths: [garrys-torch.lib/GarrysTorchPatches.cs, garrys-torch.lib/WeldEngine.cs, garrys-torch.lib/WeldEntry.cs, garrys-torch.lib/GarrysTorchSubmod.cs, garrys-torch.lib/GarrysTorchSubmod.Persistence.cs, unscience/Patcher.cs]
+    howto_topics:
+      - slug: weld-one-vessel-to-another
+        title: "Hold one vessel at a fixed offset from another"
+        note: "per-frame teleport at the PrepareFrame handoff"
+      - slug: physics-safe-vessel-mutation
+        title: "Mutate vessel state without losing physics results"
+  - id: mods/unscience/features/garrys-torch-weld-animation-and-presets
+    title: "Eased weld animation queues and TOML weld presets"
+    category: physics
+    submod: garrys-torch
+    summary: "Garry's Torch interpolates weld offset, rotation and XYZ scale with eased per-weld animation queues advanced at the physics handoff in player time, and stores reusable weld settings as named presets in a Tomlyn TOML file with legacy-key migration"
+    novelty: medium
+    techniques: [toml-config, harmony-transpiler, inter-mod-api]
+    lifecycle: [frame:prepare, frame:draw-ui]
+    hooks: ["harmony-transpiler KSA.Program.PrepareFrame (shared PhysicsFrameHook.BeforePhysics, animation tick)", "starmap StarMapAfterGui (via unscience ISubmod.RenderContent, preset UI)"]
+    game_types: [KSA.Vehicle, KSA.UniverseTime]
+    key_paths: [garrys-torch.lib/WeldAnimation.cs, garrys-torch.lib/WeldAnimationManager.cs, garrys-torch.lib/PresetManager.cs, ksa-abstractions.lib/EasingHelper.cs, garrys-torch.lib/GarrysTorchSubmod.cs, garrys-torch.lib/WeldAnimation.Persistence.cs]
+    howto_topics:
+      - slug: eased-animation-queues
+        title: "Queue eased animations for mod-controlled values"
+      - slug: toml-presets-with-tomlyn
+        title: "Store named presets in a TOML file with Tomlyn"
+        note: "legacy-key migration"
+  - id: mods/unscience/features/glass-fov-override
+    title: "Main-camera field-of-view override with lens presets"
+    category: camera
+    submod: glass
+    summary: "Glass drives the main viewport camera's FOV from a static FovController and keeps it there with two main-camera-only prefixes, one on Camera.ChangeFieldOfView that swallows the stock FOV keys and one on Camera.UpdateProjection that writes the private _fovRadians field before every projection rebuild"
+    novelty: medium
+    techniques: [harmony-prefix, reflection]
+    lifecycle: [frame:draw-ui, frame:input, event:load]
+    hooks: ["harmony-prefix KSA.Camera.ChangeFieldOfView (resolved by name)", "harmony-prefix KSA.Camera.UpdateProjection (resolved by name)", "reflection KSA.Camera._fovRadians", "starmap StarMapBeforeGui (via unscience ISubmod.Update, FovController.ApplyFov)", "unscience ISaveParticipantSource (scene save record glass)"]
+    game_types: [KSA.Camera, KSA.Program, KSA.ViewportRegistry, KSA.GameSettings, KSA.GameViewport]
+    key_paths: [glass.lib/GlassPatches.cs, glass.lib/FovController.cs, glass.lib/GlassSubmod.cs, glass.lib/GlassSubmod.Saves.cs, glass/Patcher.cs]
+    howto_topics:
+      - slug: override-camera-fov
+        title: "Override the main camera field of view"
+        note: "prefix Camera.UpdateProjection and ChangeFieldOfView"
+      - slug: main-camera-only-patches
+        title: "Scope camera patches to the main viewport only"
+  - id: mods/unscience/features/godzilla-collider-scaling
+    title: "Collider-only scaling through native owned shapes with nominal bounds preserved"
+    category: physics
+    submod: godzilla
+    summary: "Godzilla's collider channel overrides the scale ColliderModule.SetScale receives and the collider centre getter, then rebuilds the collision compound through the private Vehicle.UpdateCollisionGeometry while keeping the nominal physics bounds"
+    novelty: high
+    techniques: [harmony-prefix, harmony-postfix, harmony-finalizer, reflection, bepu-physics]
+    lifecycle: [frame:prepare, physics:vehicle-solver, physics:bepu]
+    hooks: ["harmony-prefix KSA.ColliderModule.SetScale", "harmony-finalizer KSA.ColliderModule.SetScale", "harmony-postfix KSA.ColliderModule.PositionVehicleAsmb (getter)", "harmony-prefix KSA.Vehicle.UpdateCollisionGeometry (private, by name)", "harmony-finalizer KSA.Vehicle.UpdateCollisionGeometry (private, by name)", "reflection KSA.Vehicle.UpdateCollisionGeometry (open delegate)"]
+    game_types: [KSA.ColliderModule, KSA.ScaleFactors, KSA.Vehicle, KSA.Part, KSA.ConstraintSim, KSA.VehicleProperties, KSA.PhysicsBubble]
+    key_paths: [godzilla.lib/ColliderScalePatches.cs, godzilla.lib/ColliderScaleState.cs, godzilla.lib/VesselScaleSnapshot.cs, godzilla.lib/VesselScaleSnapshot.Colliders.cs]
+    howto_topics:
+      - slug: scale-vessel-colliders
+        title: "Scale a vessel's collision shapes at runtime"
+        note: "ColliderModule.SetScale override, UpdateCollisionGeometry"
+      - slug: preserve-physics-bubble-bounds
+        title: "Change colliders without changing physics bubble bounds"
+  - id: mods/unscience/features/godzilla-vessel-scaling
+    title: "Whole-vessel scaling with Smart and Basic modes and three independent channels"
+    category: vehicles-and-parts
+    submod: godzilla
+    summary: "Godzilla resizes a vessel or EVA kitten from a captured snapshot in Smart (uniform, spaced about the centre of mass) or Basic (raw XYZ) mode, with native module and collider refresh at the physics handoff and independent render, physics and collider channels"
+    novelty: high
+    techniques: [harmony-transpiler, reflection, custom-physics]
+    lifecycle: [frame:prepare, frame:draw-ui]
+    hooks: ["harmony-transpiler KSA.Program.PrepareFrame (shared PhysicsFrameHook.Enqueue and BeforePhysics)", "starmap StarMapAfterGui (via unscience ISubmod.RenderContent, requests only)", "reflection KSA.KittenRenderable._characterAvatar"]
+    game_types: [KSA.Part, KSA.PartTree, KSA.Vehicle, KSA.ColliderModule, KSA.ScaleFactors, KSA.ConstraintSim, KSA.KittenEva, KSA.CharacterAvatar, KSA.JobSystems]
+    key_paths: [godzilla.lib/GodzillaSubmod.cs, godzilla.lib/VesselScaleSnapshot.cs, godzilla.lib/VesselScaleSnapshot.Colliders.cs, godzilla.lib/GodzillaSubmod.Persistence.cs, godzilla.lib/VesselScaleSnapshot.Persistence.cs, ksa-abstractions.lib/VehicleScaleOwnership.cs]
+    howto_topics:
+      - slug: resize-a-vessel-at-runtime
+        title: "Resize a whole vessel or kitten at runtime"
+        note: "Smart and Basic modes"
+      - slug: independent-render-physics-collider-scaling
+        title: "Scale rendering, physics and colliders independently"
+  - id: mods/unscience/features/godzilla-visual-scaling
+    title: "Render-only vessel scaling with draw-matrix and cull-radius patches"
+    category: rendering
+    submod: godzilla
+    summary: "Godzilla's visual channel scales a vessel's drawn parts around its live centre of mass and enlarges only its render cull radius, using part-tree draw-matrix patches, a GetWorldMatrix postfix and two guarded call-site transpilers"
+    novelty: high
+    techniques: [harmony-transpiler, harmony-prefix, harmony-postfix, harmony-finalizer]
+    lifecycle: [frame:render, frame:prepare]
+    hooks: ["harmony-transpiler KSA.Vehicle.UpdateRenderData (IsLargeEnoughToRender call redirect)", "harmony-transpiler KSA.Vehicle.GetWorldMatrix (MeanRadius read redirect)", "harmony-postfix KSA.Vehicle.GetWorldMatrix", "harmony-prefix KSA.PartTree.UpdateRenderData", "harmony-finalizer KSA.PartTree.UpdateRenderData"]
+    game_types: [KSA.Vehicle, KSA.PartTree, KSA.KittenEva, KSA.Camera, KSA.Program]
+    key_paths: [godzilla.lib/VisualScalePatches.cs, godzilla.lib/VesselScaleSnapshot.cs, garrys-torch.lib/KittenScalePatches.cs]
+    howto_topics:
+      - slug: render-only-vessel-scaling
+        title: "Scale how a vessel is drawn without changing physics"
+        note: "draw-matrix patches, GetWorldMatrix postfix"
+      - slug: enlarge-render-cull-radius
+        title: "Enlarge a vessel's render cull radius"
+        note: "call-site transpilers on IsLargeEnoughToRender"
+  - id: mods/unscience/features/graffiti-bindless-decal-textures
+    title: "PNG decals as mod-owned slots in KSA's bindless texture table"
+    category: rendering
+    submod: graffiti
+    summary: "Graffiti decodes library PNGs with the game's TextureLoader, uploads them as mip-mapped SimpleVkTextures, claims slots in Program.BindlessTextures so the shader needs only a uint index, hot-swaps changed files on Rescan and destroys freed images after every frame in flight has retired"
+    novelty: high
+    techniques: [vulkan-texture, starmap-lifecycle]
+    lifecycle: [frame:draw-ui, event:load]
+    hooks: ["starmap StarMapBeforeGui (via unscience ISubmod.Update; retire-queue tick)", "starmap StarMapAfterGui (via unscience ISubmod.RenderContent / RenderFloatingWindows; upload on place or Rescan)"]
+    game_types: [RenderCore.Systems.BindlessTextureLibrary, RenderCore.SimpleVkTexture, RenderCore.TextureAsset, Brutal.TextureApi.TextureLoader, KSA.Program, Core.Renderer, KSA.Rendering.RetiredResourceQueue]
+    key_paths: [graffiti.lib/DecalTextures.cs, graffiti.lib/GraffitiSubmod.cs, graffiti.lib/GraffitiSubmod.Saves.cs, ksa-abstractions.lib/PngLibrary.cs]
+    howto_topics:
+      - slug: claim-bindless-texture-slots
+        title: "Upload textures into the game's bindless texture table"
+        note: "Program.BindlessTextures"
+      - slug: hot-reload-textures-from-disk
+        title: "Hot-swap textures when files change"
+  - id: mods/unscience/features/graffiti-decal-anchoring
+    title: "Per-frame decal anchoring to parts, canopy cloth and terrain"
+    category: rendering
+    submod: graffiti
+    summary: "Decals store part-local, cloth-barycentric or geodetic anchors, re-resolve them by stable ids every frame and recompose a double-precision decal-to-ego box, so they follow staging, inflation, planet rotation and floating-origin shifts and go dormant instead of being deleted when the anchor despawns"
+    novelty: medium
+    techniques: [starmap-lifecycle, double-precision-transforms]
+    lifecycle: [frame:draw-ui]
+    hooks: ["starmap StarMapBeforeGui (via unscience ISubmod.Update)", "harmony-prefix KSA.Program.OnDrawUiConsole (HiddenUiFrameHook replays ISubmod.Update while the HUD is hidden)"]
+    game_types: [KSA.Universe, KSA.CelestialSystem, KSA.Vehicle, KSA.Part, KSA.PartTree, KSA.Parachute, KSA.ModuleBase, KSA.Celestial, KSA.Camera, KSA.Program]
+    key_paths: [graffiti.lib/DecalAnchors.cs, graffiti.lib/DecalEntry.cs, graffiti.lib/GraffitiSubmod.cs, graffiti.lib/GraffitiSubmod.Saves.cs]
+    howto_topics:
+      - slug: anchor-objects-to-parts-cloth-and-terrain
+        title: "Anchor world objects to parts, cloth or terrain and follow them every frame"
+      - slug: floating-origin-safe-transforms
+        title: "Compose transforms that survive floating-origin shifts"
+        note: "double-precision ego space"
+  - id: mods/unscience/features/graffiti-decal-placement-picking
+    title: "One-shot click placement with mesh, cloth, kitten and terrain picking"
+    category: rendering
+    submod: graffiti
+    summary: "An armed ImGui placement mode turns the next world click into a decal anchor by casting Cursor.GetEgoRay against live parachute cloth triangles, Part.RayCastEgo view meshes, a KittenEva bounding sphere and finally a CPU march over the accurate terrain height field"
+    novelty: high
+    techniques: [imgui-drawlist, starmap-lifecycle, raycast-picking]
+    lifecycle: [frame:draw-ui]
+    hooks: ["starmap StarMapAfterGui (via unscience ISubmod.RenderFloatingWindows)"]
+    game_types: [KSA.Cursor, KSA.Camera, KSA.Ray, KSA.Part, KSA.Vehicle, KSA.KittenEva, KSA.Parachute, KSA.ChuteClothSystem, KSA.ChuteClothTopology, KSA.BoundingSphere3D, KSA.Double3Ex, KSA.Celestial, KSA.Program]
+    key_paths: [graffiti.lib/GraffitiSubmod.Placement.cs, graffiti.lib/GraffitiSubmod.cs, graffiti.lib/DecalPicker.cs, graffiti.lib/DecalPicker.Parachute.cs, unscience/Mod.cs]
+    howto_topics:
+      - slug: raycast-parts-cloth-and-terrain
+        title: "Raycast vessel meshes, parachute cloth and terrain from the cursor"
+        note: "Cursor.GetEgoRay, Part.RayCastEgo, CPU terrain march"
+      - slug: one-shot-click-placement-mode
+        title: "Implement an armed one-shot click placement mode in ImGui"
+  - id: mods/unscience/features/graffiti-projected-decal-pass
+    title: "Projected PNG decal pass recorded after the main-view resolve"
+    category: rendering
+    submod: graffiti
+    summary: "A Harmony postfix on RenderTarget.ResolveAttachments records a custom Vulkan pass in the post-resolve window KSA's GridPass uses, drawing one unit cube per decal whose fragment shader rebuilds the scene position from reverse-Z depth and projects a PNG onto it"
+    novelty: high
+    techniques: [harmony-postfix, vulkan-pipeline, vulkan-buffer, glsl-shader, starmap-lifecycle]
+    lifecycle: [startup:all-mods-loaded, frame:draw-ui, render:grid]
+    hooks: ["harmony-postfix KSA.Rendering.RenderTarget.ResolveAttachments", "starmap StarMapBeforeGui (via unscience ISubmod.Update; matrices and GPU bring-up)", "harmony-prefix KSA.Program.OnDrawUiConsole (HiddenUiFrameHook replays ISubmod.Update while the HUD is hidden)"]
+    game_types: [KSA.Rendering.RenderTarget, KSA.Program, KSA.GridPass, KSA.GlobalShaderBindings, RenderCore.Systems.BindlessTextureLibrary, RenderCore.ShaderModuleUtils, KSA.ShaderReference, KSA.RenderingPresets, KSA.Rendering.BarrierBatch, KSA.Rendering.ImageBarrierInfo, Core.Renderer]
+    key_paths: [graffiti.lib/GraffitiPatches.cs, graffiti.lib/DecalRenderer.cs, graffiti.lib/DecalShaders.cs, graffiti.lib/GraffitiSubmod.cs, unscience/Mod.cs]
+    howto_topics:
+      - slug: projected-decals-on-hulls-and-terrain
+        title: "Draw projected decals on hulls and terrain"
+        note: "depth reconstruction from reverse-Z"
+      - slug: insert-custom-vulkan-pass-after-resolve
+        title: "Record a custom Vulkan pass after the main-view resolve"
+        note: "postfix RenderTarget.ResolveAttachments"
+  - id: mods/unscience/features/hot-pursuit-mesh-ray-placement
+    title: "Click-to-mount picking on vessel meshes with stable part anchoring"
+    category: camera
+    submod: hot-pursuit
+    summary: "A one-shot click casts Cursor.GetEgoRay against every vessel with Part.RayCastEgo, stores the hit in the hit sub-part's local frame and re-resolves the anchor each frame by vehicle id and Part.InstanceId, going dormant when the target is gone"
+    novelty: medium
+    techniques: [imgui-drawlist]
+    lifecycle: [frame:draw-ui, frame:viewports]
+    hooks: ["starmap StarMapAfterGui (via unscience ISubmod.RenderFloatingWindows, armed click)", "starmap StarMapBeforeGui (via unscience ISubmod.Update, target re-resolution)", "harmony-prefix KSA.FixedController.OnFrame(IViewport, double) (re-resolution before the pose)"]
+    game_types: [KSA.Cursor, KSA.Part, KSA.Vehicle, KSA.Camera, KSA.Program]
+    key_paths: [hot-pursuit.lib/HotPursuitPicker.cs, hot-pursuit.lib/HotPursuitSubmod.Placement.cs, hot-pursuit.lib/HotPursuitSubmod.cs, hot-pursuit.lib/HotPursuitCamera.cs, hot-pursuit.lib/HotPursuitSubmod.Saves.cs, ksa-abstractions.lib/VehicleProvider.cs]
+    howto_topics:
+      - slug: raycast-vessel-parts-from-cursor
+        title: "Raycast vessel parts from the mouse cursor"
+        note: "Cursor.GetEgoRay + Part.RayCastEgo"
+      - slug: stable-part-anchors
+        title: "Anchor to a part by stable ids and re-resolve every frame"
+  - id: mods/unscience/features/hot-pursuit-part-mounted-cameras
+    title: "Live part-mounted cameras in leased stock secondary viewports"
+    category: camera
+    submod: hot-pursuit
+    summary: "Hot Pursuit claims stock secondary viewports through ViewportRegistry and replaces FixedController.OnFrame only for its own viewports with a part-relative pose and nearby-celestial sync, so the stock renderer draws a camera riding a sub-part"
+    novelty: high
+    techniques: [harmony-prefix, reflection]
+    lifecycle: [frame:viewports, frame:draw-ui, frame:render, event:save, event:load]
+    hooks: ["harmony-prefix KSA.FixedController.OnFrame(IViewport, double)", "starmap StarMapBeforeGui (via unscience ISubmod.Update, lease sync and follow)", "starmap StarMapAfterGui (via unscience ISubmod.RenderContent)", "unscience ISaveParticipantSource (scene save record hot-pursuit)"]
+    game_types: [KSA.FixedController, KSA.ViewportRegistry, KSA.IViewportOwner, KSA.IGameViewport, KSA.GameViewport, KSA.Camera, KSA.Program, KSA.Vehicle, KSA.Part, KSA.Celestial, KSA.StaticCelestialDistanceRendering, KSA.StaticObjectRenderer]
+    key_paths: [hot-pursuit.lib/HotPursuitPatches.cs, hot-pursuit.lib/HotPursuitSubmod.cs, hot-pursuit.lib/HotPursuitPose.cs, hot-pursuit.lib/HotPursuitCelestialState.cs, hot-pursuit.lib/HotPursuitCamera.cs, hot-pursuit.lib/HotPursuitSubmod.Ui.cs]
+    howto_topics:
+      - slug: secondary-viewport-camera
+        title: "Show a live secondary camera in a stock viewport window"
+        note: "ViewportRegistry.TryClaimSecondaryViewport"
+      - slug: mount-a-camera-on-a-part
+        title: "Mount a camera on a vessel part"
+        note: "selective FixedController.OnFrame prefix"
+  - id: mods/unscience/features/humble-arteest-engine-emissive
+    title: "Engine glow override through the dynamic part instance submission"
+    category: rendering
+    submod: humble-arteest
+    summary: "A Harmony prefix on PartModelDynamic's private AddInstance rewrites each instance's Temperature and TfiThickness just before it is appended to the frame's instance list, so the game's own ENABLE_TEMPERATURE heat lookup and thin-film shading make chosen engine models glow without any shader change"
+    novelty: medium
+    techniques: [harmony-prefix, unsafe-struct-reinterpret]
+    lifecycle: [startup:all-mods-loaded, frame:draw-ui, frame:render]
+    hooks: ["harmony-prefix KSA.PartModelDynamic.AddInstance (private PerInstanceData, PerInstanceDent, IViewport, int overload)", "starmap StarMapAfterGui (via unscience ISubmod.RenderContent; settings)"]
+    game_types: [KSA.PartModelDynamic, KSA.PartModelDynamicModule, KSA.PartTreeRenderData, KSA.Deformation.PerInstanceDent, KSA.FxTemperature, KSA.Program]
+    key_paths: [humble-arteest.lib/EngineEmissivePatches.cs, humble-arteest.lib/EngineEmissive.cs, humble-arteest.lib/EngineEmissiveSubmod.cs]
+    howto_topics:
+      - slug: override-engine-heat-glow
+        title: "Override engine heat glow per engine"
+        note: "prefix PartModelDynamic.AddInstance"
+      - slug: edit-per-instance-render-data
+        title: "Edit per-instance render data just before submission"
+  - id: mods/unscience/features/humble-arteest-kitten-color
+    title: "Kitten tinting by staged writes into the GPU material buffer"
+    category: kittens
+    submod: humble-arteest
+    summary: "Kitten Color finds Program.MaterialSystem and its protected AssetMap and DeviceCtx by reflection and overwrites MaterialData.AlbedoColor for chosen materials with a one-shot Vulkan staging upload into GpuMaterialSystem.BigBuffer, which ModelPbr.frag multiplies into the albedo and alpha-tests"
+    novelty: medium
+    techniques: [reflection, vulkan-buffer]
+    lifecycle: [frame:draw-ui, event:load]
+    hooks: ["starmap StarMapAfterGui (via unscience ISubmod.RenderContent; Initialize, Apply, Reset)", "reflection KSA.Program.MaterialSystem", "reflection KSA.AssetManager.AssetMap (protected)", "reflection KSA.GpuObjectSystem.DeviceCtx (protected)", "reflection KSA.GpuObjectAssetRef.Handle"]
+    game_types: [KSA.Program, KSA.GpuMaterialSystem, KSA.GpuObjectSystem, KSA.AssetManager, KSA.GpuObjectAssetRef, KSA.MaterialData, KSA.CharacterRenderResources, RenderCore.VkUtils, Brutal.VulkanApi.Abstractions.StagingPool]
+    key_paths: [humble-arteest.lib/KittenColor.cs, humble-arteest.lib/KittenColor.Persistence.cs, humble-arteest.lib/KittenColorSubmod.cs, ksa-abstractions.lib/Persistence/MaterialColorState.cs]
+    howto_topics:
+      - slug: write-gpu-material-buffer
+        title: "Write material colors directly into the GPU material buffer"
+        note: "GpuMaterialSystem.BigBuffer staged upload"
+      - slug: tint-kitten-materials
+        title: "Tint kitten character materials"
+  - id: mods/unscience/features/humble-arteest-kitten-visor-toggle
+    title: "Hide kitten helmet visors with a draw-call transpiler"
+    category: kittens
+    submod: humble-arteest
+    summary: "A Harmony transpiler on KittenRenderable.UpdateRenderData replaces exactly one VisorMesh.Draw(ViewHandle) call with a static helper that skips the draw while a session flag is set, hiding visor glass on every kitten in every pass and view without touching materials or meshes"
+    novelty: medium
+    techniques: [harmony-transpiler]
+    lifecycle: [startup:all-mods-loaded, frame:draw-ui, frame:render]
+    hooks: ["harmony-transpiler KSA.KittenRenderable.UpdateRenderData", "starmap StarMapAfterGui (via unscience ISubmod.RenderContent; Hide/Show button)"]
+    game_types: [KSA.KittenRenderable, KSA.CharacterAvatar, KSA.StaticMeshRenderable, RenderCore.Systems.ViewHandle, KSA.KittenEva, KSA.IVASeat, KSA.Vehicle, KSA.Program]
+    key_paths: [humble-arteest.lib/KittenVisorPatches.cs, humble-arteest.lib/KittenColorSubmod.cs, unscience/Patcher.cs]
+    howto_topics:
+      - slug: skip-one-draw-call-with-transpiler
+        title: "Skip one specific draw call with a Harmony transpiler"
+        note: "VisorMesh.Draw in KittenRenderable.UpdateRenderData"
+      - slug: hide-kitten-visor
+        title: "Hide kitten helmet visors"
+  - id: mods/unscience/features/humble-arteest-vehicle-paint-shader-patch
+    title: "Per-part vehicle paint through free state-flag bits and an in-memory part shader patch"
+    category: shaders
+    submod: humble-arteest
+    summary: "Vehicle Paint packs a 7:7:7 colour into the unused high bits of each part instance's StateBitFlag via postfixes on PartTreeRenderData's private state writers, and compiles a patched MeshIndirect fragment shader in memory by prefixing ShaderModuleUtils.FromFile during a requested renderer rebuild"
+    novelty: high
+    techniques: [harmony-prefix, harmony-postfix, reflection, glsl-shader, shader-patching]
+    lifecycle: [startup:all-mods-loaded, frame:draw-ui, frame:render]
+    hooks: ["harmony-prefix RenderCore.ShaderModuleUtils.FromFile", "harmony-postfix KSA.PartTreeRenderData.WriteState", "harmony-postfix KSA.PartTreeRenderData.WriteDynamicState", "harmony-prefix KSA.PartTreeRenderData.EnsureBuilt", "reflection KSA.PartTreeRenderData.Batch / DynamicBatch (private nested) .StateBitFlags", "starmap StarMapAfterGui (via unscience ISubmod.RenderContent; Enable, blend mode, colour edits)"]
+    game_types: [RenderCore.ShaderModuleUtils, KSA.ShaderReference, KSA.PartTreeRenderData, KSA.PartTree, KSA.PartModel, KSA.PartModelDynamic, KSA.PartModelDynamicModule, KSA.Part, KSA.Program, KSA.PartModelRenderer, KSA.ModLibrary]
+    key_paths: [humble-arteest.lib/VehiclePaintPatches.cs, humble-arteest.lib/VehiclePaintShaders.cs, humble-arteest.lib/VehiclePaint.cs, humble-arteest.lib/PaintTargets.cs]
+    howto_topics:
+      - slug: per-part-paint-via-instance-flag-bits
+        title: "Recolor individual parts through unused per-instance flag bits"
+        note: "StateBitFlag high bits"
+      - slug: patch-game-shaders-in-memory
+        title: "Patch and recompile a game shader in memory"
+        note: "prefix ShaderModuleUtils.FromFile"
+  - id: mods/unscience/features/i-feel-seen-render-distance-override
+    title: "Bypass the one-pixel render cull for chosen vessels"
+    category: rendering
+    submod: i-feel-seen
+    summary: "I Feel Seen keeps selected vessels and EVA kittens drawn at any distance with skip-original Harmony prefixes on Vehicle.GetWorldMatrix and Vehicle.UpdateRenderData, both resolved by name, that rebuild the native result without the pixel-size cull"
+    novelty: medium
+    techniques: [harmony-prefix, reflection]
+    lifecycle: [frame:render, frame:draw-ui]
+    hooks: ["harmony-prefix KSA.Vehicle.GetWorldMatrix (resolved by name)", "harmony-prefix KSA.Vehicle.UpdateRenderData (resolved by name)", "starmap StarMapAfterGui (via unscience ISubmod.RenderContent, tracking UI)"]
+    game_types: [KSA.Vehicle, KSA.KittenEva, KSA.PartTree, KSA.Camera, KSA.IViewport, KSA.Program]
+    key_paths: [i-feel-seen.lib/IFeelSeenPatches.cs, i-feel-seen.lib/VehicleTracker.cs, i-feel-seen.lib/IFeelSeenSubmod.cs, i-feel-seen.lib/IFeelSeenSubmod.Saves.cs, unscience/Patcher.cs, i-feel-seen/Patcher.cs]
+    howto_topics:
+      - slug: bypass-render-distance-cull
+        title: "Keep a vessel rendered at any distance"
+        note: "skip-original prefixes on GetWorldMatrix and UpdateRenderData"
+      - slug: replace-method-body-with-prefix
+        title: "Replace a game method body with a skip-original prefix"
+  - id: mods/unscience/features/iron-man-connector-serialization
+    title: "Per-instance attachment nodes that survive saves, copies and unload"
+    category: persistence
+    submod: iron-man
+    summary: "Iron Man adds private Part.Connector instances to one kitten's backpack root, encodes them as a versioned marker in the serialized PartInstance.Id, restores them in a Part constructor postfix before connection indices resolve, and converts live links to stock endpoints before its hooks are removed"
+    novelty: high
+    techniques: [harmony-prefix, harmony-postfix, save-payload-embedding]
+    lifecycle: [frame:prepare, event:save, event:load, event:part-copy, event:unload]
+    hooks: ["harmony-postfix KSA.Part.GetReferenceWithChildren(ref uint, PartInstance, bool) (internal)", "harmony-prefix KSA.Part..ctor(string, PartTemplate, PartInstance, Part)", "harmony-postfix KSA.Part..ctor(string, PartTemplate, PartInstance, Part)", "unscience PhysicsFrameHook.Enqueue (node edits)"]
+    game_types: [KSA.Part, KSA.Part.Connector, KSA.Part.Connector.TemplateBase, KSA.Part.Connection, KSA.PartInstance, KSA.PartConnectorInstance, KSA.PartTree, KSA.PartTemplate, KSA.SerializedId, KSA.ConnectorCapabilityFlags, KSA.JobSystems]
+    key_paths: [iron-man.lib/IronManConnectors.cs, iron-man.lib/IronManConnectorData.cs, iron-man.lib/IronManConnectorPatches.cs, iron-man.lib/IronManConnectorUnload.cs, iron-man.lib/IronManPatches.cs, iron-man.lib/IronManSubmod.Ui.cs]
+    howto_topics:
+      - slug: add-custom-attachment-nodes
+        title: "Add custom attachment nodes to a part instance"
+        note: "private Part.Connector"
+      - slug: smuggle-mod-data-through-native-save
+        title: "Carry mod data through a native save field"
+        note: "versioned marker in PartInstance.Id"
+  - id: mods/unscience/features/iron-man-equipment-render-ordering
+    title: "Submit EVA kitten equipment before the part-instance upload"
+    category: rendering
+    submod: iron-man
+    summary: "A prefix on PartModelRenderer.UpdateRenderData pushes each equipped kitten's part tree through a nonvirtual call to the live patched Vehicle.UpdateRenderData before the instance lists are uploaded, and a Priority.First prefix skips the late duplicate while the avatar keeps its later draw"
+    novelty: medium
+    techniques: [harmony-prefix, dynamic-method]
+    lifecycle: [frame:render]
+    hooks: ["harmony-prefix KSA.PartModelRenderer.UpdateRenderData", "harmony-prefix KSA.Vehicle.UpdateRenderData (Priority.First)"]
+    game_types: [KSA.Program, KSA.Vehicle, KSA.KittenEva, KSA.PartModelRenderer, KSA.PartTree, KSA.KittenRenderable]
+    key_paths: [iron-man.lib/IronManRenderPatches.cs, iron-man.lib/IronManFlightPatches.cs, iron-man.lib/IronManConnectors.cs, i-feel-seen.lib/IFeelSeenPatches.cs, godzilla.lib/VisualScalePatches.cs]
+    howto_topics:
+      - slug: render-kitten-equipment
+        title: "Render parts attached to an EVA kitten"
+      - slug: order-render-submission-with-prefixes
+        title: "Control render submission order with prefixes"
+        note: "PartModelRenderer.UpdateRenderData"
+  - id: mods/unscience/features/iron-man-kitten-rocket-flight
+    title: "Fly one EVA kitten as an ordinary rocket vessel"
+    category: kittens
+    submod: iron-man
+    summary: "Per-kitten Iron Man mode flips the worker IsKitten flag, routes input through reverse-patched base Vehicle handlers, enables native flight-computer gauges and re-points the control frame and backpack RCS headward at the physics handoff"
+    novelty: high
+    techniques: [harmony-postfix, harmony-prefix, harmony-transpiler, harmony-reverse-patch, dynamic-method]
+    lifecycle: [frame:draw-ui, frame:prepare, frame:input, frame:dispatch-solvers, physics:vehicle-solver]
+    hooks: ["unscience PhysicsFrameHook.Enqueue (enable, disable, arm, ignite)", "harmony-postfix KSA.VehicleUpdateState.PrepareFromVehicle", "harmony-prefix KSA.KittenEva.OnKey", "harmony-prefix KSA.KittenEva.ProcessInput", "harmony-reverse-patch KSA.Vehicle.OnKey", "harmony-reverse-patch KSA.Vehicle.ProcessInput", "harmony-transpiler KSA.GaugeCanvas.IsContextVisible", "harmony-transpiler KSA.GaugeButtonFlightComputer.IsDisabled", "harmony-transpiler KSA.GaugeButtonFlightComputer.PackData", "harmony-postfix KSA.Vehicle.get_Ctrl2Body", "harmony-transpiler KSA.ThrusterController.RecomputeDynamicData"]
+    game_types: [KSA.KittenEva, KSA.Vehicle, KSA.VehicleUpdateState, KSA.PhysicsBubble, KSA.FlightComputer, KSA.GaugeCanvas, KSA.GaugeButtonFlightComputer, KSA.ThrusterController, KSA.ThrusterControllerGlobalState, KSA.Rocket, KSA.ModuleStateful, KSA.EngineController, KSA.Universe, KSA.InputEvents]
+    key_paths: [iron-man.lib/IronManSubmod.cs, iron-man.lib/IronManSubmod.Ui.cs, iron-man.lib/IronManSubmod.Saves.cs, iron-man.lib/IronManEvaSettings.cs, iron-man.lib/IronManFlightSettings.cs, iron-man.lib/IronManFlightPatches.cs]
+    howto_topics:
+      - slug: fly-an-eva-kitten-as-a-vessel
+        title: "Fly an EVA kitten with vessel controls"
+        note: "worker IsKitten flag, reverse patches"
+      - slug: harmony-reverse-patch-base-method
+        title: "Call a base implementation with a Harmony reverse patch"
+  - id: mods/unscience/features/iron-man-kitten-vehicle-editing
+    title: "Open the stock vehicle editor on a live EVA kitten"
+    category: kittens
+    submod: iron-man
+    summary: "Iron Man sets Program.EditorFlag from the physics handoff so the stock editor opens on the controlled KittenEva in place, then guards the body root with editor prefixes, draws the avatar into the editor prepass and rotates the editor camera so the kitten stands upright"
+    novelty: high
+    techniques: [harmony-prefix, harmony-postfix, harmony-transpiler, reflection]
+    lifecycle: [frame:prepare, frame:input, frame:viewports, editor:on-frame, editor:render]
+    hooks: ["unscience PhysicsFrameHook.Enqueue (sets Program.EditorFlag at the PrepareFrame handoff)", "harmony-postfix KSA.VehicleEditor.OnFrame", "harmony-prefix KSA.VehicleEditor.OnMouseButton", "harmony-prefix KSA.VehicleEditor.OnKey", "harmony-prefix KSA.VehicleEditor.UpdateSelected", "harmony-prefix KSA.VehicleEditor.DeletePart", "harmony-prefix KSA.VehicleEditor.SetFocusedTree", "harmony-prefix KSA.VehicleEditor.DuplicateHighlightedPart (private, by name)", "harmony-prefix KSA.VehicleEditor.RequestNewVehicle (private, by name)", "harmony-prefix KSA.VehicleEditor.FinalizeNewVehicle (private, by name)", "harmony-postfix KSA.VehicleSaveData.Create(string, PartTree)", "harmony-postfix KSA.SuperMeshRenderSystem.ClearBuckets", "harmony-postfix KSA.OrbitController.GetFrame2Ecl (private, by name)", "harmony-transpiler KSA.OrbitController.EditorOnScroll (private, by name)"]
+    game_types: [KSA.Program, KSA.VehicleEditor, KSA.VehicleEditingSpace, KSA.VehicleSaveData, KSA.KittenEva, KSA.KittenRenderable, KSA.SuperMeshRenderSystem, KSA.OrbitController, KSA.Part, KSA.PartTree]
+    key_paths: [iron-man.lib/IronManSubmod.cs, iron-man.lib/IronManSubmod.Ui.cs, iron-man.lib/IronManEditorPatches.cs, iron-man.lib/IronManEditorOrientationPatches.cs, iron-man.lib/IronManConnectors.cs]
+    howto_topics:
+      - slug: open-vehicle-editor-on-a-live-vessel
+        title: "Open the vehicle editor on a live vessel or kitten"
+        note: "Program.EditorFlag at the handoff"
+      - slug: guard-editor-operations
+        title: "Protect parts from editor operations with prefixes"
+  - id: mods/unscience/features/iron-man-surface-teleport-correction
+    title: "Upright surface teleport for Iron Man kittens by adapting one placement call"
+    category: kittens
+    submod: iron-man
+    summary: "Iron Man transpiles the one GetInitialKinematicStateForLocation call in Vehicle.TeleportToLocation into an adapter that gives native placement head-up proxy bounds for active Iron Man kittens and converts the attitude and rates back"
+    novelty: medium
+    techniques: [harmony-transpiler]
+    lifecycle: [frame:draw-ui, frame:input]
+    hooks: ["harmony-transpiler KSA.Vehicle.TeleportToLocation(Celestial, double, double)"]
+    game_types: [KSA.Vehicle, KSA.KittenEva, KSA.Vehicle.InitialKinematicState, KSA.InputEvents, KSA.InputEvents.TeleportInputData, KSA.Celestial, KSA.Universe, KSA.Program]
+    key_paths: [iron-man.lib/IronManTeleportPatches.cs, iron-man.lib/IronManOrientation.cs, iron-man.lib/IronManPatches.cs, iron-man.lib/IronManSubmod.cs]
+    howto_topics:
+      - slug: swap-a-static-call-for-an-adapter-with-extra-arguments
+        title: "Replace a static call site with an adapter that also receives the caller instance"
+        note: "move branch labels and exception-block starts and ends correctly when splitting an instruction"
+      - slug: surface-placement-and-teleport
+        title: "Place or teleport a vessel onto a planet surface with correct clearance"
+        note: "GetInitialKinematicStateForLocation assumes body +X up and measures clearance below the min-X face"
+      - slug: convert-attitude-between-body-frames
+        title: "Convert attitude quaternions and body rates between two body-frame conventions"
+      - slug: deferred-input-event-timing
+        title: "How KSA input-event buffers defer actions to the next PrepareFrame"
+  - id: mods/unscience/features/its-so-shiny-light-part-grids
+    title: "Light-part pixel grids switched through stock light switches"
+    category: rendering
+    submod: its-so-shiny
+    summary: "It's So Shiny builds Blinky-style grids from the stock LightPart, powers them by connecting each light to a battery part, toggles pixels through PowerConsumer.LightIsActive, recolors them with one template write per PartTemplate, and draws a light's mesh only while it is lit"
+    novelty: medium
+    techniques: [runtime-part-creation, part-tree-rebuild, reflection]
+    lifecycle: [frame:draw-ui, frame:render, physics:vehicle-solver, event:load]
+    hooks: ["starmap StarMapAfterGui (via unscience ISubmod.RenderContent: create, scan, appearance, patterns)", "starmap StarMapBeforeGui (via unscience ISubmod.Update: scroll tick, deferred destroy)", "harmony-prefix KSA.PartTreeRenderData.Compose / ComposeDynamic / ComposeGlass (shared PartRenderFilter, owner its-so-shiny)", "harmony-postfix KSA.PartTreeRenderData.Compose / ComposeDynamic / ComposeGlass (shared PartRenderFilter, owner its-so-shiny)", "reflection KSA.PartTemplate.Components / KSA.LightModule+TemplateData.Intensity / ColorRgb (via zippo LightController)"]
+    game_types: [KSA.Part, KSA.PartTree, KSA.PartTemplate, KSA.Vehicle, KSA.ModLibrary, KSA.Battery, KSA.PowerConsumer, KSA.LightModule]
+    key_paths: [its-so-shiny.lib/ShinyGridBuilder.cs, its-so-shiny.lib/ShinyPixelCell.cs, its-so-shiny.lib/ShinyPixelGrid.cs, its-so-shiny.lib/ShinyGridManager.cs, its-so-shiny.lib/ShinyScrollAnimation.cs, its-so-shiny.lib/ShinyPatches.cs]
+    howto_topics:
+      - slug: runtime-light-part-grids
+        title: "Build grids of light parts at runtime"
+      - slug: power-runtime-parts
+        title: "Connect runtime parts to a vessel's power supply"
+        note: "battery connections, PowerConsumer.LightIsActive"
+  - id: mods/unscience/features/jplrepo-menu-bar-animation
+    title: "Animated menu-bar text via a call-site transpiler and a hook prefix"
+    category: ui
+    submod: jplrepo
+    summary: "A transpiler on Program.DrawMenuBar injects a cursor snapshot just before the version-string SetCursorPosY call, and a prefix on DrawProgramMenusHook restores that cursor and draws colored, sliding menu-bar words"
+    novelty: medium
+    techniques: [harmony-transpiler, harmony-prefix, imgui-menu, imgui-drawlist]
+    lifecycle: [frame:draw-ui]
+    hooks: ["harmony-transpiler KSA.Program.DrawMenuBar", "harmony-prefix KSA.Program.DrawProgramMenusHook"]
+    game_types: [KSA.Program, KSA.KSAColor]
+    key_paths: [jplrepo/Patcher.cs, jplrepo/MenuBarAnimation.cs, jplrepo/Mod.cs]
+    howto_topics:
+      - slug: add-items-to-game-menu-bar
+        title: "Add items to the game's main menu bar"
+        note: "Program.DrawProgramMenusHook"
+      - slug: inject-code-at-a-call-site
+        title: "Inject code before a specific call with a transpiler"
+        note: "Program.DrawMenuBar"
+  - id: mods/unscience/features/kitchen-sink-capsule-glass
+    title: "See into the stock capsule by hiding its two opaque window models"
+    category: rendering
+    submod: kitchen-sink
+    summary: "Kitchen Sink's See Inside Capsule experiment hides exactly the medium capsule's two window models through the shared part render filter and takes an IvaForceRender requirement so the cabin shows behind the existing IVA window glass"
+    novelty: medium
+    techniques: [harmony-prefix, harmony-postfix, xml-asset, save-sidecar]
+    lifecycle: [frame:draw-ui, frame:render, event:save, event:load]
+    hooks: ["harmony-prefix KSA.PartTreeRenderData.Compose (shared, via PartRenderFilter.RegisterStaticModel)", "harmony-postfix KSA.PartTreeRenderData.Compose (shared, via PartRenderFilter.RegisterStaticModel)", "harmony-postfix KSA.PartModel..ctor (shared, via IvaForceRender.SetRequired)", "starmap StarMapAfterGui (via unscience ISubmod.RenderContent, toggle)", "unscience ISaveParticipantSource (scene save record kitchen-sink-capsule-glass)"]
+    game_types: [KSA.PartModel, KSA.PartModelModule, KSA.PartModelGlass, KSA.PartTreeRenderData, KSA.Program]
+    key_paths: [kitchen-sink.lib/CapsuleGlassExperiment.cs, kitchen-sink.lib/KitchenSinkLib.cs, kitchen-sink.lib/KitchenSinkSubmod.Saves.cs, ksa-abstractions.lib/PartRenderFilter.cs, ksa-abstractions.lib/PartRenderFilter.Batches.cs, ksa-abstractions.lib/IvaForceRender.cs]
+    howto_topics:
+      - slug: hide-specific-part-models
+        title: "Hide specific part models without removing parts"
+        note: "shared part render filter"
+      - slug: see-inside-capsule-interiors
+        title: "Show IVA interiors from outside a capsule"
+  - id: mods/unscience/features/kitchen-sink-g-load-protection
+    title: "Kitchen Sink G-load protection for exact vessel instances"
+    category: physics
+    submod: kitchen-sink
+    summary: "Kitchen Sink exempts selected vessels from KSA's whole-vehicle G-load destruction only, with a guarded transpiler that filters the one StructuralLoad.GLoadFraction read in PhysicsBubble.DetectStructuralFailure via a concurrent registry"
+    novelty: high
+    techniques: [harmony-transpiler, reflection, save-sidecar, imgui-window]
+    lifecycle: [physics:vehicle-solver, frame:draw-ui, event:save, event:load]
+    hooks: ["harmony-transpiler KSA.PhysicsBubble.DetectStructuralFailure (private static, by name, exact signature)", "starmap StarMapBeforeGui (via unscience ISubmod.Update, registry pruning)", "event:save kitchen-sink-g-load scene record (capture, reset, replay)"]
+    game_types: [KSA.PhysicsBubble, KSA.StructuralLoad, KSA.VehicleUpdateState, KSA.VehicleDestructionEvent, KSA.VehicleStructuralLimits, KSA.Vehicle, KSA.LoadAlert, KSA.BubbleEndStepJob]
+    key_paths: [kitchen-sink.lib/GLoadProtectionPatches.cs, kitchen-sink.lib/GLoadProtection.cs, kitchen-sink.lib/KitchenSinkSubmod.GLoadProtection.cs, kitchen-sink.lib/KitchenSinkSubmod.Saves.cs, unscience/Patcher.cs]
+    howto_topics:
+      - slug: filter-a-value-before-a-comparison-with-a-transpiler
+        title: "Change only the value a game comparison sees with a call-site filter transpiler"
+        note: "insert ldarg.0 plus a static filter right after a getter call; require exactly one match"
+      - slug: per-vessel-damage-immunity
+        title: "Make specific vessels immune to structural destruction"
+        note: "a worker-side event decision; compare with The Tick's prefix and postfix"
+      - slug: worker-safe-mod-registries
+        title: "Share mod state between the UI and physics worker threads"
+        note: "ConcurrentDictionary with ReferenceEqualityComparer, IsDisposed check, per-frame prune"
+      - slug: rebind-saved-vessel-references-after-load
+        title: "Persist vessel references by id and rebind them unambiguously after load"
+  - id: mods/unscience/features/kitchen-sink-iva-camera-unlock
+    title: "Free-flying IVA camera by swapping the main viewport's IVA controller"
+    category: camera
+    submod: kitchen-sink
+    summary: "Kitchen Sink swaps the main viewport's IVAController for a subclass that delegates movement to a private FlyController in the vessel body frame, keeping IVA mode, audio, ray tracing and interiors while the camera leaves the seat"
+    novelty: high
+    techniques: [reflection, harmony-postfix, controller-subclass, save-sidecar]
+    lifecycle: [frame:viewports, frame:input, frame:controller, frame:draw-ui, frame:render, event:save, event:load]
+    hooks: ["reflection KSA.GameViewport.IvaController (protected setter as an open delegate)", "subclass-override KSA.IVAController.OnFrame, OnKey, OnMouseButton, OnCursorPos, OnScroll, GetCursorMode, OnSwitchOff", "harmony-postfix KSA.IVASeat.IsCameraInThisSeat(IViewport) (private)", "starmap StarMapBeforeGui (via unscience ISubmod.Update, validity check)", "starmap StarMapAfterGui (via unscience ISubmod.RenderContent, Unlock and Return to Seat)", "unscience ISaveParticipantSource (scene save record kitchen-sink-iva-camera)"]
+    game_types: [KSA.GameViewport, KSA.IVAController, KSA.FlyController, KSA.Controller, KSA.IVASeat, KSA.Camera, KSA.Vehicle, KSA.Part, KSA.Program]
+    key_paths: [kitchen-sink.lib/IvaCameraUnlock.cs, kitchen-sink.lib/UnlockedIvaController.cs, kitchen-sink.lib/IvaCameraUnlock.Persistence.cs, kitchen-sink.lib/KitchenSinkSubmod.IvaCamera.cs, kitchen-sink.lib/KitchenSinkLib.cs]
+    howto_topics:
+      - slug: free-fly-iva-camera
+        title: "Let the IVA camera leave the seat"
+        note: "IVAController subclass delegating to FlyController"
+      - slug: replace-a-viewport-controller
+        title: "Replace a viewport's camera controller"
+        note: "protected GameViewport.IvaController setter"
+  - id: mods/unscience/features/kitten-animations-clip-catalog
+    title: "Catalog every animation clip, blend sampler and anim processor a live kitten has loaded"
+    category: kittens
+    submod: kitten-animations
+    summary: "Kitten Animations catalogs every playable clip of a live kitten: ground clips and blend samplers from private KittenRenderable fields, MMU and overlay clips from CharacterAvatar, and the four anim processors by name"
+    novelty: medium
+    techniques: [reflection, imgui-window]
+    lifecycle: [frame:draw-ui]
+    hooks: ["starmap StarMapBeforeGui (catalog and processors rebuilt on bind in KittenAnimationsSubmod.Update)", "starmap StarMapAfterGui (Animations section buttons)", "reflection KSA.KittenRenderable._groundIdleAnim ... _seatedIdleActionAnims (13 private clip fields, cached FieldInfo)", "reflection KSA.KittenRenderable._walkPairSampler, _runPairSampler, _swimPairSampler, _blendSampler (private)", "reflection KSA.KittenRenderable._catPersonalityExpressionAnim, _catExpressionAnim, _catEyeAnim, _catEarAnim (private)", "reflection KSA.KittenRenderable._characterAvatar (private)"]
+    game_types: [KSA.KittenRenderable, KSA.CharacterAvatar, KSA.AnimationAssetRef, KSA.IAnimation, KSA.Rendering.AnimationPairBlendSampler, KSA.Rendering.AnimationDirectionalBlendSampler, KSA.CatExpressionAnim, KSA.CatEyeAnim, KSA.CatEarAnim, KSA.BoneAnimRuntime, KSA.KittenEva]
+    key_paths: [kitten-animations.lib/KittenAnimationCatalog.cs, kitten-animations.lib/KittenAnimProcessors.cs, kitten-animations.lib/Ui/AnimationLibrarySection.cs]
+    howto_topics:
+      - slug: enumerate-kitten-animations
+        title: "List every animation clip a kitten can play"
+      - slug: reflection-with-visible-breakage
+        title: "Read private game fields and surface renames after an update"
+      - slug: kitten-anim-processors
+        title: "Access a kitten's personality, reactive, eye and ear anim processors"
+  - id: mods/unscience/features/kitten-animations-facial-expressions
+    title: "Facial expressions through a mod-owned CatExpressionAnim, plus anim-processor strength overrides"
+    category: kittens
+    submod: kitten-animations
+    summary: "Kitten Animations plays facial expressions through its own CatExpressionAnim appended to AnimProcessors with an eased or latched envelope, and re-applies ear, eye and mood-face knobs from the pose prefix"
+    novelty: high
+    techniques: [harmony-prefix, reflection, imgui-window]
+    lifecycle: [frame:draw-ui, frame:render]
+    hooks: ["harmony-prefix KSA.AnimatedRenderable.UpdateAnimation(double) (processor knobs re-applied in KittenAnimationDriver.ApplyBeforePose)", "starmap StarMapBeforeGui (KittenExpressionController.Update advances the envelope)", "starmap StarMapAfterGui (Expressions and Animation Strength sections)", "reflection KSA.CatExpressionAnim._expressionPose (private, cached FieldInfo)", "reflection KSA.KittenRenderable._catPersonalityExpressionAnim, _catExpressionAnim, _catEyeAnim, _catEarAnim (private)"]
+    game_types: [KSA.CatExpressionAnim, KSA.CatPostAnim, KSA.CatEyeAnim, KSA.CatEarAnim, KSA.AnimatedRenderable, KSA.KittenRenderable, KSA.CharacterAvatar, KSA.AnimationAssetRef]
+    key_paths: [kitten-animations.lib/KittenExpressionController.cs, kitten-animations.lib/KittenAnimationDriver.cs, kitten-animations.lib/Ui/ExpressionSection.cs, kitten-animations.lib/Ui/StrengthSection.cs]
+    howto_topics:
+      - slug: kitten-facial-expressions
+        title: "Make a kitten pull a facial expression"
+      - slug: add-custom-anim-processor
+        title: "Add your own IAnimProcessor to an animated model"
+        note: "list order is execution order; bust _expressionPose when swapping clips"
+      - slug: override-values-game-rewrites-each-frame
+        title: "Hold a value the game rewrites every frame"
+        note: "re-apply after the game's write; cap when it cannot be held"
+      - slug: imgui-drag-unclamped-typed-input
+        title: "Allow typed values beyond drag limits in ImGui"
+        note: "DragFloat does not clamp typed input; SliderFloat does"
+  - id: mods/unscience/features/kitten-animations-forced-clip-playback
+    title: "Force any animation clip on an EVA kitten from a prefix on AnimatedRenderable.UpdateAnimation"
+    category: kittens
+    submod: kitten-animations
+    summary: "Kitten Animations holds a chosen clip on an EVA kitten against the game's per-frame clip choice from a Harmony prefix on AnimatedRenderable.UpdateAnimation, with blend, rate, freeze, restart and saved phase"
+    novelty: high
+    techniques: [harmony-prefix, reflection, imgui-window]
+    lifecycle: [frame:draw-ui, frame:render]
+    hooks: ["harmony-prefix KSA.AnimatedRenderable.UpdateAnimation(double) (__instance, ref double dt)", "starmap StarMapBeforeGui (KittenAnimationsSubmod.Update resolves and binds the target)", "starmap StarMapAfterGui (Target and Playback sections in ISubmod.RenderContent)", "reflection KSA.KittenRenderable._characterAvatar (private)", "reflection KSA.AnimatedRenderable.RuntimeAnim, KSA.BoneAnimRuntime.TimeSinceTransition and CurrentAnimation (protected; saved phase only)"]
+    game_types: [KSA.AnimatedRenderable, KSA.BoneAnimRuntime, KSA.KittenRenderable, KSA.KittenEva, KSA.CharacterAvatar, KSA.IAnimation, KSA.LocomotionState, KSA.Program]
+    key_paths: [kitten-animations.lib/KittenAnimationPatches.cs, kitten-animations.lib/KittenAnimationDriver.cs, kitten-animations.lib/KittenAnimationsSubmod.cs, kitten-animations.lib/KittenAvatarAccessor.cs, kitten-animations.lib/KittenPlaybackPhase.cs]
+    howto_topics:
+      - slug: force-kitten-animation-clip
+        title: "Play a specific animation on a kitten despite the game's clip selection"
+      - slug: override-at-consumption-point-prefix
+        title: "Beat per-frame game writes by patching the consumer, not the producer"
+        note: "prefix on the sampling call; keep it a reference compare on hot paths"
+      - slug: animation-playback-rate-and-freeze
+        title: "Scale or freeze skeletal animation playback"
+      - slug: save-restore-animation-phase
+        title: "Save and restore an animation clip's playback phase"
+  - id: mods/unscience/features/kitten-animations-locomotion-tuning
+    title: "Live animation tuning on KittenLocomotionTuning.Current with a scoped reset and a scene-save record"
+    category: kittens
+    submod: kitten-animations
+    summary: "Kitten Animations edits the 20 animation-facing fields of the global KittenLocomotionTuning.Current in place, resets only those, shows live blend weights, and saves them with clip and expression state"
+    novelty: medium
+    techniques: [imgui-window, save-sidecar]
+    lifecycle: [frame:draw-ui, frame:render, frame:dispatch-solvers, event:save, event:load, frame:prepare]
+    hooks: ["starmap StarMapAfterGui (TuningSection writes ref KittenLocomotionTuning.Current fields)", "unscience save participant kitten-animations (default order 100) via the shared native save hooks"]
+    game_types: [KSA.KittenLocomotionTuning, KSA.KittenLocomotion, KSA.KittenTuningWindow, KSA.KittenRenderable, KSA.KittenEva, KSA.Vehicle, KSA.VehicleUpdateState, KSA.PhysicsBubble, KSA.LocomotionState, KSA.Rendering.AnimationPairBlendSampler]
+    key_paths: [kitten-animations.lib/Ui/TuningSection.cs, kitten-animations.lib/SavedAnimationTuning.cs, kitten-animations.lib/KittenAnimationsSubmod.Persistence.cs]
+    howto_topics:
+      - slug: edit-kitten-locomotion-tuning
+        title: "Tune kitten locomotion and animation parameters at runtime"
+        note: "render reads Current each frame; the worker gets a copy in PrepareWorker"
+      - slug: imgui-ref-bind-game-statics
+        title: "Bind ImGui widgets directly to game static fields"
+      - slug: persist-panel-state-in-scene-saves
+        title: "Persist a mod panel's state per KSA save without retargeting missing objects"
+  - id: mods/unscience/features/kiwis-marbles-celestial-welding
+    title: "Celestial welding by rewriting a body's orbit before every sim step"
+    category: celestials
+    submod: kiwis-marbles
+    summary: "Kiwi's Marbles pins a planet or moon at a CCI-frame offset from another celestial or a vessel by building a fresh orbit from the target's state vectors in a Priority.First prefix on Universe.ExecuteNextVehicleSolvers, before the orbit workers snapshot it"
+    novelty: high
+    techniques: [harmony-prefix, save-sidecar]
+    lifecycle: [frame:dispatch-solvers, frame:draw-ui, event:save, event:load]
+    hooks: ["harmony-prefix KSA.Universe.ExecuteNextVehicleSolvers (priority First)", "starmap StarMapAfterGui (via unscience ISubmod.RenderContent: create, edit, unweld)", "harmony-postfix KSA.GameSave.Populate (shared NativeSaveHooks: capture)", "harmony-prefix KSA.Universe.DeserializeSave (shared NativeSaveHooks: restore original orbits)", "harmony-postfix KSA.Universe.DeserializeSave (shared NativeSaveHooks: replay welds)"]
+    game_types: [KSA.Universe, KSA.Program, KSA.Celestial, KSA.Orbit, KSA.IOrbiter, KSA.IParentBody, KSA.CelestialUpdateTask, KSA.CelestialSystem, KSA.UniverseTime, KSA.StateVectors, KSA.Vehicle]
+    key_paths: [kiwis-marbles.lib/KiwisMarblesPatches.cs, kiwis-marbles.lib/CelestialWeldEngine.cs, kiwis-marbles.lib/KiwisMarblesSubmod.cs, kiwis-marbles.lib/KiwisMarblesSubmod.Persistence.cs, unscience/Patcher.cs]
+    howto_topics:
+      - slug: move-celestial-body-at-runtime
+        title: "Reposition a planet or moon at runtime"
+        note: "swap Celestial.Orbit in the solver-dispatch window; UI-time swaps are overwritten by the orbit job"
+      - slug: orbit-from-state-vectors
+        title: "Build an orbit from CCI position and velocity"
+      - slug: solver-dispatch-prefix-window
+        title: "Mutate simulated state between Apply*Solvers and ExecuteNext*Solvers"
+      - slug: topological-sort-dependent-updates
+        title: "Order dependent per-step updates with a topological sort"
+  - id: mods/unscience/features/kiwis-marbles-cross-parent-reparenting
+    title: "Cross-parent celestial welds with explicit IParentBody.Children re-parenting"
+    category: celestials
+    submod: kiwis-marbles
+    summary: "When a weld moves a body under a different parent, Kiwi's Marbles calls Celestial.SetOrbit, then moves the body between the old and new parents' Children lists itself and refreshes the moved subtree, because KSA re-parents only vessels automatically"
+    novelty: high
+    techniques: [harmony-prefix, celestial-reparenting]
+    lifecycle: [frame:dispatch-solvers, event:load]
+    hooks: ["harmony-prefix KSA.Universe.ExecuteNextVehicleSolvers (priority First, shared with the weld update)", "harmony-postfix KSA.Universe.DeserializeSave (shared NativeSaveHooks: replay with parent-graph checks)"]
+    game_types: [KSA.Celestial, KSA.IParentBody, KSA.IOrbiter, KSA.Orbit, KSA.CelestialSystem, KSA.Vehicle, KSA.PatchedConic, KSA.FlightPlan, KSA.Program]
+    key_paths: [kiwis-marbles.lib/CelestialWeldEngine.cs, kiwis-marbles.lib/KiwisMarblesSubmod.Persistence.cs]
+    howto_topics:
+      - slug: reparent-celestial-body
+        title: "Change a celestial body's parent safely"
+        note: "Children lists drive per-frame refresh, encounter search and UI"
+      - slug: celestial-parent-child-tree
+        title: "How KSA's celestial parent/child tree is maintained"
+  - id: mods/unscience/features/lib-game-state-providers
+    title: "Thin static providers that funnel game-state access through one library"
+    category: getting-started
+    submod: null
+    summary: "Static wrappers for vessels, celestials, sim time, part trees and user-data paths, plus reflection and easing helpers, so game-state access goes through one library and a game update breaks one place instead of thirty features"
+    novelty: low
+    techniques: [reflection]
+    lifecycle: [frame:draw-ui]
+    hooks: []
+    game_types: [KSA.Program, KSA.Universe, KSA.CelestialSystem, KSA.Vehicle, KSA.Celestial, KSA.IOrbiter, KSA.Part, KSA.PartTree, KSA.UniverseTime, KSA.LookupCollection]
+    key_paths: [ksa-abstractions.lib/VehicleProvider.cs, ksa-abstractions.lib/CelestialProvider.cs, ksa-abstractions.lib/SimTimeProvider.cs, ksa-abstractions.lib/PartHelpers.cs, ksa-abstractions.lib/ReflectionHelpers.cs, ksa-abstractions.lib/KsaPaths.cs]
+    howto_topics:
+      - slug: centralize-game-state-access
+        title: "Centralize game-state access behind thin providers"
+      - slug: enumerate-vehicles-and-celestials
+        title: "Enumerate vehicles and celestial bodies"
+        note: "Universe.CurrentSystem"
+  - id: mods/unscience/features/lib-hidden-ui-frame-hook
+    title: "Keep per-frame mod work running while the HUD is hidden"
+    category: patching
+    submod: null
+    summary: "A Harmony prefix on Program.OnDrawUiConsole replays a host's StarMap BeforeGui and AfterGui work in frames where F2 or a screenshot capture has hidden the HUD and StarMap's GUI hooks are skipped"
+    novelty: high
+    techniques: [harmony-prefix, starmap-lifecycle]
+    lifecycle: [frame:draw-ui]
+    hooks: ["harmony-prefix KSA.Program.OnDrawUiConsole", "starmap StarMapBeforeGui (the hook being replayed)", "starmap StarMapAfterGui (the hook being replayed)"]
+    game_types: [KSA.Program, KSA.ScreenshotCapture, KSA.InputAction]
+    key_paths: [ksa-abstractions.lib/HiddenUiFrameHook.cs, unscience/Mod.cs, unscience/Patcher.cs]
+    howto_topics:
+      - slug: run-mod-work-while-hud-hidden
+        title: "Keep per-frame mod work running while the HUD is hidden"
+        note: "prefix Program.OnDrawUiConsole"
+      - slug: starmap-gui-hooks-and-drawui
+        title: "Understand when StarMap GUI hooks are skipped"
+        note: "Program.DrawUI"
+  - id: mods/unscience/features/lib-hotkey-guard
+    title: "Block game hotkeys while an ImGui text field has focus"
+    category: ui
+    submod: null
+    summary: "A Harmony prefix on GameSettings.OnKeyAll reports the key event as handled whenever ImGui wants text input, so typing into any mod text box never triggers game key bindings"
+    novelty: medium
+    techniques: [harmony-prefix, imgui-window]
+    lifecycle: [frame:input]
+    hooks: ["harmony-prefix KSA.GameSettings.OnKeyAll"]
+    game_types: [KSA.GameSettings, KSA.Program, Brutal.ImGuiApi.Abstractions.ConsoleWindow]
+    key_paths: [ksa-abstractions.lib/HotkeyGuard.cs, fixme-mod-name/Patcher.cs, unscience/Patcher.cs]
+    howto_topics:
+      - slug: block-game-hotkeys-while-typing
+        title: "Block game hotkeys while typing into ImGui fields"
+        note: "prefix GameSettings.OnKeyAll"
+      - slug: imgui-input-focus-and-game-input
+        title: "Coordinate ImGui focus with game input"
+  - id: mods/unscience/features/lib-isubmod-contract
+    title: "ISubmod contract for features that run standalone or inside a supermod"
+    category: getting-started
+    submod: null
+    summary: "A five-method ImGui panel interface plus static Apply and Remove Harmony patch classes lets each feature library be hosted either by its own StarMap mod or by one aggregating supermod without code changes"
+    novelty: medium
+    techniques: [starmap-lifecycle, imgui-window, harmony-prefix]
+    lifecycle: [startup:all-mods-loaded, frame:draw-ui]
+    hooks: ["starmap StarMapAllModsLoaded (host calls Initialize and the patch class Apply)", "starmap StarMapBeforeGui (host calls Update)", "starmap StarMapAfterGui (host calls RenderContent / RenderFloatingWindows)", "starmap StarMapUnload (host calls Dispose and Remove)"]
+    game_types: []
+    key_paths: [ksa-abstractions.lib/ISubmod.cs, ksa-abstractions.lib/SubmodUI.cs, glass.lib/GlassSubmod.cs, glass.lib/GlassPatches.cs, glass/Mod.cs, glass/Patcher.cs]
+    howto_topics:
+      - slug: host-features-standalone-or-in-supermod
+        title: "Write features that run standalone or inside a supermod"
+      - slug: static-apply-remove-patch-classes
+        title: "Organize Harmony patches as static Apply/Remove classes"
+  - id: mods/unscience/features/lib-iva-force-render
+    title: "Force IVA interior models to render outside IVA"
+    category: rendering
+    submod: null
+    summary: "Flips the shared PartModelModule.Template.Internal flag on loaded and newly constructed part models, with an owner-counted requirement API and a Compose prefix and finalizer that reveal interiors in the vehicle editor for one call at a time"
+    novelty: medium
+    techniques: [harmony-postfix, harmony-prefix, harmony-finalizer]
+    lifecycle: [frame:render, frame:draw-ui, editor:render]
+    hooks: ["harmony-postfix KSA.PartModel..ctor(PartModelModule.Template)", "harmony-prefix KSA.PartTreeRenderData.Compose", "harmony-finalizer KSA.PartTreeRenderData.Compose"]
+    game_types: [KSA.PartModel, KSA.PartModelModule, KSA.PartTreeRenderData, KSA.CameraMode, KSA.Program]
+    key_paths: [ksa-abstractions.lib/IvaForceRender.cs, kitchen-sink.lib/KitchenSinkLib.cs, kitchen-sink.lib/CapsuleGlassExperiment.cs, kitchen-sink.lib/KitchenSinkSubmod.Saves.cs]
+    howto_topics:
+      - slug: render-iva-interiors-outside-iva
+        title: "Render IVA interiors outside IVA mode"
+        note: "PartModelModule.Template.Internal"
+      - slug: owner-counted-global-toggles
+        title: "Share a global toggle between features with owner counting"
+  - id: mods/unscience/features/lib-native-save-hooks
+    title: "Native save and load hooks that bracket every KSA save transaction"
+    category: persistence
+    submod: null
+    summary: "Harmony patches on GameSave.Populate, UncompressedSave.Write and Load, and Universe.DeserializeSave and LoadSystem publish capture, write, reset and restore callbacks and defer every world replacement to the PrepareFrame handoff"
+    novelty: high
+    techniques: [harmony-prefix, harmony-postfix, harmony-finalizer, save-sidecar]
+    lifecycle: [event:save, event:load, frame:input, frame:draw-ui, frame:prepare]
+    hooks: ["harmony-postfix KSA.GameSave.Populate", "harmony-postfix KSA.UncompressedSave.Write", "harmony-prefix KSA.UncompressedSave.Load", "harmony-finalizer KSA.UncompressedSave.Load", "harmony-prefix KSA.Universe.DeserializeSave", "harmony-postfix KSA.Universe.DeserializeSave", "harmony-finalizer KSA.Universe.DeserializeSave", "harmony-prefix KSA.Universe.LoadSystem", "harmony-finalizer KSA.Universe.LoadSystem", "harmony-transpiler KSA.Program.PrepareFrame (installed first through PhysicsFrameHook.Apply)"]
+    game_types: [KSA.GameSave, KSA.UncompressedSave, KSA.Universe, KSA.UniverseData, KSA.GameSaves, KSA.JobSystems, KSA.SystemLibrary, KSA.ModLibrary, KSA.Program]
+    key_paths: [ksa-abstractions.lib/Persistence/NativeSaveHooks.cs, ksa-abstractions.lib/Persistence/NativeSavePreflight.cs, ksa-abstractions.lib/PhysicsFrameHook.cs, unscience/UnscienceSaves.cs, unscience/Patcher.cs]
+    howto_topics:
+      - slug: hook-native-save-and-load
+        title: "Hook the native save and load transaction"
+        note: "GameSave.Populate, UncompressedSave.Write/Load, Universe.DeserializeSave"
+      - slug: defer-world-replacement-to-frame-handoff
+        title: "Defer world replacement to a safe frame point"
+  - id: mods/unscience/features/lib-part-render-filter
+    title: "Hide individual part meshes by compacting the per-frame instance lists"
+    category: rendering
+    submod: null
+    summary: "Shared prefix and postfix pairs on PartTreeRenderData.Compose, ComposeDynamic and ComposeGlass record where each model's instances start and remove hidden parts from the appended range before the lists are uploaded, so parts stay in the vessel but are not drawn"
+    novelty: high
+    techniques: [harmony-prefix, harmony-postfix, reflection]
+    lifecycle: [frame:render]
+    hooks: ["harmony-prefix KSA.PartTreeRenderData.Compose", "harmony-postfix KSA.PartTreeRenderData.Compose", "harmony-prefix KSA.PartTreeRenderData.ComposeDynamic", "harmony-postfix KSA.PartTreeRenderData.ComposeDynamic", "harmony-prefix KSA.PartTreeRenderData.ComposeGlass", "harmony-postfix KSA.PartTreeRenderData.ComposeGlass", "reflection KSA.PartTreeRenderData._batches / _dynamicBatches / _glassBatches", "reflection KSA.PartTreeRenderData.Batch.Model / Parts / Count (and DynamicBatch, GlassBatch)"]
+    game_types: [KSA.PartTreeRenderData, KSA.PartTree, KSA.PartModel, KSA.PartModelDynamic, KSA.PartModelGlass, KSA.PartModelRenderer, KSA.Vehicle, KSA.Program, KSA.Part]
+    key_paths: [ksa-abstractions.lib/PartRenderFilter.cs, ksa-abstractions.lib/PartRenderFilter.Batches.cs, blinky.lib/BlinkyPatches.cs, its-so-shiny.lib/ShinyPatches.cs, kitchen-sink.lib/CapsuleGlassExperiment.cs]
+    howto_topics:
+      - slug: hide-individual-part-meshes
+        title: "Hide individual part meshes from rendering"
+        note: "compact PartTreeRenderData.Compose instance lists"
+      - slug: shared-render-filter-between-mods
+        title: "Share one render patch between several owners"
+  - id: mods/unscience/features/lib-physics-frame-hook
+    title: "Physics-safe vessel mutation at the PrepareFrame solver handoff"
+    category: patching
+    submod: null
+    summary: "A transpiler on Program.PrepareFrame swaps the Universe.GetJobSimStep call for a dispatcher that runs queued vessel edits after solver results are applied and before the next physics step is snapshotted"
+    novelty: high
+    techniques: [harmony-transpiler, reflection]
+    lifecycle: [frame:prepare]
+    hooks: ["harmony-transpiler KSA.Program.PrepareFrame", "reflection KSA.Program.PrepareFrame (private, looked up by name)"]
+    game_types: [KSA.Program, KSA.Universe, KSA.SimStep, KSA.JobSystems, KSA.NearestOrbitPointJob, KSA.Vehicle]
+    key_paths: [ksa-abstractions.lib/PhysicsFrameHook.cs, garrys-torch.lib/GarrysTorchPatches.cs, dent-wizard.lib/DentWizardSubmod.cs, godzilla.lib/GodzillaSubmod.cs, iron-man.lib/IronManSubmod.cs, ksa-abstractions.lib/Persistence/NativeSaveHooks.cs]
+    howto_topics:
+      - slug: physics-safe-vessel-mutation
+        title: "Mutate vessel state without losing physics results"
+        note: "transpile Program.PrepareFrame at GetJobSimStep"
+      - slug: ksa-frame-and-physics-handoff
+        title: "Understand the PrepareFrame solver handoff"
+  - id: mods/unscience/features/lib-save-part-identity
+    title: "Stable vehicle and part identity across save and reload"
+    category: persistence
+    submod: null
+    summary: "SavedPartReference addresses a part by vehicle id, tree and sub-part index paths, template id and a SHA-256 topology signature of the whole vehicle, and resolves to null rather than substituting another vehicle or part"
+    novelty: high
+    techniques: [save-sidecar]
+    lifecycle: [event:save, event:load, frame:prepare]
+    hooks: ["harmony-postfix KSA.GameSave.Populate (capture scope via NativeSaveHooks.Capturing)", "harmony-postfix KSA.Universe.DeserializeSave (rebind scope via NativeSaveHooks.Restoring)"]
+    game_types: [KSA.Vehicle, KSA.Part, KSA.PartTree, KSA.PartTemplate, KSA.Universe, KSA.CelestialSystem]
+    key_paths: [ksa-abstractions.lib/Persistence/SavedPartReference.cs, ksa-abstractions.lib/Persistence/PartIdentitySnapshot.cs, ksa-abstractions.lib/VehicleProvider.cs, unscience/UnscienceSaves.cs, the-tick.lib/TheTickSubmod.Saves.cs, thug-life.lib/ThugLifeSubmod.Persistence.cs]
+    howto_topics:
+      - slug: stable-part-references-across-saves
+        title: "Reference a vessel part stably across save and reload"
+        note: "tree paths plus topology hash"
+      - slug: save-identity-pitfalls
+        title: "Understand which game ids survive a save"
+  - id: mods/unscience/features/lib-scene-save-coordinator
+    title: "Scene save coordinator with ordered reset, deferred replay and retained records"
+    category: persistence
+    submod: null
+    summary: "A game-independent coordinator captures versioned JSON records from feature participants, validates incoming records before the world is touched, resets old ownership in reverse order and replays restores in order after KSA rebuilds the world"
+    novelty: high
+    techniques: [save-sidecar, json-config]
+    lifecycle: [event:save, event:load, frame:prepare]
+    hooks: ["harmony-postfix KSA.GameSave.Populate (via NativeSaveHooks.Capturing)", "harmony-prefix KSA.UncompressedSave.Load (via NativeSaveHooks.Loading)", "harmony-prefix KSA.Universe.DeserializeSave (via NativeSaveHooks.Resetting)", "harmony-postfix KSA.Universe.DeserializeSave (via NativeSaveHooks.Restoring)", "harmony-finalizer KSA.UncompressedSave.Load (via NativeSaveHooks.LoadFinished)"]
+    game_types: [Brutal.Numerics.float3, Brutal.Numerics.double3]
+    key_paths: [ksa-abstractions.lib/Persistence/SceneSaveCoordinator.cs, ksa-abstractions.lib/Persistence/ISaveParticipant.cs, ksa-abstractions.lib/Persistence/SaveDocument.cs, ksa-abstractions.lib/Persistence/SaveStorage.cs, ksa-abstractions.lib/Persistence/SaveJson.cs, ksa-abstractions.lib/Persistence/FiniteNumberConverters.cs]
+    howto_topics:
+      - slug: save-mod-state-with-native-saves
+        title: "Save mod state alongside native saves"
+        note: "versioned JSON records, ordered reset and restore"
+      - slug: retain-unrestorable-save-records
+        title: "Keep save records that fail to restore"
+  - id: mods/unscience/features/lib-shared-file-library
+    title: "Shared copied-import media catalogs with an ImGui file browser"
+    category: ui
+    submod: null
+    summary: "SharedFileLibrary keeps flat, non-overwriting catalogs of user files under .unscience (pngs, glbs, sounds) that several features share, and LibraryFileBrowser is a reusable ImGui filesystem picker that always copies the chosen file into the catalog before handing back its catalog name"
+    novelty: low
+    techniques: [imgui-window]
+    lifecycle: [frame:draw-ui]
+    hooks: ["starmap StarMapAfterGui (browser windows drawn from ISubmod.RenderFloatingWindows)"]
+    game_types: []
+    key_paths: [ksa-abstractions.lib/SharedFileLibrary.cs, ksa-abstractions.lib/LibraryFileBrowser.cs, ksa-abstractions.lib/PngLibrary.cs, ksa-abstractions.lib/GlbLibrary.cs, ksa-abstractions.lib/SoundLibrary.cs, ksa-abstractions.lib/PngFileBrowser.cs]
+    howto_topics:
+      - slug: imgui-file-picker
+        title: "Build a filesystem file picker in ImGui"
+      - slug: user-media-library
+        title: "Keep a copied library of user-imported files"
+  - id: mods/unscience/features/lib-xkcd-color-catalog
+    title: "Enumerate the game's 954 named XKCD colors by reflection"
+    category: ui
+    submod: null
+    summary: "XkcdColorHelper reflects over the static Color.Preset properties of KSA.KSAColor.Xkcd once, caches name and float4 pairs sorted by name, and serves them to filterable color pickers"
+    novelty: low
+    techniques: [reflection, imgui-window]
+    lifecycle: [frame:draw-ui]
+    hooks: ["reflection KSA.KSAColor.Xkcd (public static properties)"]
+    game_types: [KSA.KSAColor, Brutal.Numerics.Color]
+    key_paths: [ksa-abstractions.lib/XkcdColorHelper.cs, zippo.lib/ZippoSubmod.cs, doh.lib/DohSubmod.cs]
+    howto_topics:
+      - slug: enumerate-named-game-colors
+        title: "Enumerate the game's named colors"
+        note: "reflection over KSAColor.Xkcd"
+      - slug: imgui-filterable-color-picker
+        title: "Build a filterable color picker in ImGui"
+  - id: mods/unscience/features/parts-now-bundle-validation
+    title: "Validate Part asset bundles with fifteen rules before anything is written or registered"
+    category: assets
+    submod: parts-now
+    summary: "Parts Now deserializes submitted XML with KSA's own AssetBundle serializer but never calls OnDataLoad, then runs rules V1-V15 as isolated pure functions over the set, blocking the load on any error, including the PbrMaterial channel crash guard and the V8 registry rule"
+    novelty: high
+    techniques: [xml-asset, reflection, glb-model, xml-serializer]
+    lifecycle: [frame:draw-ui]
+    hooks: ["starmap StarMapBeforeGui (loader Validate state via ISubmod.Update)", "starmap StarMapAfterGui (paste panel Validate button via ISubmod.RenderContent)", "reflection KSA.ModLibrary registries and KSA.VehicleEditor._editorTagLookup (read-only, through GameRegistry)"]
+    game_types: [KSA.AssetBundle, KSA.XmlHelper, KSA.XmlLoader, KSA.SerializedId, KSA.PartTemplate, KSA.SubPartTemplate, KSA.PartGameDataReference, KSA.SubPartGameDataReference, KSA.PartInstance, KSA.PbrMaterialReference, KSA.TextureReference, KSA.FileReference, KSA.MeshAtlasFileReference, KSA.MeshFileReference, KSA.PartModelModule, KSA.PartModelGlassModule, KSA.PartModelDynamicModule, KSA.MeshViewModule, KSA.VehicleEditor, KSA.SubstanceLibrary, KSA.GrainGeometryLibrary, KSA.VolumetricExhaustTemplate, KSA.SoundBehavior, KSA.ModLibrary, KSA.Program, KSA.Rendering.Thumbnails.ThumbnailRenderResources, RenderCore.Systems.BindlessTextureLibrary]
+    key_paths: [parts-now.lib/Runtime/BundleParser.cs, parts-now.lib/Runtime/BundleValidator.cs, parts-now.lib/Runtime/BundleValidatorRulesIdentity.cs, parts-now.lib/Runtime/BundleValidatorRulesReferences.cs, parts-now.lib/Runtime/BundleValidatorRulesSchema.cs, parts-now.lib/Ui/ValidationIssueView.cs]
+    howto_topics:
+      - slug: validate-part-xml-before-loading
+        title: "Validate Part asset XML against the game's silent failure modes"
+        note: "duplicate ids, missing files, unresolved sub-parts and meshes, editor tags"
+      - slug: deserialize-asset-bundle-with-game-serializer
+        title: "Deserialize KSA asset XML with the game's own serializer without registering it"
+        note: "XmlHelper.Serializers carries the Components overrides"
+      - slug: pbr-material-required-channels
+        title: "Which PbrMaterial channels are mandatory and why"
+        note: "Diffuse, Normal and AoRoughMetal handles are dereferenced without a null check"
+      - slug: read-glb-mesh-names
+        title: "Read glTF mesh names from a GLB JSON chunk without loading geometry"
+  - id: mods/unscience/features/parts-now-mesh-headroom-reservation
+    title: "Reserve headroom in KSA's shared interleaved mesh buffer before it is allocated"
+    category: rendering
+    submod: parts-now
+    summary: "Parts Now inflates DeviceMeshInterleaved.Shared size counters from StarMapAllModsLoaded, before ModLibrary.Bind sizes the one shared vertex and index buffer, then rewinds the bump cursor on the first frame so runtime meshes get valid offsets"
+    novelty: high
+    techniques: [starmap-lifecycle, vulkan-buffer, toml-config]
+    lifecycle: [startup:all-mods-loaded, frame:draw-ui]
+    hooks: ["starmap StarMapAllModsLoaded (via unscience ISubmod.Initialize, MeshBudget.Reserve)", "starmap StarMapBeforeGui (via unscience ISubmod.Update, first frame only, MeshBudget.OnFirstFrame)"]
+    game_types: [KSA.DeviceMeshInterleaved, KSA.MeshReference, KSA.ModLibrary, KSA.Program]
+    key_paths: [parts-now.lib/Runtime/MeshBudget.cs, parts-now.lib/Runtime/PartsNowSettings.cs, parts-now.lib/PartsNowSubmod.cs, parts-now/Mod.cs, parts-now.lib/Runtime/RuntimeModLoaderGpuStates.cs, parts-now.lib/Runtime/RuntimeModUnloader.cs]
+    howto_topics:
+      - slug: reserve-shared-mesh-buffer-headroom
+        title: "Reserve space in the shared interleaved mesh buffer for runtime meshes"
+        note: "inflate DeviceMeshInterleaved.Shared before ModLibrary.Bind"
+      - slug: runtime-mesh-loading-constraints
+        title: "Understand runtime mesh loading constraints"
+  - id: mods/unscience/features/parts-now-paste-xml-mod-writer
+    title: "Turn pasted Part XML into a real, enabled KSA mod folder from inside the game"
+    category: assets
+    submod: parts-now
+    summary: "Parts Now validates a mod id, writes mod.toml plus up to three XML bundles atomically (UTF-8 without BOM, LF) under the game's own mods folder, adds an enabled manifest entry, and classifies existing mod folders for loading"
+    novelty: medium
+    techniques: [toml-config, xml-asset, imgui-window]
+    lifecycle: [frame:draw-ui]
+    hooks: ["starmap StarMapAfterGui (via unscience ISubmod.RenderContent, paste form, Validate and Install buttons)", "starmap StarMapBeforeGui (via unscience ISubmod.Update, WriteModFolder state and manifest stamp)"]
+    game_types: [KSA.ModLibrary, KSA.ModManifest, KSA.ModEntry, KSA.Mod]
+    key_paths: [parts-now.lib/Io/ModFolderWriter.cs, parts-now.lib/Io/ModIdValidator.cs, parts-now.lib/Io/ModFolderScanner.cs, parts-now.lib/Runtime/RuntimeModLoader.cs, parts-now.lib/Runtime/RuntimeModLoaderApi.cs, parts-now.lib/Runtime/RuntimeModLoaderStates.cs]
+    howto_topics:
+      - slug: write-a-mod-folder-from-game
+        title: "Create a content mod folder and manifest entry from inside the game"
+      - slug: atomic-file-writes
+        title: "Write files atomically with temp-and-move"
+  - id: mods/unscience/features/parts-now-reflection-self-test
+    title: "One reflection layer with a startup self-test that disables loading instead of crashing"
+    category: patching
+    submod: parts-now
+    summary: "Parts Now resolves every KSA internal it needs (six ModLibrary registries, SerializedCollection._collection, VehicleEditor._editorTagLookup) once in a non-throwing static constructor, sorts failures into fatal and degraded, and gates loading on the result"
+    novelty: medium
+    techniques: [reflection, starmap-lifecycle, imgui-window]
+    lifecycle: [startup:all-mods-loaded, frame:draw-ui]
+    hooks: ["starmap StarMapAllModsLoaded (PartsNowSubmod.Initialize runs GameRegistry.SelfTest)", "starmap StarMapAfterGui (StatusPanel recomputes LoadingEnabled every UI frame)", "reflection KSA.ModLibrary.AllParts, AllMeshes, AllFiles, AllMaterials, AllPartGameDataReferences, AllEditorTagDefinitions", "reflection KSA.SerializedCollection`1._collection", "reflection KSA.VehicleEditor._editorTagLookup"]
+    game_types: [KSA.ModLibrary, KSA.SerializedCollection, KSA.VehicleEditor, KSA.PartTemplate, KSA.MeshReference, KSA.FileReference, KSA.PbrMaterialReference, KSA.PartGameDataReference, KSA.EditorTagDefinition, KSA.KeyHash]
+    key_paths: [parts-now.lib/Runtime/GameRegistry.cs, parts-now.lib/PartsNowSubmod.cs, parts-now.lib/Ui/StatusPanel.cs, parts-now.lib/Runtime/RuntimeModLoaderApi.cs]
+    howto_topics:
+      - slug: reflection-self-test-for-game-internals
+        title: "Isolate reflection into game internals behind a startup self-test"
+        note: "static constructor that never throws, fatal vs degraded lists, feature gate instead of a crash"
+      - slug: access-internal-modlibrary-registries
+        title: "Read and modify KSA's internal ModLibrary registries"
+        note: "SerializedCollection list plus the private _collection dictionary"
+  - id: mods/unscience/features/parts-now-runtime-part-loading
+    title: "Load, reload and roll back Part mods at runtime with a one-state-per-frame loader"
+    category: assets
+    submod: parts-now
+    summary: "Parts Now replays KSA's boot asset pipeline for one mod folder after startup, from parse and register through background file loading, GPU binding, incremental game-data attach and thumbnails, one state per frame from the pre-GUI hook"
+    novelty: high
+    techniques: [starmap-lifecycle, xml-asset, reflection, background-thread, vulkan-buffer]
+    lifecycle: [frame:draw-ui, thread:background]
+    hooks: ["starmap StarMapBeforeGui (via unscience ISubmod.Update, one loader state per frame)", "harmony-prefix KSA.Program.OnDrawUiConsole (unscience HiddenUiFrameHook replays Update while the HUD is hidden)", "reflection KSA.ModLibrary.AllParts, AllPartGameDataReferences, AllMaterials, AllFiles, AllMeshes (through GameRegistry)"]
+    game_types: [KSA.ModLibrary, KSA.Mod, KSA.AssetBundle, KSA.ILoader, KSA.IBinder, KSA.FileReference, KSA.MeshReference, KSA.PartTemplate, KSA.PartGameDataReference, KSA.PartModel, KSA.PartModelGlass, KSA.PartModelDynamic, KSA.SerializedCollection, KSA.Loading, KSA.VehicleEditor, Core.Renderer]
+    key_paths: [parts-now.lib/Runtime/RuntimeModLoader.cs, parts-now.lib/Runtime/RuntimeModLoaderApi.cs, parts-now.lib/Runtime/RuntimeModLoaderStates.cs, parts-now.lib/Runtime/RuntimeModLoaderGpuStates.cs, parts-now.lib/Runtime/RuntimeModLoaderDeltas.cs, parts-now.lib/Runtime/RuntimeModLoaderJob.cs]
+    howto_topics:
+      - slug: load-parts-without-restart
+        title: "Load new parts into a running game"
+        note: "replay the boot asset pipeline one state per frame"
+      - slug: incremental-game-data-attach
+        title: "Attach game data to part templates after startup"
+  - id: mods/unscience/features/parts-now-runtime-unload-purge
+    title: "Unload runtime-registered parts behind a fail-closed safety gate"
+    category: assets
+    submod: parts-now
+    summary: "Parts Now refuses to unload while anything live could reference a mod's parts, then purges in a fixed order (device idle, templates, caches, textures, meshes, registries) and defers the purge to the pre-GUI hook so freed ImGui textures are never drawn"
+    novelty: high
+    techniques: [reflection, starmap-lifecycle, vulkan-texture]
+    lifecycle: [frame:draw-ui]
+    hooks: ["starmap StarMapBeforeGui (via unscience ISubmod.Update, deferred unload and reload purge)", "reflection KSA.SerializedCollection._collection (private hash dictionary behind Find)", "reflection KSA.ModLibrary.AllParts, AllPartGameDataReferences, AllMaterials, AllFiles, AllMeshes"]
+    game_types: [KSA.ModLibrary, KSA.SerializedCollection, KSA.PartTemplate, KSA.PartModel, KSA.PartModelGlass, KSA.PartModelDynamic, KSA.PartModelModule, KSA.PartModelGlassModule, KSA.TextureReference, KSA.MeshReference, KSA.VehicleEditor, KSA.Vehicle, KSA.Part, KSA.Rendering.Thumbnails.ThumbnailReference, KSA.Rendering.Thumbnails.ThumbnailDynamic]
+    key_paths: [parts-now.lib/Runtime/RuntimeModUnloader.cs, parts-now.lib/Runtime/RuntimeModUnloadGate.cs, parts-now.lib/Runtime/RuntimeModPurgeSteps.cs, parts-now.lib/Runtime/GameRegistry.cs, parts-now.lib/Runtime/RuntimeModLoaderApi.cs, parts-now.lib/Runtime/LoadedModRecord.cs]
+    howto_topics:
+      - slug: unload-runtime-assets-safely
+        title: "Unload runtime-registered assets safely"
+        note: "fail-closed gate, ordered purge"
+      - slug: purge-modlibrary-registries
+        title: "Remove entries from the game's asset registries"
+  - id: mods/unscience/features/parts-now-thumbnail-generation
+    title: "Render part-browser thumbnails at runtime on KSA's offscreen thumbnail viewport"
+    category: rendering
+    submod: parts-now
+    summary: "Parts Now gives runtime-loaded parts real editor thumbnails by combining ThumbnailCreator's boot framing with ThumbnailDynamic's per-frame submit, rendering two parts per frame on Program.ThumbnailViewport with a private command pool and one fence wait per part"
+    novelty: high
+    techniques: [vulkan-texture, vulkan-buffer, starmap-lifecycle, offscreen-viewport]
+    lifecycle: [frame:draw-ui]
+    hooks: ["starmap StarMapBeforeGui (ISubmod.Update -> RuntimeModLoader Thumbnails state, 2 parts per frame)", "harmony-prefix KSA.Program.OnDrawUiConsole (unscience HiddenUiFrameHook replays Update while the HUD is hidden)"]
+    game_types: [KSA.Program, KSA.PartThumbnailViewport, KSA.IViewport, KSA.Camera, KSA.PartTemplate, KSA.Rendering.ThumbnailCreator, KSA.Rendering.Thumbnails.ThumbnailRenderer, KSA.Rendering.Thumbnails.ThumbnailRenderResources, KSA.Rendering.Thumbnails.ThumbnailPart, KSA.Rendering.Thumbnails.ThumbnailReference, KSA.Rendering.Thumbnails.ThumbnailDynamic, KSA.GlobalShaderBindings, KSA.VehicleEditor, Core.Renderer]
+    key_paths: [parts-now.lib/Runtime/PartThumbnailGenerator.cs, parts-now.lib/Runtime/ThumbnailReadback.cs, parts-now.lib/Runtime/RuntimeModLoaderGpuStates.cs, parts-now.lib/Ui/ResultsPanel.cs]
+    howto_topics:
+      - slug: render-part-thumbnails-at-runtime
+        title: "Render a part thumbnail at runtime with KSA's thumbnail pipeline"
+        note: "share the offscreen viewport with the hover preview; submit before OnPreRender"
+      - slug: one-shot-gpu-submit-from-main-thread
+        title: "Record and submit a one-shot Vulkan command buffer from a mod"
+        note: "private transient pool, fence wait, safe point in the frame"
+      - slug: gpu-image-readback
+        title: "Read back a rendered image to the CPU for diagnostics"
+  - id: mods/unscience/features/pebbles-asset-upload-submission
+    title: "Cancellable one-shot GPU upload submission with publish-after-fence and retire-after-idle"
+    category: rendering
+    submod: pebbles
+    summary: "Pebbles uploads CPU-built buffers and textures through a private one-shot command buffer and fence, using a StagingPool only for memory so failed recordings are never auto-submitted, publishing after the fence and freeing after Device.WaitIdle"
+    novelty: medium
+    techniques: [vulkan-buffer, vulkan-texture, starmap-lifecycle, harmony-prefix]
+    lifecycle: [frame:draw-ui, frame:dispatch-solvers]
+    hooks: ["starmap StarMapBeforeGui (via unscience ISubmod.Update; Workshop preview uploads and draws, Sphinx placements and texture edits)", "harmony-prefix KSA.Universe.ExecuteNextClothSolvers (GLB texture uploads while a clutter Apply builds its private graph)", "harmony-prefix KSA.Program.OnDrawUiConsole (HiddenUiFrameHook replays ISubmod.Update while the HUD is hidden)"]
+    game_types: [Core.Renderer, Core.KSADeviceContextEx, Brutal.VulkanApi.Queue, Brutal.VulkanApi.Abstractions.StagingPool, Brutal.VulkanApi.Abstractions.QueueExtensions, Brutal.VulkanApi.Abstractions.DeviceExtensions, RenderCore.VkUtils, RenderCore.SimpleVkTexture, RenderCore.Systems.BindlessTextureLibrary, KSA.Program, KSA.PartSelectedRenderer, KSA.ImGuiBackendVulkanImpl]
+    key_paths: [pebbles.lib/Assets/AssetUploadSubmission.cs, pebbles.lib/Assets/GlbTextures.cs, pebbles.lib/Assets/GlbMaterials.cs, pebbles.lib/Assets/ImportedPngTexture.cs, sphinx.lib/StaticModelResources.cs]
+    howto_topics:
+      - slug: one-shot-gpu-upload
+        title: "Upload buffers and textures outside the game's frame command buffer"
+      - slug: staging-pool-auto-submit-pitfall
+        title: "Avoid StagingPool submitting half-recorded work on dispose"
+      - slug: swap-gpu-resources-safely
+        title: "Publish new GPU resources after a fence and retire old ones after WaitIdle"
+  - id: mods/unscience/features/pebbles-clutter-colliders
+    title: "Authored clutter colliders mapped onto native collider templates with a private convex-hull subclass"
+    category: physics
+    submod: pebbles
+    summary: "Pebbles maps box, sphere, capsule, cylinder and hull collider recipes onto KSA ColliderTemplate types, including a private OwnedHull with stock-matching centroid and volume, so native clutter physics builds, scales and frees the Bepu shapes"
+    novelty: high
+    techniques: [bepu-physics, harmony-prefix, reflection, subclass-game-type]
+    lifecycle: [frame:dispatch-solvers, physics:vehicle-solver, physics:bepu]
+    hooks: ["harmony-prefix KSA.Universe.ExecuteNextClothSolvers (colliders are built inside the Pebbles clutter commit)", "subclass KSA.ColliderTemplate (private OwnedHull overrides CreateShapeInto, ShapeOffsetCollider and VolumeCubicMetres)", "reflection KSA.ClutterEcotypePhysicalData._primitiveShapes and _compoundShapes (shape cleanup after a failed build)"]
+    game_types: [KSA.ColliderTemplate, KSA.BoxColliderTemplate, KSA.SphereColliderTemplate, KSA.CapsuleColliderTemplate, KSA.CylinderColliderTemplate, KSA.ConvexHullColliderTemplate, KSA.MeshColliderTemplate, KSA.ClutterObjectTemplate, KSA.ClutterEcotypeReference, KSA.ClutterEcotypePhysicalData, KSA.BubbleClutterStatics, KSA.PhysicsBubble, KSA.ConstraintSim, KSA.ShapesUnlock, KSA.MeshReference, KSA.QuaternionEx, BepuPhysics.Collidables.ConvexHull, BepuPhysics.Collidables.ConvexHullHelper]
+    key_paths: [pebbles.lib/Runtime/ClutterColliders.cs, pebbles.lib/Runtime/HullMath.cs, pebbles.lib/Runtime/ClutterGraph.cs, pebbles.lib/Runtime/ClutterResources.cs, pebbles.lib/Models/PebblesRecipe.cs, pebbles.lib/Models/RecipeValidation.cs]
+    howto_topics:
+      - slug: custom-collider-template-subclass
+        title: "Supply custom collision shapes by subclassing ColliderTemplate"
+        note: "override CreateShapeInto, ShapeOffsetCollider and VolumeCubicMetres"
+      - slug: ground-clutter-custom-colliders
+        title: "Give ground clutter custom colliders"
+      - slug: bepu-convex-hull-from-mesh
+        title: "Build a Bepu convex hull from mesh points with correct centroid and volume"
+      - slug: mutate-bepu-shape-registry-safely
+        title: "Mutate the global Bepu shape registry only while the vehicle solver is idle"
+        note: "ConstraintSim.UnlockShapes throws while stepping"
+      - slug: compound-collider-mass-distribution
+        title: "Volume-weighted mass and centre of mass for multi-collider objects"
+  - id: mods/unscience/features/pebbles-clutter-state-persistence
+    title: "Removed and displaced clutter carried per grid spacing across swaps and saves"
+    category: persistence
+    submod: pebbles
+    summary: "Pebbles remembers knocked-over and removed clutter per ecotype and exact spacing, replays it into each new placement, rewrites native clutter save entries in a SerializeSave postfix and keeps override grids in a pebbles.clutter-state sidecar record"
+    novelty: medium
+    techniques: [harmony-postfix, save-sidecar, bepu-physics]
+    lifecycle: [frame:dispatch-solvers, event:save, event:load]
+    hooks: ["harmony-postfix KSA.GroundClutterRenderer.SerializeSave(List<ClutterEcotypeSaveData>)", "harmony-prefix KSA.Universe.ExecuteNextClothSolvers (drain, remember and replay during apply and restore)", "unscience save participants pebbles (order 60) and pebbles.clutter-state (order 61) via the shared native save hooks"]
+    game_types: [KSA.GroundClutterRenderer, KSA.GroundClutterRenderer.ExclusionData, KSA.GroundClutterPlacementData, KSA.GroundClutterPlacementData.DisplacedObject, KSA.ClutterEcotypeSaveData, KSA.BubbleClutterStatics, KSA.BubbleClutterStatics.ClutterRemoval, KSA.BubbleClutterStatics.ClutterInstanceKey, KSA.PhysicsBubble, KSA.ClutterEcotypeRenderData, KSA.ClutterEcotypePhysicalData, KSA.CubeCellGrid, KSA.Universe, KSA.CelestialSystem]
+    key_paths: [pebbles.lib/Runtime/ClutterController.Grids.cs, pebbles.lib/Runtime/ClutterGridNative.cs, pebbles.lib/Models/ClutterGridMemory.cs, pebbles.lib/Models/ClutterGridState.cs, pebbles.lib/Runtime/ClutterController.cs, pebbles.lib/Runtime/ClutterHooks.cs]
+    howto_topics:
+      - slug: persist-ground-clutter-state
+        title: "Persist removed and displaced ground clutter"
+        note: "SerializeSave postfix"
+      - slug: save-mod-state-with-native-saves
+        title: "Save mod state alongside native saves"
+  - id: mods/unscience/features/pebbles-glb-import
+    title: "Bounded GLB 2.0 import into unregistered CPU-only meshes with frozen path and hash ids"
+    category: assets
+    submod: pebbles
+    summary: "Pebbles reads self-contained GLB files with its own bounded parser, bakes scene node and UV transforms, wraps the result in CPU-only MeshReference objects never added to ModLibrary, and freezes every library choice to an absolute-path plus SHA-256 mesh id"
+    novelty: high
+    techniques: [glb-model, reflection]
+    lifecycle: [frame:draw-ui, frame:dispatch-solvers]
+    hooks: ["starmap StarMapAfterGui (via unscience ISubmod.RenderFloatingWindows and RenderContent; import and mesh selection)", "starmap StarMapBeforeGui (via unscience ISubmod.Update; registry discovery and shared-library rescans)", "reflection KSA.MeshReference.HostPrimitives and PrimitiveMaterialIds (private setters)", "reflection KSA.ModLibrary.AllMeshes, AllFiles and AllGltfs (internal static collections)"]
+    game_types: [KSA.MeshReference, RenderCore.MeshAsset, KSA.ModLibrary, KSA.SerializedCollection, KSA.Gltf2Reference, KSA.FileReference, KSA.TextureReference, Brutal.GltfApi.GltfLoader, Brutal.GltfApi.GltfUtility, Brutal.Collections.NativeStrideList]
+    key_paths: [pebbles.lib/Models/GlbDocument.cs, pebbles.lib/Models/GlbGeometry.cs, pebbles.lib/Models/GlbScene.cs, pebbles.lib/Models/GlbIdentity.cs, pebbles.lib/Models/GlbTextureMapping.cs, pebbles.lib/Models/GlbCompatibility.cs]
+    howto_topics:
+      - slug: import-glb-models-at-runtime
+        title: "Import GLB models at runtime"
+        note: "own bounded parser, unregistered CPU meshes"
+      - slug: content-hash-asset-identity
+        title: "Identify imported assets by path and content hash"
+  - id: mods/unscience/features/pebbles-glb-material-conversion
+    title: "GLB PBR materials converted to native clutter maps with private bindless textures"
+    category: assets
+    submod: pebbles
+    summary: "Pebbles bakes glTF metallic-roughness materials and common Blender extensions into native diffuse, packed AO-roughness-metal, normal and cutout maps on the CPU, then uploads each as a private SimpleVkTexture with its own bindless slot set by reflection"
+    novelty: high
+    techniques: [glb-model, vulkan-texture, reflection]
+    lifecycle: [frame:draw-ui, frame:dispatch-solvers]
+    hooks: ["reflection KSA.TextureReference.BindlessHandle (private setter)", "starmap StarMapAfterGui (via unscience ISubmod.RenderContent and RenderFloatingWindows; CPU conversion when a mesh is selected)", "starmap StarMapBeforeGui (via unscience ISubmod.Update; GPU upload on Workshop preview refresh and Sphinx placement)", "harmony-prefix KSA.Universe.ExecuteNextClothSolvers (GPU upload during a clutter Apply)"]
+    game_types: [KSA.TextureReference, RenderCore.SimpleVkTexture, RenderCore.Systems.BindlessTextureLibrary, Brutal.TextureApi.TextureLoader, KSA.Program, Core.Renderer]
+    key_paths: [pebbles.lib/Models/GlbMaterialReader.cs, pebbles.lib/Models/GlbPixels.cs, pebbles.lib/Models/GlbCompatibility.cs, pebbles.lib/Models/GlbTextureMapping.cs, pebbles.lib/Assets/GlbTextures.cs, pebbles.lib/Assets/GlbMaterials.cs]
+    howto_topics:
+      - slug: convert-gltf-pbr-to-game-materials
+        title: "Convert glTF PBR materials to the game's material maps"
+      - slug: private-bindless-textures
+        title: "Upload private textures with their own bindless slots"
+        note: "SimpleVkTexture"
+  - id: mods/unscience/features/pebbles-ground-clutter-replacement
+    title: "Per-celestial ground clutter replacement with transactional apply and restore"
+    category: celestials
+    submod: pebbles
+    summary: "Pebbles swaps the meshes, materials, scale and colliders of chosen clutter types on one celestial by building private native clutter bundles in a Universe.ExecuteNextClothSolvers prefix, keeping the originals for exact restore"
+    novelty: high
+    techniques: [harmony-prefix, harmony-postfix, reflection, bepu-physics, vulkan-buffer, glb-model]
+    lifecycle: [frame:dispatch-solvers, frame:draw-ui, event:renderer-rebuild, event:load]
+    hooks: ["harmony-prefix KSA.Universe.ExecuteNextClothSolvers", "harmony-postfix KSA.GroundClutterRenderer.RebuildFrameResources", "harmony-prefix KSA.GroundClutterRenderer.Dispose", "starmap StarMapBeforeGui (via unscience ISubmod.Update; scene changes, requeue, discovery)", "harmony-prefix KSA.Program.OnDrawUiConsole (HiddenUiFrameHook replays ISubmod.Update while the HUD is hidden)", "reflection KSA.Celestial.<BodyTemplate>k__BackingField and KSA.Astronomical.bodyTemplate", "reflection KSA.GroundClutterRenderer._renderPassInfo and _planetClutterMaxBoundingRadius", "reflection KSA.PlanetRenderer._groundClutterRendererCreated", "reflection KSA.Universe._vehicleUpdateTask", "reflection KSA.GroundClutterLodReference.BuildMaterialIndirection (private)", "reflection Brutal.VulkanApi.Abstractions.StagingPool._submitted and _commandBufferIndex"]
+    game_types: [KSA.Universe, KSA.Program, KSA.GroundClutterRenderer, KSA.PlanetRenderer, KSA.GroundClutterPlacementData, KSA.ClutterEcotypeRenderData, KSA.ClutterEcotypePhysicalData, KSA.GroundClutterReference, KSA.ClutterEcotypeReference, KSA.ClutterObjectTemplate, KSA.GroundClutterLodReference, KSA.Celestial, KSA.Astronomical, KSA.CelestialTemplate, KSA.PhysicsBubble, KSA.BubbleClutterStatics, KSA.VehicleUpdateTask, KSA.JobSystems, KSA.ChuteClothSystem, KSA.ChuteEnvironmentSnapshot, Brutal.VulkanApi.Abstractions.StagingPool]
+    key_paths: [pebbles.lib/Runtime/ClutterController.cs, pebbles.lib/Runtime/ClutterController.Grids.cs, pebbles.lib/Runtime/ClutterHooks.cs, pebbles.lib/Runtime/ClutterResources.cs, pebbles.lib/Runtime/ClutterGraph.cs, pebbles.lib/Runtime/ClutterCapture.cs]
+    howto_topics:
+      - slug: replace-ground-clutter
+        title: "Replace a planet's ground clutter meshes and colliders"
+        note: "prefix Universe.ExecuteNextClothSolvers"
+      - slug: transactional-apply-and-restore
+        title: "Apply and restore game data changes transactionally"
+  - id: mods/unscience/features/pebbles-private-clutter-materials
+    title: "Private clutter material buffer and source-color shader variant scoped to owned construction"
+    category: rendering
+    submod: pebbles
+    summary: "Pebbles redirects the game's ground clutter material buffer lookups to a private per-body buffer and swaps in a source-color ClutterSolidFrag variant, only while a thread-static owned-construction context is active"
+    novelty: high
+    techniques: [harmony-transpiler, harmony-prefix, harmony-finalizer, glsl-shader, vulkan-buffer, vulkan-pipeline]
+    lifecycle: [frame:dispatch-solvers, event:renderer-rebuild]
+    hooks: ["harmony-transpiler KSA.ClutterEcotypeRenderData.SortMaterialIds", "harmony-transpiler KSA.ClutterEcotypeRenderData.CreateColorRenderer", "harmony-transpiler KSA.ClutterEcotypeRenderData.CreateDepthPrePassRenderer", "harmony-transpiler KSA.ClutterEcotypeRenderData.CreateShadowDepthRenderer", "harmony-prefix KSA.ShaderReference.CompileVariantWithCustomOptions", "harmony-prefix KSA.ClutterEcotypeRenderData.RebuildFrameResources", "harmony-finalizer KSA.ClutterEcotypeRenderData.RebuildFrameResources", "harmony-prefix constructors of KSA.GroundClutterPlacementData, KSA.ClutterEcotypeRenderData, KSA.ClutterEcotypePhysicalData, KSA.ClutterCubeCellGrid, KSA.ClutterViewResources, RenderCore.Mesh.SimpleVkMeshAtlas"]
+    game_types: [KSA.GroundClutterRenderer, KSA.GroundClutterRenderer.GroundClutterGpuMaterial, KSA.ClutterEcotypeRenderData, KSA.GroundClutterMaterialReference, KSA.ShaderReference, KSA.GroundClutterPlacementData, KSA.ClutterEcotypePhysicalData, KSA.ClutterCubeCellGrid, KSA.ClutterViewResources, RenderCore.Mesh.SimpleVkMeshAtlas, RenderCore.ShaderModuleUtils, KSA.TexturePowerReference]
+    key_paths: [pebbles.lib/Runtime/ClutterHooks.cs, pebbles.lib/Runtime/ClutterResources.cs, pebbles.lib/Runtime/ClutterGraph.cs, pebbles.lib/Runtime/ClutterRetirement.cs, pebbles.lib/Runtime/ClutterController.cs]
+    howto_topics:
+      - slug: scope-a-patch-to-own-construction
+        title: "Scope a patch to the mod's own object construction"
+        note: "ThreadStatic context"
+      - slug: private-material-buffer
+        title: "Give mod-built objects a private material buffer"
+  - id: mods/unscience/features/pebbles-workshop-editor
+    title: "Floating collider workshop with a textured preview, CPU-projected gizmos and detached undo history"
+    category: ui
+    submod: pebbles
+    summary: "Pebbles edits a detached clutter object in a floating ImGui window that shows an offscreen preview image, overlays collider wireframes and gizmos projected with that image's own matrix, fits primitives to mesh bounds and keeps JSON-cloned undo history"
+    novelty: high
+    techniques: [imgui-window, imgui-drawlist, json-config, starmap-lifecycle]
+    lifecycle: [frame:draw-ui, render:imgui]
+    hooks: ["starmap StarMapAfterGui (via unscience ISubmod.RenderFloatingWindows; window, canvas, gizmos, inspector, input)", "starmap StarMapBeforeGui (via unscience ISubmod.Update; preview refresh and offscreen render)", "harmony-prefix KSA.Program.OnDrawUiConsole (HiddenUiFrameHook replays ISubmod.Update while the HUD is hidden)"]
+    game_types: [Brutal.ImGuiApi.ImGui, Brutal.ImGuiApi.ImDrawListPtr, Brutal.ImGuiApi.ImInputString, Brutal.ImGuiApi.ImTextureRef, KSA.Program]
+    key_paths: [pebbles.lib/Workshop/WorkshopEditor.cs, pebbles.lib/Workshop/WorkshopState.cs, pebbles.lib/Workshop/WorkshopMath.cs, pebbles.lib/Workshop/WorkshopCanvas.cs, pebbles.lib/Workshop/WorkshopDrawing.cs, pebbles.lib/Workshop/WorkshopInspector.cs]
+    howto_topics:
+      - slug: imgui-3d-gizmos-on-draw-list
+        title: "Draw 3D wireframes and axis gizmos with the ImGui window draw list"
+      - slug: imgui-canvas-ray-picking
+        title: "Pick 3D objects in an ImGui canvas with an unprojected ray"
+      - slug: floating-editor-window-from-submod
+        title: "Show a floating editor window independent of the host panel"
+      - slug: undo-redo-json-snapshots
+        title: "Undo and redo with JSON-cloned snapshots and coalesced drags"
+      - slug: orbit-camera-vulkan-projection
+        title: "Orbit camera matrices that match a Vulkan viewport"
+        note: "flip M22 for a positive-height viewport"
+      - slug: fit-primitive-colliders-to-bounds
+        title: "Fit box, sphere, capsule and cylinder colliders to mesh bounds"
+  - id: mods/unscience/features/pebbles-workshop-offscreen-preview
+    title: "Independent offscreen Vulkan preview rendered before the GUI and shown as an ImGui image"
+    category: rendering
+    submod: pebbles
+    summary: "Pebbles renders the Workshop mesh into private color and depth images with a dynamic-rendering pipeline and runtime-compiled GLSL, submits it with a fence in StarMapBeforeGui, and shows the result through the ImGui Vulkan backend"
+    novelty: high
+    techniques: [vulkan-pipeline, vulkan-buffer, vulkan-texture, glsl-shader, imgui-drawlist, starmap-lifecycle]
+    lifecycle: [frame:draw-ui, render:imgui]
+    hooks: ["starmap StarMapBeforeGui (via unscience ISubmod.Update -> WorkshopEditor.Update; scene build, offscreen render, private queue submission)", "harmony-prefix KSA.Program.OnDrawUiConsole (HiddenUiFrameHook replays ISubmod.Update while the HUD is hidden)", "starmap StarMapAfterGui (via unscience ISubmod.RenderFloatingWindows; AddImage of the finished target)"]
+    game_types: [KSA.Program, Core.Renderer, KSA.ImGuiBackend, KSA.ImGuiBackendVulkanImpl, KSA.Rendering.ImageBarrierInfo, KSA.Rendering.ImageTransition, KSA.CommandBufferEx, KSA.TextureReference, KSA.MeshReference, RenderCore.MeshAsset, RenderCore.ShaderModuleUtils, RenderCore.VkUtils, Brutal.VulkanApi.Abstractions.VertexInput, Brutal.VulkanApi.Abstractions.Presets, Brutal.ImGuiApi.ImTextureRef]
+    key_paths: [pebbles.lib/Preview/WorkshopPreview.cs, pebbles.lib/Preview/PreviewTarget.cs, pebbles.lib/Preview/PreviewPipeline.cs, pebbles.lib/Preview/PreviewScene.cs, pebbles.lib/Preview/PreviewGeometry.cs, pebbles.lib/Preview/Workshop.frag.glsl]
+    howto_topics:
+      - slug: offscreen-render-to-imgui-image
+        title: "Render your own Vulkan scene offscreen and show it in an ImGui window"
+      - slug: vulkan-dynamic-rendering-pipeline
+        title: "Build a render-pass-less pipeline with dynamic rendering"
+      - slug: runtime-glsl-compilation
+        title: "Compile embedded GLSL at runtime with ShaderModuleUtils.FromString"
+      - slug: replace-textures-referenced-by-imgui
+        title: "Safely replace or free GPU images that ImGui draws"
+        note: "work in BeforeGui and WaitIdle for in-flight frames"
+      - slug: derivative-normal-mapping
+        title: "Tangent-free normal mapping with screen-space derivatives"
+  - id: mods/unscience/features/pyro-exhaust-template-editor
+    title: "Edit the game's shared exhaust templates and refresh every live plume"
+    category: rendering
+    submod: pyro
+    summary: "Pyro reproduces the game's hidden Volumetric Exhausts debug editor, writing VolumetricExhaustTemplate absorption, emission, noise, length and quality values, propagating them to every instance and engine nozzle the way the game's editor does, and saving or reverting the edits with the scene"
+    novelty: medium
+    techniques: [reflection, imgui-window, save-sidecar]
+    lifecycle: [frame:draw-ui, frame:pre-render, render:exhaust, event:save, event:load]
+    hooks: ["starmap StarMapAfterGui (via unscience ISubmod.RenderContent: Template Editor section)", "reflection KSA.VolumetricExhaustTemplate.References (internal static field)"]
+    game_types: [KSA.VolumetricExhaustTemplate, KSA.VolumetricExhaustInstance, KSA.VolumetricExhaustRenderer, KSA.RocketNozzle, KSA.PartTree, KSA.ColorRgbReference, KSA.SerializedCollection, KSA.Mod]
+    key_paths: [pyro.lib/PyroSubmod.TemplateUi.cs, pyro.lib/TemplateRefresher.cs, pyro.lib/PlumeTemplates.cs, pyro.lib/SavedPlumeTemplate.cs, pyro.lib/PyroSubmod.TemplatePersistence.cs, pyro.lib/PyroSubmod.Persistence.cs]
+    howto_topics:
+      - slug: edit-exhaust-templates
+        title: "Edit volumetric exhaust templates live"
+        note: "VolumetricExhaustTemplate"
+      - slug: propagate-template-changes-to-instances
+        title: "Propagate template edits to live instances"
+  - id: mods/unscience/features/pyro-isentropic-nozzle-model
+    title: "Synthesize plume physics from nozzle parameters with an isentropic model"
+    category: rendering
+    submod: pyro
+    summary: "Pyro turns six nozzle values and a throttle into a full PlumeData by solving exit Mach from the area ratio, expanding the chamber gas isentropically and calling the game's PlumeData.Compute, so engine-free plumes react to ambient pressure like stock ones"
+    novelty: medium
+    techniques: [custom-physics]
+    lifecycle: [frame:pre-render]
+    hooks: ["harmony-postfix KSA.Vehicle.AddVolumetricExhaustInstances (called per plume from the Pyro postfix)"]
+    game_types: [KSA.PlumeData, KSA.GasProperties, KSA.GasConditions, KSA.RocketDesign, KSA.RocketNozzle, KSA.DeLavalNozzleConfig, KSA.PhysicalAtmosphereReference, KSA.VolumetricExhaustTemplate, KSA.VolumetricExhaustRenderer]
+    key_paths: [pyro.lib/PlumePhysics.cs, pyro.lib/PlumeMigrationMath.cs, pyro.lib/PlumeEntry.cs, pyro.lib/PlumeEmitter.cs]
+    howto_topics:
+      - slug: compute-plume-data-from-nozzle
+        title: "Compute exhaust plume data from nozzle parameters"
+        note: "isentropic expansion, PlumeData.Compute"
+      - slug: mirror-game-math-in-a-mod
+        title: "Mirror a game calculation to feed engine-free effects"
+        note: "RocketNozzle.UpdatePlumeData"
+  - id: mods/unscience/features/pyro-scoped-exhaust-look-override
+    title: "Override one caller's data at a shared game method with a scoped prefix"
+    category: patching
+    submod: pyro
+    summary: "Pyro gives each plume its own absorption density and refraction by prefixing VolumetricExhaustRenderer.AddInstance(ExhaustInstance, int) with a ThreadStatic override that is only set inside a try/finally around Pyro's own submission, so stock engines and shared templates are never touched"
+    novelty: high
+    techniques: [harmony-prefix, harmony-postfix]
+    lifecycle: [frame:pre-render]
+    hooks: ["harmony-prefix KSA.VolumetricExhaustRenderer.AddInstance(ExhaustInstance, int)", "harmony-postfix KSA.Vehicle.AddVolumetricExhaustInstances (the submission the override is scoped to)"]
+    game_types: [KSA.VolumetricExhaustRenderer, KSA.ExhaustInstance, KSA.VolumetricExhaustInstance, KSA.VolumetricExhaustTemplate]
+    key_paths: [pyro.lib/PyroPatches.cs, pyro.lib/PlumeEmitter.cs, pyro.lib/PlumeMigrationMath.cs]
+    howto_topics:
+      - slug: scope-a-patch-to-own-calls
+        title: "Scope a shared-method override to the mod's own calls"
+        note: "ThreadStatic flag set in try/finally"
+      - slug: per-instance-shader-data-override
+        title: "Override per-instance shader data for one caller"
+  - id: mods/unscience/features/pyro-volumetric-exhaust-plumes
+    title: "Submit engine-free volumetric exhaust plumes into the game's plume batch"
+    category: rendering
+    submod: pyro
+    summary: "Pyro postfixes Vehicle.AddVolumetricExhaustInstances and, for each plume welded to that vessel, drives a mod-owned VolumetricExhaustInstance through UpdateState and VolumetricExhaustRenderer.AddInstance so it renders, ignites, shuts down and reacts to air like a real engine plume"
+    novelty: high
+    techniques: [harmony-postfix, toml-config]
+    lifecycle: [frame:pre-render, render:exhaust, frame:draw-ui, event:load]
+    hooks: ["harmony-postfix KSA.Vehicle.AddVolumetricExhaustInstances", "starmap StarMapBeforeGui (via unscience ISubmod.Update: dead-anchor pruning, cycle sampling)", "starmap StarMapAfterGui (via unscience ISubmod.RenderContent: create, tune, presets)"]
+    game_types: [KSA.Vehicle, KSA.VolumetricExhaustRenderer, KSA.VolumetricExhaustInstance, KSA.VolumetricExhaustReference, KSA.VolumetricExhaustTemplate, KSA.Camera, KSA.Part, KSA.Universe, KSA.Program, KSA.ExhaustBendTarget, KSA.ExhaustAxialFade, KSA.ExhaustDiamondFade]
+    key_paths: [pyro.lib/PyroPatches.cs, pyro.lib/PyroSubmod.cs, pyro.lib/PlumeEmitter.cs, pyro.lib/PlumeEntry.cs, pyro.lib/PlumeTemplates.cs, pyro.lib/PlumeTemplateIds.cs]
+    howto_topics:
+      - slug: engine-free-exhaust-plumes
+        title: "Render exhaust plumes without an engine part"
+        note: "postfix Vehicle.AddVolumetricExhaustInstances"
+      - slug: submit-into-game-render-batch
+        title: "Submit mod instances into a game render batch"
+  - id: mods/unscience/features/rocky-mcrock-face-asset-catalog
+    title: "Enumerate every loaded mesh and bound texture from ModLibrary's internal registries"
+    category: assets
+    submod: rocky-mcrock-face
+    summary: "RingAssetCatalog reflects the internal static ModLibrary.AllMeshes, AllFiles and AllGltfs collections, keeps meshes with retained CPU geometry, textures with a live bindless handle and normal maps, parses glTF headers for character meshes, and feeds filterable ImGui combos shared with Bloomin' Onion"
+    novelty: medium
+    techniques: [reflection, imgui-window, glb-model]
+    lifecycle: [frame:draw-ui, frame:prepare]
+    hooks: ["starmap StarMapBeforeGui (via unscience ISubmod.Update; refresh every 2 s until populated)", "starmap StarMapAfterGui (via unscience ISubmod.RenderContent; Rescan Assets button and combos)", "reflection KSA.ModLibrary.AllMeshes", "reflection KSA.ModLibrary.AllFiles", "reflection KSA.ModLibrary.AllGltfs"]
+    game_types: [KSA.ModLibrary, KSA.SerializedCollection, KSA.MeshReference, KSA.FileReference, KSA.TextureReference, KSA.TexturePowerReference, KSA.Gltf2Reference, KSA.DeviceMeshInterleaved, Brutal.GltfApi.GltfUtility]
+    key_paths: [rocky-mcrock-face.lib/RingAssetCatalog.cs, rocky-mcrock-face.lib/RockyUi.cs, rocky-mcrock-face.lib/RockyMcRockFaceSubmod.cs, bloomin-onion.lib/BloominOnionSubmod.cs, bloomin-onion.lib/BloominOnionSubmod.UiSections.cs]
+    howto_topics:
+      - slug: enumerate-loaded-meshes-and-textures
+        title: "Enumerate every loaded mesh and texture"
+        note: "reflect ModLibrary.AllMeshes/AllFiles"
+      - slug: reflection-into-modlibrary
+        title: "Read ModLibrary internal registries by reflection"
+  - id: mods/unscience/features/rocky-mcrock-face-interleaved-mesh-clone
+    title: "Clone an atlas-interleaved part mesh into a Simple mesh the ring renderer can draw"
+    category: rendering
+    submod: rocky-mcrock-face
+    summary: "Rocky McRock Face clones interleaved part and subpart meshes into private Simple MeshReferences that share the retained CPU HostPrimitives and uploads them as SimpleVkMesh for the ring pipeline, and imports glTF-file meshes the same way"
+    novelty: high
+    techniques: [reflection, vulkan-buffer, glb-model]
+    lifecycle: [frame:draw-ui, frame:prepare, render:scene-opaque]
+    hooks: ["starmap StarMapAfterGui (via unscience ISubmod.RenderContent; conversion happens on Apply)", "reflection KSA.MeshReference.<HostPrimitives>k__BackingField"]
+    game_types: [KSA.MeshReference, KSA.MeshAtlasFileReference, KSA.DeviceMeshInterleaved, RenderCore.Mesh.SimpleVkMesh, RenderCore.MeshAsset, Brutal.GltfApi.GltfLoader, Brutal.VulkanApi.Abstractions.StagingPool, KSA.Rendering.Raytracing.RaytracingRenderer, KSA.Rendering.Rings.Rendering.PlanetaryRingsRenderer]
+    key_paths: [rocky-mcrock-face.lib/RingMeshFactory.cs, rocky-mcrock-face.lib/RingSwapController.cs, bloomin-onion.lib/RingReferenceBuilder.cs]
+    howto_topics:
+      - slug: clone-interleaved-mesh-to-simple-mesh
+        title: "Convert an interleaved part mesh into a standalone mesh"
+        note: "SimpleVkMesh from HostPrimitives"
+      - slug: reuse-part-meshes-in-other-renderers
+        title: "Reuse part meshes in other renderers"
+  - id: mods/unscience/features/rocky-mcrock-face-ring-asset-swap
+    title: "Swap the meshes and textures of existing planetary rings at runtime"
+    category: celestials
+    submod: rocky-mcrock-face
+    summary: "Rocky McRock Face mutates the public XML-backed ring reference tree of a ringed body (LOD meshes, rock material, band texture, field settings), snapshots the originals, and recreates the rings renderer so the constructor-baked ring data is rebuilt from the edit"
+    novelty: medium
+    techniques: [reflection, xml-asset, vulkan-buffer]
+    lifecycle: [frame:draw-ui, frame:prepare, render:scene-opaque, render:atmosphere]
+    hooks: ["starmap StarMapAfterGui (via unscience ISubmod.RenderContent; Apply / Restore Defaults buttons)", "starmap StarMapBeforeGui (via unscience ISubmod.Update; ringed-body rescan every 2 s)", "reflection KSA.Program._planetTransparenciesRenderer", "reflection KSA.PlanetTransparenciesRenderer._ringsRenderer", "reflection KSA.PlanetTransparenciesRenderer._ringRendererCreated"]
+    game_types: [KSA.PlanetaryRingsReference, KSA.RingObjectsReference, KSA.RingLodReference, KSA.MeshFileReference, KSA.PbrMaterialReference, KSA.TexturePowerReference, KSA.DistanceReference, KSA.DoubleReference, KSA.Program, KSA.PlanetTransparenciesRenderer, KSA.Rendering.Rings.Rendering.PlanetaryRingsRenderer, KSA.Rendering.Rings.Rendering.PlanetaryRingsRenderData, KSA.Universe]
+    key_paths: [rocky-mcrock-face.lib/RingSwapController.cs, rocky-mcrock-face.lib/RingSelection.cs, rocky-mcrock-face.lib/RockyMcRockFaceSubmod.cs, rocky-mcrock-face.lib/RockyMcRockFaceSubmod.Ui.cs, rocky-mcrock-face.lib/RockyMcRockFaceSubmod.Saves.cs]
+    howto_topics:
+      - slug: swap-planetary-ring-assets
+        title: "Swap planetary ring meshes and textures at runtime"
+      - slug: mutate-xml-backed-references
+        title: "Change XML-backed game references at runtime and rebuild"
+  - id: mods/unscience/features/save-yourself-timed-autosave
+    title: "Timed auto saves through the game's own save path"
+    category: persistence
+    submod: save-yourself
+    summary: "Save Yourself writes a new native KSA save every N wall-clock seconds by calling SaveName.TryAccept and UncompressedSave.Make the way the console save command does, so every native save hook and the unscience sidecar run exactly as for a manual save"
+    novelty: medium
+    techniques: [starmap-lifecycle, toml-config, save-sidecar, dependency-injection, managed-tests]
+    lifecycle: [frame:draw-ui, event:save]
+    hooks: ["starmap StarMapBeforeGui (ISubmod.Update via unscience Mod.UpdateSubmods)", "harmony-prefix KSA.Program.OnDrawUiConsole (HiddenUiFrameHook replay while the HUD is hidden)", "starmap StarMapAfterGui (panel and Save Now button)"]
+    game_types: [KSA.UncompressedSave, KSA.GameSave, KSA.GameSaves, KSA.SaveName, KSA.UniverseData, KSA.Universe, KSA.Program]
+    key_paths: [ksa-abstractions.lib/GameSaveProvider.cs, save-yourself.lib/SaveYourselfSubmod.cs, save-yourself.lib/AutoSaveController.cs, save-yourself.lib/AutoSaveSettings.cs, save-yourself.lib/AutoSaveNaming.cs, save-yourself.lib/AutoSaveSettingsStore.cs]
+    howto_topics:
+      - slug: create-native-saves-programmatically
+        title: "Create a native KSA save from mod code"
+        note: "SaveName.TryAccept + UncompressedSave.Make; mirror RefusedInEditor without its alert"
+      - slug: wall-clock-timers-in-mods
+        title: "Run a timer on real time independent of warp and pause"
+      - slug: testable-game-adapters
+        title: "Inject game access as delegates so mod logic runs in KSA-free tests"
+      - slug: global-mod-preferences-vs-scene-state
+        title: "Decide between a global preference file and per-save scene data"
+  - id: mods/unscience/features/skittles-imgui-theme-manager
+    title: "Global ImGui themes by rewriting ImGui.GetStyle(), with TOML theme files and scene-saved styles"
+    category: ui
+    submod: skittles
+    summary: "Skittles re-themes every KSA and mod window by writing the shared ImGuiStyle through ImGui.GetStyle(), keeps themes as Tomlyn TOML files, wraps ImGui.ShowStyleEditor and needs no Harmony patch"
+    novelty: medium
+    techniques: [imgui-window, toml-config, save-sidecar]
+    lifecycle: [startup:all-mods-loaded, frame:draw-ui, event:save, event:load, frame:prepare]
+    hooks: ["starmap StarMapAllModsLoaded (ThemeManager.Initialize captures the default style and applies the configured theme)", "starmap StarMapAfterGui (picker in ISubmod.RenderContent, editor window in RenderFloatingWindows)", "starmap StarMapUnload (ISubmod.Dispose restores the captured default)", "unscience save participant skittles (order 5) via the shared native save hooks"]
+    game_types: [Brutal.ImGuiApi.ImGui, Brutal.ImGuiApi.ImGuiStylePtr, Brutal.ImGuiApi.ImGuiStyle, Brutal.ImGuiApi.ImGuiCol, KSA.Program, KSA.FontManager, KSA.KSAColor]
+    key_paths: [skittles.lib/ThemeDefinition.cs, skittles.lib/ThemeManager.cs, skittles.lib/ThemeSerializer.cs, skittles.lib/ModConfig.cs, skittles.lib/SkittlesSubmod.cs, skittles.lib/SkittlesSubmod.Saves.cs]
+    howto_topics:
+      - slug: global-imgui-theme
+        title: "Re-theme the whole KSA UI through ImGui.GetStyle()"
+        note: "game code never calls StyleColors*; per-widget PushStyleColor calls still override"
+      - slug: imgui-style-editor-in-mod
+        title: "Embed Dear ImGui's style editor in a mod window"
+      - slug: toml-settings-with-tomlyn
+        title: "Store mod settings and presets as TOML with Tomlyn"
+      - slug: restore-global-state-on-unload
+        title: "Capture and restore global game state when a mod unloads"
+  - id: mods/unscience/features/sphinx-glb-statics-placement
+    title: "Body-fixed GLB statics placed by terrain click or beside a vessel"
+    category: celestials
+    submod: sphinx
+    summary: "Sphinx anchors imported GLB models to a celestial's body-fixed frame from a ray-marched terrain pick or a vessel-relative point, grounds and centers their rotated bounds, applies live XYZ transforms through a queued edit loop and restores them from unscience scene saves"
+    novelty: high
+    techniques: [glb-model, imgui-window, imgui-drawlist, save-sidecar, starmap-lifecycle]
+    lifecycle: [frame:draw-ui, frame:render, event:save, event:load]
+    hooks: ["starmap StarMapBeforeGui (via unscience ISubmod.Update: queued placements and edits after solver waits, library rescan, body pruning)", "starmap StarMapAfterGui (via unscience ISubmod.RenderContent and RenderFloatingWindows: panel, armed terrain click)", "harmony-prefix KSA.Program.OnDrawUiConsole (shared HiddenUiFrameHook replays Update while the HUD is hidden)", "harmony-postfix KSA.StaticObjectRenderer.UpdateRenderData (per-viewport placement matrix, see render hooks)", "harmony-postfix KSA.GameSave.Populate (shared NativeSaveHooks: capture)", "harmony-prefix KSA.Universe.DeserializeSave (shared NativeSaveHooks: reset)", "harmony-postfix KSA.Universe.DeserializeSave (shared NativeSaveHooks: replay)"]
+    game_types: [KSA.Celestial, KSA.Camera, KSA.Cursor, KSA.Program, KSA.Vehicle, KSA.IViewport, KSA.JobSystems, KSA.Universe]
+    key_paths: [sphinx.lib/GroundPlacement.cs, sphinx.lib/PlacementMath.cs, sphinx.lib/SphinxEntry.cs, sphinx.lib/SphinxSubmod.cs, sphinx.lib/SphinxSubmod.Editing.cs, sphinx.lib/SphinxSubmod.Saves.cs]
+    howto_topics:
+      - slug: pick-terrain-under-cursor
+        title: "Pick a terrain point under the mouse cursor"
+        note: "ego ray into body CCF, march then bisect against GetTerrainHeightFromDirCcf"
+      - slug: place-static-object-on-surface
+        title: "Place a body-fixed object on a planet surface"
+      - slug: ground-and-center-model-bounds
+        title: "Ground and center a rotated model on a surface"
+      - slug: wait-for-solvers-before-mutating-physics
+        title: "Block on the vehicle and cloth solvers before touching physics state"
+        note: "JobSystems.VehicleSolver.Wait() as a blocking alternative to the PrepareFrame handoff"
+  - id: mods/unscience/features/sphinx-static-colliders
+    title: "Automatic box or mesh colliders for imported statics with scoped Bepu hooks"
+    category: physics
+    submod: sphinx
+    summary: "Sphinx gives each placed GLB a global Bepu Box or two-sided Mesh chosen by conservative closed-box detection, adds per-bubble static handles from a ConstraintSim.BeginStaticObjectPass postfix, and admits them to contact generation and ground-contact logic only for its own handles"
+    novelty: high
+    techniques: [bepu-physics, harmony-postfix, harmony-prefix, harmony-transpiler, reflection]
+    lifecycle: [physics:bepu, physics:vehicle-solver, frame:draw-ui]
+    hooks: ["harmony-postfix KSA.ConstraintSim.BeginStaticObjectPass", "harmony-postfix KSA.ConstraintSim.UpdateSimForSnappedOrigin", "harmony-postfix KSA.ConstraintSim.IsGroundSurfaceFor", "harmony-prefix KSA.ConstraintSim.TryResetForPool", "harmony-prefix KSA.ConstraintSim.Dispose", "harmony-transpiler KSA.NarrowPhaseCallbacks.AllowContactGeneration (internal type looked up by name)", "starmap StarMapBeforeGui (via unscience ISubmod.Update: collider build and retirement after solver waits)"]
+    game_types: [KSA.ConstraintSim, KSA.NarrowPhaseCallbacks, KSA.BepuHandles, KSA.ShapesUnlock, KSA.PhysicsBubble, KSA.VehicleUpdateState, KSA.BubbleOrigin, KSA.BubbleFrame, KSA.ConstraintSimPool, KSA.JobSystems, BepuPhysics.Collidables.Box, BepuPhysics.Collidables.Mesh, BepuPhysics.Statics, BepuPhysics.StaticDescription]
+    key_paths: [sphinx.lib/CollisionGeometry.cs, sphinx.lib/StaticCollider.cs, sphinx.lib/SphinxPhysics.cs, sphinx.lib/SphinxPhysicsPatches.cs]
+    howto_topics:
+      - slug: add-custom-static-collider
+        title: "Add mod-owned static colliders to KSA physics bubbles"
+      - slug: bepu-contact-filter-transpiler
+        title: "Extend KSA's Bepu contact filter for your own statics"
+        note: "stock filter only admits a vehicle's own terrain/StaticObjectCollider"
+      - slug: mutate-global-bepu-shapes
+        title: "Create and free shapes in KSA's global shape registry"
+        note: "UnlockShapes throws while the vehicle update is stepping"
+      - slug: mesh-vs-box-collider-selection
+        title: "Choose box or mesh collision for imported geometry"
+  - id: mods/unscience/features/sphinx-static-object-render-hooks
+    title: "Drawing private meshes through the native static-object pipelines with three postfixes"
+    category: rendering
+    submod: sphinx
+    summary: "Sphinx postfixes StaticObjectRenderer.UpdateRenderData, the private WriteCommandsColor and WriteCommandsPrePass so its own vertex, index, material and matrix buffers are drawn while the game's static-object pipeline, lighting and shadow descriptor sets are still bound"
+    novelty: high
+    techniques: [harmony-postfix, vulkan-buffer, vulkan-pipeline, reflection]
+    lifecycle: [frame:render, render:prepass, render:scene-opaque]
+    hooks: ["harmony-postfix KSA.StaticObjectRenderer.UpdateRenderData", "harmony-postfix KSA.StaticObjectRenderer.WriteCommandsColor (private, looked up by name and parameter types)", "harmony-postfix KSA.StaticObjectRenderer.WriteCommandsPrePass"]
+    game_types: [KSA.StaticObjectRenderer, KSA.StaticObjectModel, KSA.PrePassRenderer, KSA.Program, KSA.IViewport, KSA.ViewportRegistry, KSA.Camera, KSA.Rendering.Utils, Core.Renderer]
+    key_paths: [sphinx.lib/SphinxPatches.cs, sphinx.lib/StaticModelResources.cs, sphinx.lib/StaticGeometry.cs, sphinx.lib/SphinxSubmod.cs]
+    howto_topics:
+      - slug: draw-mesh-with-native-static-object-shader
+        title: "Draw your own meshes with the game's static-object shaders and lighting"
+      - slug: borrow-bound-pipeline-state-postfix
+        title: "Record draws inside a game render method's bound state with a postfix"
+      - slug: per-viewport-per-frame-uniform-slices
+        title: "Per-viewport, per-frame-in-flight matrix buffers"
+  - id: mods/unscience/features/sphinx-uv-texture-overrides
+    title: "Live per-static UV scale and offset with shared-PNG texture overrides"
+    category: rendering
+    submod: sphinx
+    summary: "Sphinx keeps each static's imported vertices in managed memory and re-uploads only private vertex buffers with UV times scale plus offset for repeatable edits, while a PNG override rebuilds the whole private resource first so a failed texture never replaces the working one"
+    novelty: medium
+    techniques: [vulkan-buffer, vulkan-texture, glb-model, imgui-window]
+    lifecycle: [frame:draw-ui, frame:render, event:save, event:load]
+    hooks: ["starmap StarMapAfterGui (via unscience ISubmod.RenderContent: texture combo and UV widgets)", "starmap StarMapBeforeGui (via unscience ISubmod.Update: queued texture edits)", "harmony-postfix KSA.StaticObjectRenderer.WriteCommandsColor (draws the remapped buffers, see render hooks)"]
+    game_types: [KSA.StaticObjectModel, KSA.TextureReference, KSA.Program, KSA.Rendering.Utils, Core.Renderer]
+    key_paths: [sphinx.lib/TextureMapping.cs, sphinx.lib/StaticModelResources.Textures.cs, sphinx.lib/StaticGeometry.cs, sphinx.lib/SphinxSubmod.Editing.cs, pebbles.lib/Assets/ImportedPngTexture.cs]
+    howto_topics:
+      - slug: live-uv-remap-vertex-buffer
+        title: "Remap mesh UVs live without accumulating edits"
+      - slug: swap-gpu-buffers-safely
+        title: "Replace GPU buffers while frames are in flight"
+      - slug: png-texture-override-on-mesh
+        title: "Override a model's color texture with a user PNG"
+  - id: mods/unscience/features/the-tick-vessel-indestructibility
+    title: "Per-vessel indestructibility without touching shared part templates"
+    category: physics
+    submod: the-tick
+    summary: "The Tick makes registered vessels immune to force-based destruction with a prefix on the Part.CrashTolerancePascals getter and a prefix and postfix pair on PhysicsBubble.DetectStructuralFailure that discards only the event the detector just created"
+    novelty: high
+    techniques: [harmony-prefix, harmony-postfix, reflection]
+    lifecycle: [physics:vehicle-solver, physics:bepu, frame:draw-ui]
+    hooks: ["harmony-prefix KSA.Part.CrashTolerancePascals (getter)", "harmony-prefix KSA.PhysicsBubble.DetectStructuralFailure (private static, by name)", "harmony-postfix KSA.PhysicsBubble.DetectStructuralFailure (private static, by name)", "starmap StarMapBeforeGui (via unscience ISubmod.Update, registry pruning)"]
+    game_types: [KSA.Part, KSA.PartTree, KSA.PhysicsBubble, KSA.VehicleUpdateState, KSA.PartFailure, KSA.FxDeformation, KSA.PartStructuralLimits, KSA.VehicleStructuralLimits, KSA.VehicleDestructionEvent, KSA.Universe]
+    key_paths: [the-tick.lib/TheTickPatches.cs, the-tick.lib/TickProtection.cs, the-tick.lib/TheTickSubmod.cs, the-tick.lib/TheTickSubmod.Saves.cs, unscience/Patcher.cs]
+    howto_topics:
+      - slug: make-a-vessel-indestructible
+        title: "Make a vessel indestructible"
+        note: "prefix Part.CrashTolerancePascals, PhysicsBubble.DetectStructuralFailure"
+      - slug: per-instance-override-without-template-mutation
+        title: "Override per-instance behavior without mutating shared templates"
+  - id: mods/unscience/features/thug-life-procedural-texture
+    title: "Upload a procedural pixel-art texture and cut it out with geometry"
+    category: rendering
+    submod: thug-life
+    summary: "Thug Life builds its sunglasses image from an ASCII grid into an R8G8B8A8 SimpleVkTexture with a staging upload and a nearest-neighbour sampler, and emits one small quad per opaque texel because the stock unlit shader always writes alpha 1"
+    novelty: medium
+    techniques: [vulkan-texture, vulkan-buffer]
+    lifecycle: [frame:draw-ui]
+    hooks: ["starmap StarMapAfterGui (via unscience ISubmod.RenderContent: first Add Sunglasses builds the texture)"]
+    game_types: [RenderCore.SimpleVkTexture, RenderCore.VkUtils, Brutal.VulkanApi.Abstractions.StagingPool, KSA.Program]
+    key_paths: [thug-life.lib/ThugLifeTexturePattern.cs, thug-life.lib/ThugLifeTextureFactory.cs, thug-life.lib/ThugLifeQuadRenderer.cs, thug-life.lib/ThugLifeRenderManager.cs, thug-life.lib/img/thuglife.png]
+    howto_topics:
+      - slug: upload-procedural-texture
+        title: "Upload a procedurally generated texture"
+        note: "SimpleVkTexture staging upload"
+      - slug: pixel-art-texture-from-ascii
+        title: "Build a pixel-art texture from an ASCII pattern"
+  - id: mods/unscience/features/thug-life-textured-quad-render-pass
+    title: "Draw a part-anchored textured quad inside the scene's opaque pass"
+    category: rendering
+    submod: thug-life
+    summary: "Thug Life postfixes SuperMeshRenderSystem.RenderMainPass to record its own Vulkan draws with the stock UnlitMesh shaders into the offscreen MSAA pass, builds its pipeline lazily against Program.OffscreenTarget, and computes an ego-space MVP per entry from the camera of the viewport being rendered"
+    novelty: high
+    techniques: [harmony-postfix, vulkan-pipeline, vulkan-buffer, glsl-shader]
+    lifecycle: [render:scene-opaque, frame:draw-ui, startup:all-mods-loaded]
+    hooks: ["harmony-postfix KSA.SuperMeshRenderSystem.RenderMainPass", "starmap StarMapAllModsLoaded (via unscience ISubmod.Initialize: manager created, no GPU work)", "starmap StarMapBeforeGui (via unscience ISubmod.Update: slide animation)", "starmap StarMapAfterGui (via unscience ISubmod.RenderContent: add, tune, remove entries)"]
+    game_types: [KSA.SuperMeshRenderSystem, KSA.Program, KSA.Rendering.RenderTarget, KSA.Camera, KSA.Vehicle, KSA.Part, KSA.KittenEva, KSA.RenderingPresets, KSA.ShaderReference, RenderCore.RenderTechnique]
+    key_paths: [thug-life.lib/ThugLifeRenderPatches.cs, thug-life.lib/ThugLifeRenderManager.cs, thug-life.lib/ThugLifeQuadRenderer.cs, thug-life.lib/ThugLifeEntry.cs, thug-life.lib/ThugLifeSlide.cs, thug-life.lib/KittenGlassesPreset.cs]
+    howto_topics:
+      - slug: draw-custom-geometry-in-scene-pass
+        title: "Draw custom geometry inside the scene's opaque pass"
+        note: "postfix SuperMeshRenderSystem.RenderMainPass"
+      - slug: lazy-vulkan-resource-creation
+        title: "Create Vulkan resources lazily once render targets exist"
+  - id: mods/unscience/features/unscience-build-and-release
+    title: "One shipped mod folder from thirty-plus projects, with dist validation and rolling GitHub releases"
+    category: testing-and-tooling
+    submod: unscience
+    summary: "MSBuild resolves the game DLLs once for every project, only the unscience project deploys, copying exactly the MeowSci assemblies of its reference closure plus Tomlyn, and CI stamps the version, validates the folder and publishes rolling releases"
+    novelty: medium
+    techniques: [msbuild-deploy-target, ci-release, assembly-load-context, toml-config]
+    lifecycle: [startup:starmap-before-main]
+    hooks: ["starmap mod.toml [StarMap] EntryAssembly = MeowSci.Unscience"]
+    game_types: []
+    key_paths: [Directory.Build.props, unscience/unscience.csproj, unscience/mod.toml, zippo.lib/zippo.lib.csproj, .github/workflows/release.yml, scripts/check-dist.py]
+    howto_topics:
+      - slug: ship-multi-assembly-mod
+        title: "Ship a mod made of several assemblies"
+        note: "deps.json and StarMap load context"
+      - slug: ci-release-for-ksa-mods
+        title: "Build and release a KSA mod with GitHub Actions"
+        note: "private reference DLL checkout"
+  - id: mods/unscience/features/unscience-consolidated-patcher
+    title: "One Harmony instance applying 30-plus feature patch classes in isolation"
+    category: patching
+    submod: unscience
+    summary: "The supermod's Patcher creates a single Harmony instance and applies every feature library's static patch class through a TryApply wrapper, so one stale game target disables only its own feature, then removes them all on unload"
+    novelty: medium
+    techniques: [harmony-prefix, harmony-postfix, harmony-transpiler, starmap-lifecycle]
+    lifecycle: [startup:all-mods-loaded]
+    hooks: ["starmap StarMapAllModsLoaded (Patcher.Patch)", "starmap StarMapUnload (Patcher.Unload)", "harmony-prefix KSA.Universe.ExecuteNextVehicleSolvers (inline EternalFlamePatches)"]
+    game_types: [KSA.Universe]
+    key_paths: [unscience/Patcher.cs, unscience/Mod.cs]
+    howto_topics:
+      - slug: isolate-patch-failures
+        title: "Isolate Harmony patch failures per feature"
+        note: "TryApply wrapper"
+      - slug: one-harmony-instance-many-features
+        title: "Manage many features with one Harmony instance"
+  - id: mods/unscience/features/unscience-managed-test-harnesses
+    title: "Native-free managed test executables that run production patches against stand-in KSA types"
+    category: testing-and-tooling
+    submod: unscience
+    summary: "Eighteen console projects compile production sub-mod files by link, declare small namespace-KSA stand-ins with the game's member names and apply the real Harmony patches to them, so timing, save and patch logic is checked without starting the game"
+    novelty: high
+    techniques: [harmony-prefix, harmony-postfix, harmony-transpiler, test-fixture-stand-ins, msbuild-compile-link]
+    lifecycle: [frame:prepare, event:save, event:load]
+    hooks: ["harmony-transpiler KSA.Program.PrepareFrame (applied to a fixture copy)", "harmony-prefix KSA.Part.CrashTolerancePascals (applied to a fixture copy)"]
+    game_types: [KSA.Program, KSA.Universe, KSA.Part, KSA.SimStep, KSA.UncompressedSave]
+    key_paths: [the-tick.lib/TheTickPatches.cs, Directory.Build.props, ksa-mod-experiments.slnx]
+    howto_topics:
+      - slug: test-harmony-patches-without-the-game
+        title: "Test Harmony patches without running the game"
+        note: "stand-in KSA types, linked sources"
+      - slug: headless-mod-test-harness
+        title: "Build a headless test harness for a KSA mod"
+  - id: mods/unscience/features/unscience-menu-bar-entry
+    title: "Add an entry to the game's main menu bar through DrawProgramMenusHook"
+    category: ui
+    submod: unscience
+    summary: "A Harmony postfix on the empty public Program.DrawProgramMenusHook method appends an ImGui menu item to KSA's top menu bar that toggles the mod window"
+    novelty: low
+    techniques: [harmony-postfix, imgui-menu]
+    lifecycle: [frame:draw-ui]
+    hooks: ["harmony-postfix KSA.Program.DrawProgramMenusHook"]
+    game_types: [KSA.Program]
+    key_paths: [unscience/MenuBarPatch.cs, unscience/Patcher.cs, unscience/Mod.cs]
+    howto_topics:
+      - slug: add-items-to-game-menu-bar
+        title: "Add items to the game's main menu bar"
+        note: "Program.DrawProgramMenusHook"
+      - slug: toggle-mod-window-from-menu
+        title: "Toggle a mod window from the game menu"
+  - id: mods/unscience/features/unscience-scene-save-sidecar
+    title: "Per-save scene sidecar wiring and the participant inventory"
+    category: persistence
+    submod: unscience
+    summary: "The unscience host collects every sub-mod's save records, pairs each native save's capture with its write by object identity, writes unscience.json beside universe.xml and reports save and load results in the toolbox"
+    novelty: high
+    techniques: [save-sidecar, harmony-postfix, harmony-prefix, imgui-window]
+    lifecycle: [startup:all-mods-loaded, event:save, event:load, frame:prepare, frame:draw-ui]
+    hooks: ["starmap StarMapAllModsLoaded", "harmony-postfix KSA.GameSave.Populate", "harmony-postfix KSA.UncompressedSave.Write", "harmony-prefix KSA.UncompressedSave.Load", "harmony-prefix KSA.Universe.DeserializeSave", "harmony-postfix KSA.Universe.DeserializeSave", "starmap StarMapAfterGui"]
+    game_types: [KSA.GameSave, KSA.UncompressedSave, KSA.Universe]
+    key_paths: [unscience/UnscienceSaves.cs, unscience/Mod.cs, unscience/Patcher.cs, unscience/UnscienceState.cs, ksa-abstractions.lib/Persistence/ISaveParticipant.cs, ksa-abstractions.lib/Persistence/SceneSaveCoordinator.cs]
+    howto_topics:
+      - slug: save-mod-state-with-native-saves
+        title: "Save mod state alongside native saves"
+        note: "sidecar beside universe.xml"
+      - slug: pair-save-capture-and-write
+        title: "Pair a save-time capture with its write"
+        note: "ConditionalWeakTable keyed by the save object"
+  - id: mods/unscience/features/unscience-supermod-host
+    title: "Supermod host that aggregates 31 feature panels into one window"
+    category: getting-started
+    submod: unscience
+    summary: "The unscience StarMap entry class builds every ISubmod at StarMapAllModsLoaded, ticks them all each frame, renders them as collapsible sections of one ImGui window and persists only its own window layout and header state"
+    novelty: medium
+    techniques: [starmap-lifecycle, imgui-window, imgui-menu, toml-config]
+    lifecycle: [startup:all-mods-loaded, frame:draw-ui]
+    hooks: ["starmap StarMapImmediateLoad (empty, zero-argument signature: never dispatched)", "starmap StarMapAllModsLoaded", "starmap StarMapBeforeGui", "starmap StarMapAfterGui", "starmap StarMapUnload", "harmony-prefix KSA.Program.OnDrawUiConsole (hidden-HUD replay of Update)"]
+    game_types: []
+    key_paths: [unscience/Mod.cs, unscience/UnscienceState.cs, unscience/mod.toml]
+    howto_topics:
+      - slug: supermod-host
+        title: "Host many features inside one mod window"
+      - slug: persist-imgui-window-layout
+        title: "Persist ImGui window layout per mod"
+        note: "ImGui.SaveIniSettingsToMemory filtered"
+  - id: mods/unscience/features/zippo-disco-party-lights
+    title: "Disco party lights with per-instance light templates and owned actuators"
+    category: rendering
+    submod: zippo
+    summary: "Zippo's Disco runs repeating color, assembly-actuation and spotlight-spread channels on one light or a whole vessel by swapping each LightModule's Template for a private copy, claiming each keyframe actuator for one owner, and restoring only the values it still owns"
+    novelty: high
+    techniques: [imgui-window, save-sidecar, starmap-lifecycle, runtime-template-swap]
+    lifecycle: [frame:draw-ui, frame:render, physics:vehicle-solver, event:save, event:load]
+    hooks: ["starmap StarMapBeforeGui (via unscience ISubmod.Update: Disco tick)", "harmony-prefix KSA.Program.OnDrawUiConsole (shared HiddenUiFrameHook replays Update while the HUD is hidden)", "starmap StarMapAfterGui (via unscience ISubmod.RenderContent: recipe editor, start, inspectors)", "harmony-postfix KSA.GameSave.Populate (shared NativeSaveHooks: capture)", "harmony-prefix KSA.Universe.DeserializeSave (shared NativeSaveHooks: stop and restore)", "harmony-postfix KSA.Universe.DeserializeSave (shared NativeSaveHooks: replay)"]
+    game_types: [KSA.LightModule, KSA.ColorRgbReference, KSA.FloatReference, KSA.IndexedColor, KSA.KeyframeAnimationModule, KSA.KeyframeAnimationData, KSA.Part, KSA.ModuleList, KSA.PowerConsumer, KSA.Vehicle, KSA.PartTree]
+    key_paths: [zippo.lib/DiscoLight.cs, zippo.lib/DiscoRecipe.cs, zippo.lib/DiscoTiming.cs, zippo.lib/ZippoSubmod.Disco.cs, zippo.lib/DiscoLight.Persistence.cs]
+    howto_topics:
+      - slug: per-instance-module-template-override
+        title: "Give one part instance its own module template data"
+      - slug: drive-keyframe-animation-goal
+        title: "Drive a part's keyframe animation (TimeGoal) from a mod"
+      - slug: ownership-guarded-restore
+        title: "Restore game state only if your mod still owns it"
+      - slug: animated-spotlight-cone
+        title: "Animate spotlight beam angles"
+  - id: mods/unscience/features/zippo-light-animation-queue
+    title: "Per-light queues of eased color and intensity transitions"
+    category: rendering
+    submod: zippo
+    summary: "Zippo keeps a bounded queue of single-step LightAnimation transitions per light part instance, interpolates color and intensity with power-controlled EasingHelper curves from the UI frame tick, re-captures the live start values when each queued step begins, and persists progress in scene saves"
+    novelty: low
+    techniques: [imgui-window, inter-mod-api, save-sidecar, starmap-lifecycle]
+    lifecycle: [frame:draw-ui, frame:render, event:save, event:load]
+    hooks: ["starmap StarMapBeforeGui (via unscience ISubmod.Update: animation tick)", "harmony-prefix KSA.Program.OnDrawUiConsole (shared HiddenUiFrameHook replays Update while the HUD is hidden)", "starmap StarMapAfterGui (via unscience ISubmod.RenderContent: queue builder and progress)", "harmony-postfix KSA.GameSave.Populate (shared NativeSaveHooks: capture)", "harmony-postfix KSA.Universe.DeserializeSave (shared NativeSaveHooks: replay)"]
+    game_types: [KSA.Part, KSA.Vehicle, KSA.LightModule, KSA.Program]
+    key_paths: [zippo.lib/LightAnimation.cs, zippo.lib/LightAnimationManager.cs, zippo.lib/LightAnimation.Persistence.cs, ksa-abstractions.lib/EasingHelper.cs]
+    howto_topics:
+      - slug: eased-property-animation-queue
+        title: "Queue eased transitions on a game object property"
+      - slug: frame-time-vs-sim-time
+        title: "Player-time vs simulation-time deltas in mod updates"
+  - id: mods/unscience/features/zippo-light-control
+    title: "Light part selection and template-level color and intensity writes with a public API"
+    category: rendering
+    submod: zippo
+    summary: "Zippo finds light parts by walking a vessel's part tree for LightModule template data, writes intensity and RGB color into the shared PartTemplate light components by reflection, toggles PowerConsumer.LightIsActive, ledgers originals for save and reset, and exposes the same operations to other mods"
+    novelty: medium
+    techniques: [reflection, imgui-window, inter-mod-api, save-sidecar]
+    lifecycle: [frame:draw-ui, frame:render, physics:vehicle-solver, event:save, event:load]
+    hooks: ["starmap StarMapAfterGui (via unscience ISubmod.RenderContent: selectors, on/off, intensity, color)", "reflection KSA.PartTemplate.Components (light components found by type name KSA.LightModule+TemplateData)", "reflection KSA.LightModule+TemplateData.Intensity / ColorRgb", "reflection KSA.FloatReference.Value / KSA.ColorRgbReference.R / G / B / IndexedColor / OnDataLoad", "harmony-postfix KSA.GameSave.Populate (shared NativeSaveHooks: capture)", "harmony-prefix KSA.Universe.DeserializeSave (shared NativeSaveHooks: restore template baselines)", "harmony-postfix KSA.Universe.DeserializeSave (shared NativeSaveHooks: replay)"]
+    game_types: [KSA.Vehicle, KSA.Part, KSA.PartTemplate, KSA.PartTree, KSA.LightModule, KSA.ColorRgbReference, KSA.FloatReference, KSA.IndexedColor, KSA.PowerConsumer, KSA.ModLibrary, KSA.KSAColor, KSA.Program]
+    key_paths: [zippo.lib/LightController.cs, zippo.lib/LightController.Persistence.cs, zippo.lib/ZippoSubmod.cs, zippo.lib/ZippoSubmod.Persistence.cs, ksa-abstractions.lib/PartHelpers.cs]
+    howto_topics:
+      - slug: change-part-light-color-intensity
+        title: "Change a part light's color and intensity at runtime"
+        note: "template-level write vs per-instance Template swap"
+      - slug: toggle-part-light-switch
+        title: "Switch part lights on and off"
+        note: "on takes effect after the next vehicle step and needs power"
+      - slug: expose-mod-api-static-instance
+        title: "Expose a public API from a mod through a static instance"

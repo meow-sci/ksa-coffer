@@ -1,0 +1,4 @@
+# Tint kitten fur, body and eyes, and hide the visor, helmet or MMU history
+
+## 2026-10-10
+* **Creation**: Added [Tint kitten fur, body and eyes, and hide the visor, helmet or MMU](overview.md) and 5 How-To articles ([tint-and-restyle-kitten-appearance-1](tint-and-restyle-kitten-appearance-1.md), [tint-and-restyle-kitten-appearance-2](tint-and-restyle-kitten-appearance-2.md), [tint-and-restyle-kitten-appearance-3](tint-and-restyle-kitten-appearance-3.md), [tint-and-restyle-kitten-appearance-4](tint-and-restyle-kitten-appearance-4.md), [tint-and-restyle-kitten-appearance-5](tint-and-restyle-kitten-appearance-5.md)) against game build 2026.10.10.5554 from the kittens-1 batch plan; every game member named was grepped in the decompile and every code snippet was extracted verbatim from the pinned checkouts by line range.

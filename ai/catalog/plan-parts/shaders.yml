@@ -1,0 +1,1167 @@
+category: shaders
+description: The shader-authoring side of KSA modding - writing GLSL post-processing and compute shaders, declaring ShaderExtensions assets, feeding them parameters from C#, building common effects, and replacing or patching the game's own GLSL without editing game files, plus the tooling to include, validate and reload shaders.
+topics:
+  # ---------------------------------------------------------------- post-processing shader authoring (ShaderExtensions)
+  - slug: write-a-post-processing-fragment-shader
+    title: Write a fullscreen post-processing fragment shader for KSA
+    summary: A ShaderExtensions pass is one fragment shader run over a fullscreen triangle. This covers the contract the shader is written against (previous image as sampler2D at set 1 binding 0, ShaderTime at binding 1, an optional parameter block and push constant after it, the game's global bindings at set 0) and how to port older shaders that assumed subpasses.
+    game_types: [KSA.Program, KSA.GlobalShaderBindings, RenderCore.RenderTechnique, KSA.Rendering.RenderTarget]
+    engine_pointers:
+      - current/decomp/KSA/GlobalShaderBindings.cs
+      - current/decomp/KSA/ScreenspaceRenderer.cs
+      - current/decomp/KSA/Program.cs RenderGame
+    lifecycle: [startup:asset-load, render:post-process]
+    approaches:
+      - n: 1
+        title: Minimal identity-for-neutral pass (MPFX contract)
+        mod: mpfx
+        features:
+          - mods/mpfx/features/effect-shader-contract
+          - mods/shaderextensions/features/post-processing-pass-chain
+        technique: glsl-shader
+        note: ScreenspaceVert supplies Uv; binding 0 is the previous image, 1 is ShaderTime, 2 the parameter block, push constant optional. Write every pass so neutral parameters return the input unchanged, because a pass cannot be removed at runtime. Note the build-5554 dynamic-offset quirk in the pass chain.
+      - n: 2
+        title: Multi-binding pass with extra textures and a dynamic-rendering port
+        mod: ksa-aircrafthud
+        features:
+          - mods/ksa-aircrafthud/features/glass-post-process-chain
+          - mods/shaderextensions/features/shaderex-extra-bindings
+        technique: glsl-shader
+        note: Shared Functions.glsl include, extra samplers shifted past the time buffer at binding 1, and the port from the v0.4.0 subpass style (drop SubpassId and RequiresUniqueRenderpass). Shows why the pinned ShaderExtensions rejected the original.
+    related: [declare-post-processing-shader-assets-in-xml, feed-uniform-buffers-to-a-shaderextensions-shader, send-push-constants-to-a-shaderextensions-shader, animate-shaders-with-game-time, insert-a-custom-pass-into-render-game]
+    borrowed_from: []
+
+  - slug: declare-post-processing-shader-assets-in-xml
+    title: Declare ShaderEx, PostProcessingShader, GlobalPostShader and ImGuiShader assets
+    summary: Register shader passes entirely in mod XML - which element type to use, how Id, RenderPassId, shader paths, uniform buffer and push constant children fit together, and how one XML file can ship a whole chain with no C# render code.
+    game_types: [KSA.ShaderReference, KSA.SerializedId, KSA.ModLibrary, KSA.AssetBundle]
+    engine_pointers:
+      - current/decomp/KSA/ShaderReference.cs
+      - current/decomp/KSA/AssetBundle.cs
+    lifecycle: [startup:asset-load, render:post-process]
+    approaches:
+      - n: 1
+        title: Paired pre- and post-ImGui assets sharing a RenderPassId and parameter buffer by Id
+        mod: mpfx
+        features: [mods/mpfx/features/effect-chain-assets]
+        technique: xml-asset
+        note: 32 assets for 16 effects, one XML element per pass, no render code in C#. Size creates a buffer and an Id alone references it.
+      - n: 2
+        title: A small asset file with a chain, input references and an ImGuiShader
+        mod: ksa-aircrafthud
+        features:
+          - mods/ksa-aircrafthud/features/glass-post-process-chain
+          - mods/ksa-aircrafthud/features/imgui-window-hud-shader
+        technique: xml-asset
+        note: Three PostProcessingShader passes plus one ImGuiShader in HudAssests.xml, per-pass push constants and texture children in binding order.
+    related: [chain-post-processing-passes, choose-pre-or-post-imgui-post-processing, bind-extra-textures-and-buffers-to-a-shader, shade-one-imgui-window-with-a-custom-fragment-shader]
+    borrowed_from: []
+
+  - slug: choose-pre-or-post-imgui-post-processing
+    title: Choose between pre-ImGui (HDR scene) and post-ImGui (final frame) post-processing
+    summary: A PostProcessingShader runs on the linear HDR scene before the tonemap composite, a GlobalPostShader on the finished swapchain image including the UI. The choice decides colour range, whether the UI is affected, how CMAA2 interacts and what image layout the shader inherits.
+    game_types: [KSA.Program, KSA.Rendering.RenderTarget, KSA.Rendering.PostProcessing.Cmaa2Renderer, KSA.ScreenshotCapture, Core.Renderer]
+    engine_pointers:
+      - current/decomp/KSA/Program.cs RenderGame (offscreen target, swapchain render pass, RenderFinalComposite)
+      - current/decomp/KSA.Rendering.PostProcessing/Cmaa2Renderer.cs
+      - current/decomp/KSA.Rendering/RenderTarget.cs
+    lifecycle: [frame:render, render:post-process, render:aa, render:imgui]
+    approaches:
+      - n: 1
+        title: Pre-ImGui chain on the RGBA16F offscreen scene, copied back before tonemap
+        mod: shaderextensions
+        features:
+          - mods/shaderextensions/features/pre-imgui-post-processing
+          - mods/mpfx/features/effect-chain-assets
+        technique: post-processing
+        note: HDR values above 1.0 survive, UI untouched. Invisible when CMAA2 is active and leaves the image in a transfer layout, by reading 5554. Colour grading, bloom-like and blur effects belong here.
+      - n: 2
+        title: Post-ImGui chain on the presented image via swapchain copies
+        mod: shaderextensions
+        features:
+          - mods/shaderextensions/features/post-imgui-global-post-shaders
+          - mods/shaderextensions/features/cross-pass-image-references
+        technique: post-processing
+        note: Scene plus UI in display-referred colour; the swapchain lacks TRANSFER_DST in 5554 so the mod copies to a tracked target and back in PresentSrcKHR. Use for film grain, CRT curvature and anything that must cover the UI; can sample the pre-UI image by reference.
+    related: [write-a-post-processing-fragment-shader, insert-a-custom-pass-into-render-game, capture-rendered-frames, flash-and-shake-the-view-from-a-compute-pass]
+    borrowed_from: []
+
+  - slug: chain-post-processing-passes
+    title: Chain several post-processing passes in a defined order
+    summary: Order passes with RenderPassId, let a later pass read an earlier pass's input or output image, and combine images from more than one stage, for example a blur chain whose composite still sees the unblurred scene.
+    game_types: [KSA.Rendering.RenderImage, KSA.Program, RenderCore.RenderTechnique]
+    engine_pointers:
+      - current/decomp/KSA/Program.cs RenderGame
+      - current/decomp/KSA.Rendering/RenderImage.cs
+    lifecycle: [startup:asset-load, render:post-process]
+    approaches:
+      - n: 1
+        title: Consecutive RenderPassIds, each pass samples the previous target
+        mod: mpfx
+        features:
+          - mods/mpfx/features/effect-chain-assets
+          - mods/mpfx/features/separable-gaussian-blur
+        technique: post-processing
+        note: Relies on implicit previous-image binding; ids 128-143 leave room to insert effects.
+      - n: 2
+        title: PostProcessingInputReference to the pre-blur scene from a composite pass
+        mod: ksa-aircrafthud
+        features: [mods/ksa-aircrafthud/features/glass-post-process-chain]
+        technique: xml-asset
+        note: H blur, V blur, then a composite that also needs the sharp scene; binding numbers follow XML document order.
+      - n: 3
+        title: Input and output references resolved while the chain is built
+        mod: shaderextensions
+        features:
+          - mods/shaderextensions/features/cross-pass-image-references
+          - mods/shaderextensions/features/post-processing-pass-chain
+        technique: post-processing
+        note: How references are resolved, stage selection (pre or post ImGui) and why a reference to a later pass is not allowed.
+    related: [blur-the-screen-with-a-separable-gaussian, declare-post-processing-shader-assets-in-xml, toggle-a-post-processing-pass]
+    borrowed_from: []
+
+  - slug: toggle-a-post-processing-pass
+    title: Turn an always-on post-processing pass on and off
+    summary: ShaderExtensions passes run every frame and cannot be disabled, so a mod switches an effect off by making the shader the identity - neutral parameter values, or an enabled flag that branches to a pass-through.
+    game_types: [KSA.Program]
+    engine_pointers:
+      - current/decomp/KSA/Program.cs RenderGame
+    lifecycle: [frame:draw-ui, frame:viewports, render:post-process]
+    approaches:
+      - n: 1
+        title: Substitute neutral parameter values for disabled effects
+        mod: mpfx
+        features:
+          - mods/mpfx/features/per-frame-parameter-upload
+          - mods/mpfx/features/effect-shader-contract
+        technique: post-processing
+        note: Neutral values written when an effect is unchecked; each shader reduces to a copy at neutral. Cost of the pass remains.
+      - n: 2
+        title: Enabled push constant with an early pass-through branch
+        mod: ksa-aircrafthud
+        features:
+          - mods/ksa-aircrafthud/features/glass-post-process-chain
+          - mods/ksa-aircrafthud/features/sx-push-constants-and-buffers
+        technique: post-processing
+        note: Per-pass push constant carries enabled and time; uniform branch returns the input colour.
+    related: [update-shader-parameters-at-the-right-time, send-push-constants-to-a-shaderextensions-shader, write-a-post-processing-fragment-shader]
+    borrowed_from: []
+
+  - slug: bind-extra-textures-and-buffers-to-a-shader
+    title: Bind extra textures and buffers to a ShaderEx shader
+    summary: Give a post-processing or ShaderEx fragment shader a dirt mask, a noise texture, a lookup table or a shared buffer by listing child elements in the shader's XML. Covers binding numbering (0 and 1 are fixed), texture formats and the order rules.
+    game_types: [KSA.ShaderReference, KSA.TextureReference, KSA.ModLibrary]
+    engine_pointers:
+      - current/decomp/KSA/TextureReference.cs
+      - current/decomp/KSA/ModLibrary.cs Bind
+    lifecycle: [startup:asset-load, render:post-process]
+    approaches:
+      - n: 1
+        title: Texture and buffer children in XML document order
+        mod: ksa-aircrafthud
+        features:
+          - mods/ksa-aircrafthud/features/glass-post-process-chain
+          - mods/ksa-aircrafthud/features/blue-noise-dithering
+          - mods/shaderextensions/features/shaderex-extra-bindings
+        technique: xml-asset
+        note: A packed normal/dirt mask and a 128x8192 stacked blue-noise PNG bound as extra samplers; binding numbers follow document order after fixed bindings 0 and 1.
+    related: [implement-a-shader-asset-type-with-its-own-descriptor-set, refract-and-distort-the-scene, add-film-grain-and-blue-noise-dithering, declare-post-processing-shader-assets-in-xml]
+    borrowed_from: []
+
+  - slug: implement-a-shader-asset-type-with-its-own-descriptor-set
+    title: Implement a shader asset type that builds its own descriptor set from XML
+    summary: How ShaderExtensions turns an XML element with children into a Vulkan descriptor pool, set layout and writes, resolves texture and buffer references after load with an IBinder, and loads nested elements the game does not visit. For modders writing their own asset kind with custom bindings.
+    game_types: [KSA.ShaderReference, KSA.FileReference, KSA.ModLibrary, KSA.IBinder, KSA.AssetBundle, Brutal.VulkanApi.Abstractions.DescriptorPoolEx, Brutal.VulkanApi.Abstractions.DescriptorSetLayoutEx]
+    engine_pointers:
+      - current/decomp/KSA/IBinder.cs
+      - current/decomp/KSA/ModLibrary.cs Bind
+      - current/decomp/KSA/AssetBundle.cs OnDataLoad
+    lifecycle: [startup:asset-load, frame:render]
+    approaches:
+      - n: 1
+        title: ShaderReference subclass with counted pool, one set and a Bind-time resolver
+        mod: shaderextensions
+        features: [mods/shaderextensions/features/shaderex-extra-bindings]
+        technique: vulkan-pipeline
+        note: Count per descriptor type, MaxSets 1, stackalloc writes. AssetBundle.OnDataLoad visits top-level entries only so nested ones are forwarded manually; Bind runs in parallel on the thread pool inside the Program constructor.
+    related: [bind-extra-textures-and-buffers-to-a-shader, create-a-persistently-mapped-uniform-buffer, build-a-fullscreen-pass-with-rendertechnique]
+    borrowed_from: []
+
+  - slug: build-a-fullscreen-pass-with-rendertechnique
+    title: Build a fullscreen shader pass with RenderTechnique and RenderTarget
+    summary: How the pass chain turns a fragment shader into a dynamic-rendering pipeline (triangle strip, no vertex input) with one RenderTarget, descriptor set and barrier sequence per pass, and what must be rebuilt when the renderer is rebuilt.
+    game_types: [RenderCore.RenderTechnique, KSA.Rendering.RenderTarget, KSA.Rendering.ImageBarrierInfo, KSA.GlobalShaderBindings, KSA.CommandBufferEx, KSA.RenderingPresets]
+    engine_pointers:
+      - current/decomp/RenderCore/RenderTechnique.cs
+      - current/decomp/KSA.Rendering/RenderTarget.cs
+      - current/decomp/KSA/GlobalShaderBindings.cs
+    lifecycle: [frame:render, render:post-process]
+    approaches:
+      - n: 1
+        title: One RenderTarget as IRenderPassInfo per shader, rebuilt after RebuildRenderer
+        mod: shaderextensions
+        features: [mods/shaderextensions/features/post-processing-pass-chain]
+        technique: vulkan-pipeline
+        note: A RenderTarget doubles as the pipeline's render-pass info; GlobalShaderBindings supplies set 0; dynamic offset count is one too many in 5554.
+    related: [insert-a-custom-pass-into-render-game, build-a-vulkan-pipeline-for-the-scene-target, handle-renderer-rebuilds]
+    borrowed_from: []
+
+  - slug: shade-one-imgui-window-with-a-custom-fragment-shader
+    title: Run a custom fragment shader over one ImGui window
+    summary: Make a single HUD window curved, tinted or distorted by tagging its draw list with a marker callback and declaring an ImGuiShader asset, so the window is rendered offscreen, shaded over its bounding rectangle and drawn back as an image.
+    game_types: [KSA.ImGuiBackendVulkanImpl, KSA.ShaderReference, Brutal.ImGuiApi.ImDrawListPtr, Brutal.ImGuiApi.ImDrawDataPtr, KSA.KeyHash]
+    engine_pointers:
+      - current/decomp/KSA/ImGuiBackendVulkanImpl.cs
+      - current/decomp/KSA/Program.cs RenderGame (ImGui render and draw)
+    lifecycle: [frame:draw-ui, frame:render, render:imgui]
+    approaches:
+      - n: 1
+        title: ImGuiShader asset plus SxImGui.CustomShader marker callback
+        mod: ksa-aircrafthud
+        features: [mods/ksa-aircrafthud/features/imgui-window-hud-shader]
+        technique: imgui-drawlist
+        note: AddCallback with copied user data and an empty callback, UvRect uniform, and a 1/255-alpha full-window rect that pins the quad bounds.
+      - n: 2
+        title: How the host replays the draw list offscreen and rewrites it to one image
+        mod: shaderextensions
+        features: [mods/shaderextensions/features/imgui-window-post-shader]
+        technique: vulkan-pipeline
+        note: Reflects the backend's private shader modules and pipeline layout, registers the result as an ImGui texture and rewrites the draw list before RenderDrawData. Useful for debugging a window that does not show.
+    related: [bend-the-picture-with-crt-curvature-and-chromatic-aberration, render-imgui-into-a-texture, show-an-image-in-imgui]
+    borrowed_from: []
+
+  # ---------------------------------------------------------------- feeding shaders from C#
+  - slug: feed-uniform-buffers-to-a-shaderextensions-shader
+    title: Feed a ShaderExtensions shader from C# with uniform buffers
+    summary: Define a C# struct matching a GLSL std140 uniform block, register it as an XML element, and write it from the mod each frame. Covers std140 padding (vec4 arrays, mat4 columns), Span, pointer and BufferEx lookups, and sharing one buffer across several shaders by Id.
+    game_types: [KSA.KeyHash, KSA.LookupCollection, Brutal.VulkanApi.Abstractions.BufferEx, Brutal.VulkanApi.Abstractions.MappedMemory, Brutal.Numerics.float4x4]
+    engine_pointers:
+      - current/decomp/KSA/KeyHash.cs
+      - current/decomp/Brutal.VulkanApi.Abstractions/BufferEx.cs
+    lifecycle: [startup:starmap-before-main, startup:asset-load, frame:draw-ui, render:post-process]
+    approaches:
+      - n: 1
+        title: Pack = 1 structs with manual std140 padding, one block per effect
+        mod: mpfx
+        features:
+          - mods/mpfx/features/duck-typed-buffer-structs
+          - mods/mpfx/features/separable-gaussian-blur
+          - mods/mpfx/features/color-grading-math
+        technique: vulkan-buffer
+        note: float arrays packed into vec4, float4x4 rows become mat4 columns, blur weights computed on the CPU into an int plus vec4[6] block. KeyHash.Make(Id) lookups return the mapped span.
+      - n: 2
+        title: Share one buffer across passes (Size owns it, Id references it)
+        mod: shaderextensions
+        features:
+          - mods/shaderextensions/features/custom-uniform-buffers
+          - mods/mpfx/features/effect-chain-assets
+        technique: vulkan-buffer
+        note: Pre and post variants of an effect read one block so the UI writes once; how ownership and reference elements resolve at bind time.
+      - n: 3
+        title: Span/pointer/BufferEx lookups beside push constants in a HUD mod
+        mod: ksa-aircrafthud
+        features: [mods/ksa-aircrafthud/features/sx-push-constants-and-buffers]
+        technique: vulkan-buffer
+        note: Lookup delegate fields injected into static members, std140 padding, and which lookup form to pick.
+    related: [send-push-constants-to-a-shaderextensions-shader, update-shader-parameters-at-the-right-time, use-shaderextensions-without-referencing-its-assembly, create-a-persistently-mapped-uniform-buffer]
+    borrowed_from: []
+
+  - slug: send-push-constants-to-a-shaderextensions-shader
+    title: Send small per-frame values to a shader with push constants
+    summary: "Use a push-constant struct for values that change every frame (time, enabled flag, strength): how it becomes a VkPushConstantRange, the 128-byte and 4-byte alignment limits, stage-range rules, and why push constants are captured at record time so passes never tear across frames in flight."
+    game_types: [KSA.LookupCollection, KSA.KeyHash, Brutal.VulkanApi.VkDeviceExtensions]
+    engine_pointers:
+      - current/decomp/KSA/KeyHash.cs
+      - current/decomp/KSA/Program.cs RenderGame
+    lifecycle: [startup:starmap-before-main, startup:asset-load, frame:draw-ui, frame:render, render:post-process]
+    approaches:
+      - n: 1
+        title: One push-constant element per pass with a lookup delegate field
+        mod: ksa-aircrafthud
+        features:
+          - mods/ksa-aircrafthud/features/sx-push-constants-and-buffers
+          - mods/shaderextensions/features/push-constants
+        technique: vulkan-pipeline
+        note: SxPushConstant struct, KeyHash of the XML Id, enabled and time written every frame to three passes. Overlapping ranges with different stage flags need every stage in each push.
+      - n: 2
+        title: Per-side push-constant clock and strengths in a settings-driven mod
+        mod: mpfx
+        features:
+          - mods/mpfx/features/film-grain-and-experimental-effects
+          - mods/mpfx/features/duck-typed-buffer-structs
+        technique: vulkan-pipeline
+        note: Separate pre and post clocks, optionally scaled by time warp; push constants written every frame while uniform buffers are written on change.
+    related: [feed-uniform-buffers-to-a-shaderextensions-shader, toggle-a-post-processing-pass, animate-shaders-with-game-time, pack-parameters-for-a-compute-effect]
+    borrowed_from: []
+
+  - slug: use-shaderextensions-without-referencing-its-assembly
+    title: Integrate with ShaderExtensions by attribute name, with no assembly reference
+    summary: Declare same-named internal attribute types and static lookup delegate fields in your own assembly so ShaderExtensions discovers your structs by FullName and injects the buffers, letting the mod load whether or not the host is installed and avoiding version lock.
+    game_types: [KSA.KeyHash, KSA.SerializedId, Brutal.Numerics.float4x4]
+    engine_pointers:
+      - current/decomp/KSA/Program.cs Main (host patches it to run AssetEx.Init)
+    lifecycle: [startup:starmap-before-main, startup:asset-load]
+    approaches:
+      - n: 1
+        title: Private SxUniformBuffer/SxPushConstant attribute copies and delegate fields
+        mod: mpfx
+        features: [mods/mpfx/features/duck-typed-buffer-structs]
+        technique: inter-mod-api
+        note: Attributes declared in the provider's namespace, matched by name; registration happens before Program.Main so XML elements exist when assets load.
+      - n: 2
+        title: Same pattern with StarMapBeforeMain registration and marker callbacks
+        mod: ksa-aircrafthud
+        features: [mods/ksa-aircrafthud/features/sx-push-constants-and-buffers]
+        technique: inter-mod-api
+        note: Also copies the ImGui marker types; uses no type from ShaderExtensions.dll.
+    related: [feed-uniform-buffers-to-a-shaderextensions-shader, send-push-constants-to-a-shaderextensions-shader]
+    borrowed_from: []
+
+  - slug: update-shader-parameters-at-the-right-time
+    title: Upload shader parameters at the right point in the frame, and only when they change
+    summary: Write parameter blocks from a ui or viewport hook before RenderGame records the passes, rewrite large buffers only when a dirty flag is set, and keep per-frame values (time, enabled) in push constants so no cross-frame tearing occurs.
+    game_types: [KSA.Program, KSA.Universe, Core.Renderer]
+    engine_pointers:
+      - current/decomp/KSA/Program.cs OnFrame, RenderGame
+    lifecycle: [frame:draw-ui, frame:viewports, frame:render]
+    approaches:
+      - n: 1
+        title: StarMapAfterGui writes push constants every frame and buffers on a UI dirty flag
+        mod: mpfx
+        features: [mods/mpfx/features/per-frame-parameter-upload]
+        technique: starmap-lifecycle
+        note: Disabled effects get neutral values; settings are not persisted. The write happens in frame:draw-ui, the same frame RenderGame records.
+      - n: 2
+        title: Postfix OnFrameEditor writes enabled and time into push constants
+        mod: ksa-aircrafthud
+        features: [mods/ksa-aircrafthud/features/sx-push-constants-and-buffers]
+        technique: harmony-postfix
+        note: Runs in frame:viewports so it also works when the HUD is hidden; compare with the draw-ui timing.
+    related: [feed-uniform-buffers-to-a-shaderextensions-shader, send-push-constants-to-a-shaderextensions-shader, keep-overlays-updating-when-hud-hidden]
+    borrowed_from: []
+
+  - slug: create-a-persistently-mapped-uniform-buffer
+    title: Create and update a persistently mapped uniform buffer
+    summary: A HostVisible, HostCoherent buffer kept mapped for the life of the renderer is the simplest way to push per-frame data to shaders. Covers allocation, the one-copy versus per-frame-in-flight question and recreation on renderer rebuild.
+    game_types: [Brutal.VulkanApi.Abstractions.BufferEx, Brutal.VulkanApi.Abstractions.MappedMemory, Core.Renderer, KSA.Program]
+    engine_pointers:
+      - current/decomp/Brutal.VulkanApi.Abstractions/BufferEx.cs
+      - current/decomp/KSA/Program.cs RebuildRenderer
+    lifecycle: [frame:render, frame:prepare]
+    approaches:
+      - n: 1
+        title: One shared time buffer rewritten from a RenderGame prefix
+        mod: shaderextensions
+        features: [mods/shaderextensions/features/shared-time-uniform-buffer]
+        technique: vulkan-buffer
+        note: Rewritten each flight frame; single copy versus two frames in flight discussed; recreated after RebuildRenderer.
+      - n: 2
+        title: Consumer-declared buffer owned through an XML Size
+        mod: shaderextensions
+        features: [mods/shaderextensions/features/custom-uniform-buffers]
+        technique: vulkan-buffer
+        note: The host allocates and maps; mods only receive a Span or pointer.
+    related: [feed-uniform-buffers-to-a-shaderextensions-shader, animate-shaders-with-game-time, free-vulkan-resources-safely]
+    borrowed_from: []
+
+  - slug: animate-shaders-with-game-time
+    title: Animate a shader with frame, real or simulation time
+    summary: Choose the clock a shader reads. ShaderTime carries frame number, delta, real and simulation time and warp rate; a mod can also keep its own clock in a push constant, or feed the simulation clock to a stock shader. Pause and time warp behave differently for each.
+    game_types: [KSA.Program, KSA.Universe, Core.Renderer]
+    engine_pointers:
+      - current/decomp/KSA/Universe.cs GetElapsedTime, GetElapsedSeconds
+      - current/decomp/KSA/Program.cs FrameNumber, RenderGame
+    lifecycle: [frame:render, frame:draw-ui, render:post-process, render:atmosphere]
+    approaches:
+      - n: 1
+        title: ShaderTime block at binding 1 of every ShaderEx set
+        mod: shaderextensions
+        features: [mods/shaderextensions/features/shared-time-uniform-buffer]
+        technique: vulkan-buffer
+        note: Frame number, RenderGame dt, Universe.GetElapsedSeconds and SimulationSpeed; which fields freeze on pause and which scale with warp.
+      - n: 2
+        title: Own accumulated clock in a push constant, optionally warp-scaled
+        mod: mpfx
+        features: [mods/mpfx/features/film-grain-and-experimental-effects]
+        technique: glsl-shader
+        note: Grain should keep moving on pause, so a wall-clock accumulator, with an option to scale by time warp.
+      - n: 3
+        title: Signed simulation seconds smuggled through a stock atmosphere field
+        mod: realatmospheres
+        features: [mods/realatmospheres/features/atmosphere-uniform-side-channel]
+        technique: harmony-prefix
+        note: Universe.GetElapsedTime is the last applied sim step; the sim clock freezes on pause and scales with warp, the wall clock does not.
+    related: [send-push-constants-to-a-shaderextensions-shader, send-extra-data-to-stock-shaders-without-new-uniforms, add-film-grain-and-blue-noise-dithering]
+    borrowed_from: []
+
+  - slug: give-a-mod-shader-the-camera-pose-and-global-data
+    title: Give a mod shader the camera pose and the game's global shader data
+    summary: Custom passes need the camera to project, reconstruct positions or branch on altitude. Options are the game's global camera and lighting data at descriptor set 0, push constants computed on the CPU with double-precision camera-relative subtraction, and the correct camera object (the base camera, not the map camera, in map mode).
+    game_types: [KSA.GlobalShaderBindings, KSA.Camera, KSA.ViewProjection, KSA.IGameViewport, KSA.ViewportRegistry]
+    engine_pointers:
+      - current/decomp/KSA/GlobalShaderBindings.cs
+      - current/decomp/KSA/Camera.cs
+      - current/decomp/KSA/ViewportRegistry.cs MainViewport
+    lifecycle: [frame:draw-ui, frame:celestials, render:post-process, render:bloom]
+    approaches:
+      - n: 1
+        title: GlobalShaderBindings at set 0 of a fullscreen pass
+        mod: shaderextensions
+        features: [mods/shaderextensions/features/post-processing-pass-chain]
+        technique: vulkan-pipeline
+        note: The pass chain binds the game's own descriptor set at slot 0, so a fragment shader can read camera and lighting data directly; no dynamic offsets are used in 5554.
+      - n: 2
+        title: Camera-relative positions subtracted in double, then narrowed into push constants
+        mod: ksarmory
+        features: [mods/ksarmory/features/shock-front-refraction]
+        technique: vulkan-pipeline
+        note: Subtract camera PositionEcl in double before narrowing to float; project with the camera's row-vector matrix convention.
+      - n: 3
+        title: MainViewport.BaseCamera instead of GetMainCamera
+        mod: ksarmory
+        features: [mods/ksarmory/features/burst-flash-and-view-shake]
+        technique: reflection
+        note: GetMainCamera returns the map camera in map mode, so effects that must follow the flight view read the viewport's base camera.
+    related: [pack-parameters-for-a-compute-effect, reconstruct-scene-positions-from-depth-in-a-compute-shader, project-world-positions-to-screen, choose-ecl-or-ego-positions-for-rendering]
+    borrowed_from: []
+
+  # ---------------------------------------------------------------- effect recipes
+  - slug: colour-grade-the-frame-and-add-a-vignette
+    title: Colour-grade the frame and add an aspect-correct vignette
+    summary: GLSL building blocks for lift/gamma/gain from a mat4, Kelvin colour temperature with luminance preservation, YIQ hue rotation, mid-grey contrast, Rec. 709 saturation, overlay, and an aspect-correct vignette, written for HDR input and neutral-identity parameters.
+    game_types: [KSA.Program, Brutal.Numerics.float4x4]
+    engine_pointers:
+      - current/decomp/KSA/Program.cs RenderGame (RenderFinalComposite tonemap)
+    lifecycle: [render:post-process]
+    approaches:
+      - n: 1
+        title: Pre-ImGui grading passes on the HDR scene
+        mod: mpfx
+        features:
+          - mods/mpfx/features/color-grading-math
+          - mods/mpfx/features/effect-shader-contract
+        technique: glsl-shader
+        note: Each operation is its own pass (ColorBalance, ColorTemp, HueShift, Vignette) driven by one parameter block; discusses doing grading before the tonemap and what clipping does to it.
+    related: [choose-pre-or-post-imgui-post-processing, feed-uniform-buffers-to-a-shaderextensions-shader, grade-a-camera-feed-into-a-tv-or-thermal-look]
+    borrowed_from: []
+
+  - slug: blur-the-screen-with-a-separable-gaussian
+    title: Blur the screen with a two-pass separable Gaussian
+    summary: A horizontal then vertical Gaussian as consecutive passes with weights computed on the CPU, including tap distribution tricks, radius limits and the glass-style variant that blurs the refracted scene.
+    game_types: [KSA.Rendering.RenderImage, KSA.Program]
+    engine_pointers:
+      - current/decomp/KSA/Program.cs RenderGame
+    lifecycle: [frame:draw-ui, render:post-process]
+    approaches:
+      - n: 1
+        title: CPU-computed normalized weights up to radius 20 in a std140 block
+        mod: mpfx
+        features: [mods/mpfx/features/separable-gaussian-blur]
+        technique: glsl-shader
+        note: One shader file used by both chains; second pass samples the first pass's target; weights int plus vec4[6].
+      - n: 2
+        title: Non-linear tap distribution and a refracted horizontal pass
+        mod: ksa-aircrafthud
+        features: [mods/ksa-aircrafthud/features/glass-post-process-chain]
+        technique: glsl-shader
+        note: H pass combines refraction offsets; V pass plus a composite using the pre-blur scene by input reference.
+    related: [chain-post-processing-passes, refract-and-distort-the-scene, add-film-grain-and-blue-noise-dithering]
+    borrowed_from: []
+
+  - slug: add-film-grain-and-blue-noise-dithering
+    title: Add film grain and dither away banding
+    summary: Two ways to add noise to the final image - procedural simplex-style grain blended soft-light with a time seed, and a spatiotemporal blue-noise texture indexed by integer pixel coordinates and a time-selected slice, which hides banding after heavy blur.
+    game_types: [KSA.Program, KSA.Universe]
+    engine_pointers:
+      - current/decomp/KSA/Program.cs FrameNumber
+    lifecycle: [frame:draw-ui, frame:viewports, render:post-process]
+    approaches:
+      - n: 1
+        title: Ashima/Gustavson noise with soft-light blending on a push-constant clock
+        mod: mpfx
+        features: [mods/mpfx/features/film-grain-and-experimental-effects]
+        technique: glsl-shader
+        note: Per-side clock, strength and size, applied pre or post ImGui. Experimental HSV and channel-isolation passes live in the same file set.
+      - n: 2
+        title: 128x128x64 STBN texture stacked in a 128x8192 PNG, slice picked from time
+        mod: ksa-aircrafthud
+        features: [mods/ksa-aircrafthud/features/blue-noise-dithering]
+        technique: glsl-shader
+        note: Texel-centre UVs, integer pixel coordinates, per-frame slice from accumulated time or FrameNumber; multiplicative grain.
+    related: [animate-shaders-with-game-time, bind-extra-textures-and-buffers-to-a-shader, blur-the-screen-with-a-separable-gaussian]
+    borrowed_from: []
+
+  - slug: bend-the-picture-with-crt-curvature-and-chromatic-aberration
+    title: Bend the picture with CRT barrel curvature and chromatic aberration
+    summary: Remap UVs for barrel distortion inside a rectangle and offset colour channels by a luminance-masked amount, applied either to a single HUD window or to a whole canopy-glass composite.
+    game_types: [KSA.Program, KSA.ImGuiBackendVulkanImpl]
+    engine_pointers:
+      - current/decomp/KSA/ImGuiBackendVulkanImpl.cs
+    lifecycle: [render:imgui, render:post-process]
+    approaches:
+      - n: 1
+        title: Barrel curve within UvRect and channel offsets in an ImGuiShader
+        mod: ksa-aircrafthud
+        features: [mods/ksa-aircrafthud/features/imgui-window-hud-shader]
+        technique: glsl-shader
+        note: UI_PP_HUD.frag remaps UV inside the window rect and offsets channels by a luminance mask; shared UI_Functions.glsl.
+      - n: 2
+        title: Chromatic aberration and radial edge blur in a glass composite pass
+        mod: ksa-aircrafthud
+        features: [mods/ksa-aircrafthud/features/glass-post-process-chain]
+        technique: glsl-shader
+        note: PostProcess.frag applies aberration scaled with radius from the centre as part of a three-pass chain.
+    related: [shade-one-imgui-window-with-a-custom-fragment-shader, refract-and-distort-the-scene]
+    borrowed_from: []
+
+  - slug: refract-and-distort-the-scene
+    title: Refract and distort the rendered scene
+    summary: Fake glass, heat haze, lenses and shock rings by sampling the scene at an offset. A fragment pass can use a packed normal/dirt mask texture; a compute pass copies the HDR scene and writes pixels back displaced by an analytic lens.
+    game_types: [KSA.Program, KSA.SunbloomRenderer, KSA.Rendering.ComputePipelineWrapper, KSA.Rendering.RenderImage, RenderCore.ReverseDepthBufferUtils]
+    engine_pointers:
+      - current/decomp/KSA/SunbloomRenderer.cs Render
+      - current/decomp/KSA.Rendering/ComputePipelineWrapper.cs
+    lifecycle: [render:post-process, render:bloom]
+    approaches:
+      - n: 1
+        title: Normal-mask UV offsets and luminance-gated dirt in a fragment pass
+        mod: ksa-aircrafthud
+        features: [mods/ksa-aircrafthud/features/glass-post-process-chain]
+        technique: glsl-shader
+        note: rg of the packed mask offsets the UV, b is dirt amount gated by luminance so glare lights the smudges.
+      - n: 2
+        title: Scene copy then displaced write-back in two compute dispatches
+        mod: ksarmory
+        features: [mods/ksarmory/features/shock-front-refraction]
+        technique: glsl-shader
+        note: A Gaussian-derivative lens where the view ray grazes the front's sphere; reverse-Z depth test and ground cut.
+    related: [blur-the-screen-with-a-separable-gaussian, draw-analytic-sky-effects-in-a-compute-pass, modify-the-hdr-scene-with-a-compute-pass]
+    borrowed_from: []
+
+  - slug: grade-a-camera-feed-into-a-tv-or-thermal-look
+    title: Grade a camera feed into a TV or thermal look
+    summary: Give a secondary viewport an analog TV or white-hot/black-hot picture by measuring the frame's log-mean brightness into a 1x1 image and mapping around it in a second dispatch, before bloom so tonemapping still behaves.
+    game_types: [KSA.SunbloomRenderer, KSA.IViewport, KSA.Rendering.RenderTarget, KSA.Rendering.BarrierBatch, KSA.ViewportOptionFlags]
+    engine_pointers:
+      - current/decomp/KSA/SunbloomRenderer.cs Render
+      - current/decomp/KSA/ViewportOptionFlags.cs
+    lifecycle: [frame:draw-ui, frame:celestials, render:bloom]
+    approaches:
+      - n: 1
+        title: Two-dispatch reduction and map per viewport with a cached pipeline
+        mod: ksarmory
+        features: [mods/ksarmory/features/sensor-look-pass]
+        technique: vulkan-pipeline
+        note: Rebuild images on size change, not only on image change; restrict to one secondary viewport.
+    related: [colour-grade-the-frame-and-add-a-vignette, ship-a-compute-shader-as-a-mod-asset, put-a-live-screen-on-a-part]
+    borrowed_from: []
+
+  # ---------------------------------------------------------------- replacing and patching the game's GLSL
+  - slug: redirect-game-shaders-to-a-patched-copy
+    title: Replace stock shaders without editing game files by redirecting FromFile
+    summary: Copy the game's Core shader tree into the mod folder at launch, patch the copies, and prefix ShaderModuleUtils.FromFile to rewrite every path so shaderc's requesting-file-relative includes also resolve to the patched files. Covers the early hook this needs because stock shaders compile during ModLibrary.LoadAll.
+    game_types: [RenderCore.ShaderModuleUtils, KSA.ShaderReference, RenderCore.Shaders.ShaderCompilerResolve, KSA.AssetReloader.ShaderReloader, KSA.ModLibrary]
+    engine_pointers:
+      - current/decomp/RenderCore/ShaderModuleUtils.cs FromFile
+      - current/decomp/KSA/ShaderReference.cs
+      - current/decomp/KSA.AssetReloader/ShaderReloader.cs GetModPath
+      - current/Content/Core/Shaders
+    lifecycle: [startup:starmap-before-main, startup:asset-load]
+    approaches:
+      - n: 1
+        title: Shadow tree under the mod folder plus a FromFile path-rewrite prefix
+        mod: realatmospheres
+        features:
+          - mods/realatmospheres/features/shader-file-redirect
+          - mods/realatmospheres/features/shadow-tree-anchor-patching
+        technique: harmony-prefix
+        note: StarMapBeforeMain is the only hook before shader loading; patches run on thread-pool threads because shaders compile in parallel; preload Planet.Render.Core.dll into the game's load context so the patched type is the one used; keep ShaderReloader.GetModPath bookkeeping valid.
+    related: [patch-game-glsl-with-anchored-text-edits, patch-game-shaders-in-memory-at-compile-time, make-the-game-rebuild-shaders-and-luts-after-a-change]
+    borrowed_from: [mods/realatmospheres/features/shader-file-redirect]
+
+  - slug: patch-game-glsl-with-anchored-text-edits
+    title: Text-patch game GLSL so it survives game updates
+    summary: Apply edits to shader text with exact anchors, exact occurrence counts and idempotent markers, all-or-nothing per file, logging and skipping on drift instead of corrupting a shader. Includes number formatting in invariant culture and asset-gated insertions.
+    game_types: [RenderCore.ShaderModuleUtils, KSA.AtmosphereRenderer]
+    engine_pointers:
+      - current/Content/Core/Shaders/Atmosphere/Atmosphere.comp
+      - current/Content/Core/Shaders/Clouds/RaymarchCloud.comp
+      - current/Content/Core/Shaders/Planet/Planet.frag
+    lifecycle: [startup:starmap-before-main]
+    approaches:
+      - n: 1
+        title: (stock, corrected, marker) triples and counted site lists on LF-normalized copies
+        mod: realatmospheres
+        features: [mods/realatmospheres/features/shadow-tree-anchor-patching]
+        technique: glsl-shader
+        note: Every anchor verified against build 2026.10.10.5554; a decimal-comma locale once stopped the game from starting.
+    related: [redirect-game-shaders-to-a-patched-copy, patch-game-shaders-in-memory-at-compile-time, patch-game-xml-data]
+    borrowed_from: []
+
+  - slug: patch-game-shaders-in-memory-at-compile-time
+    title: Patch and recompile a game shader in memory without touching files
+    summary: Prefix ShaderModuleUtils.FromFile (and, for model shaders, KSA.Rendering.Utils.SetShaderFromMod) to compile transformed source instead of the file on disk. Covers choosing which shaders to match, the transform, and forcing the recompile.
+    game_types: [RenderCore.ShaderModuleUtils, KSA.ShaderReference, KSA.Rendering.Utils, KSA.PartTreeRenderData, RenderCore.Pipelines.SimplePipeline]
+    engine_pointers:
+      - current/decomp/RenderCore/ShaderModuleUtils.cs FromFile, FromString
+      - current/decomp/KSA.Rendering/Utils.cs SetShaderFromMod
+      - current/Content/Core/Shaders/Mesh/MeshIndirect.frag
+      - current/Content/Core/Shaders/Mesh/ModelPbr.frag
+    lifecycle: [startup:all-mods-loaded, frame:prepare, frame:render]
+    approaches:
+      - n: 1
+        title: MeshIndirect.frag patch for vehicle paint, recompiled on a requested renderer rebuild
+        mod: unscience
+        features: [mods/unscience/features/humble-arteest-vehicle-paint-shader-patch]
+        technique: harmony-prefix
+        note: A 7:7:7 colour is decoded from spare StateBitFlag bits in the patched fragment shader; the rebuild is requested when the effect is enabled.
+      - n: 2
+        title: Model.vert, Model_Skinned.vert and ModelPbr.frag patched for canopy projection
+        mod: unscience
+        features: [mods/unscience/features/free-fallin-canopy-projection-shader]
+        technique: harmony-prefix
+        note: Prefixes on SetShaderFromMod and FromFile recompile patched source; a bind-pose projection UV is used only on materials carrying a marker, so other models are unaffected.
+      - n: 3
+        title: Compile-time shader transform with packed colours and runtime masters
+        mod: gatos
+        features: [mods/gatos/features/vehicle-and-eva-paint]
+        technique: glsl-shader
+        note: PaintShaderTransform edits the part fragment shader during FromFile and the mod forces Program.RendererRebuildNeeded; reversible install via dynamic Harmony patches.
+    related: [redirect-game-shaders-to-a-patched-copy, patch-game-glsl-with-anchored-text-edits, send-extra-data-to-stock-shaders-without-new-uniforms, paint-vessel-parts-with-custom-colours, make-the-game-rebuild-shaders-and-luts-after-a-change]
+    borrowed_from:
+      - mods/unscience/features/humble-arteest-vehicle-paint-shader-patch
+      - mods/gatos/features/vehicle-and-eva-paint
+
+  - slug: send-extra-data-to-stock-shaders-without-new-uniforms
+    title: Send extra data to stock shaders without adding uniforms
+    summary: Stock shaders have fixed inputs, so a patched shader borrows ones that are free or irrelevant for the case at hand - unused fields in a uniform struct, spare high bits in a per-instance flag word, or a marker on the material - and decodes them in the patched GLSL.
+    game_types: [KSA.AtmosphereRenderer, KSA.Atmosphere.Rendering.ShaderStructs.AtmosphereData, KSA.PartTreeRenderData, KSA.MaterialData, KSA.DistanceReference]
+    engine_pointers:
+      - current/decomp/KSA/AtmosphereRenderer.cs FillPlanetAtmosphereData
+      - current/decomp/KSA/PartTreeRenderData.cs WriteState
+      - current/decomp/KSA/MaterialData.cs
+    lifecycle: [frame:render, render:atmosphere, frame:draw-ui]
+    approaches:
+      - n: 1
+        title: Temporary value swap in a prefix, or edit the boxed struct in a postfix
+        mod: realatmospheres
+        features: [mods/realatmospheres/features/atmosphere-uniform-side-channel]
+        technique: harmony-postfix
+        note: Ozone extent carries signed sim seconds for haze bodies; spin axis and angle ride unused ring slots; the value is restored after the fill call.
+      - n: 2
+        title: Spare high bits of PartTreeRenderData state flags
+        mod: unscience
+        features:
+          - mods/unscience/features/humble-arteest-vehicle-paint-shader-patch
+          - mods/gatos/features/vehicle-and-eva-paint
+        technique: harmony-postfix
+        note: Postfixes on the private state writers OR packed colours into the instance state word; the patched fragment shader decodes them. Private batch types are reached by reflection.
+      - n: 3
+        title: Marker in a material's ExtraData plus shader-side branch
+        mod: unscience
+        features: [mods/unscience/features/free-fallin-canopy-projection-shader]
+        technique: glsl-shader
+        note: The material carries a marker; the patched shader reads it and projects only on those materials.
+    related: [patch-game-shaders-in-memory-at-compile-time, dispatch-shader-variants-with-sentinel-values, branch-per-body-inside-shared-game-shaders, paint-vessel-parts-with-custom-colours]
+    borrowed_from: []
+
+  - slug: dispatch-shader-variants-with-sentinel-values
+    title: Dispatch shader behaviour with out-of-range XML values
+    summary: Replace a shader function with a dispatcher keyed on values an author would never use naturally, so new per-body behaviour is selected from existing XML fields with no new uniforms, structs or C# hooks.
+    game_types: [KSA.AtmosphereRenderer, KSA.MieScatteringReference]
+    engine_pointers:
+      - current/decomp/KSA/MieScatteringReference.cs
+      - current/Content/Core/Shaders/Atmosphere
+    lifecycle: [startup:starmap-before-main, render:atmosphere]
+    approaches:
+      - n: 1
+        title: Cut the stock MiePhaseFunction span and insert a dispatcher on asymmetry sentinels
+        mod: realatmospheres
+        features: [mods/realatmospheres/features/mie-phase-sentinel-dispatch]
+        technique: glsl-shader
+        note: Out-of-range asymmetry selects a Mie-theory Martian dust phase (three-lobe HG fit or a LUT shipped as GLSL) or a Pluto haze phase.
+    related: [branch-per-body-inside-shared-game-shaders, ship-lookup-data-inside-glsl-source, send-extra-data-to-stock-shaders-without-new-uniforms]
+    borrowed_from: []
+
+  - slug: branch-per-body-inside-shared-game-shaders
+    title: Branch per body inside shared game shaders
+    summary: One stock shader draws every body, so per-body behaviour has to be keyed on something the shader can already see. Two keys that work in practice are the body radius plus a value only the mod's XML writes, and per-point terrain height for relief-aware shading.
+    game_types: [KSA.AtmosphereRenderer, KSA.Atmosphere.Rendering.ShaderStructs.AtmosphereData, KSA.PlanetRenderer]
+    engine_pointers:
+      - current/Content/Core/Shaders/Atmosphere/AtmosphereData.glsl
+      - current/Content/Core/Shaders/Planet/Planet.frag
+      - current/Content/Core/Shaders/Planet/GroundClutter/Solid.frag
+    lifecycle: [startup:starmap-before-main, render:atmosphere, render:planet]
+    approaches:
+      - n: 1
+        title: Measured ln-density tables recognised by radius and an exact scale height
+        mod: realatmospheres
+        features: [mods/realatmospheres/features/measured-density-tables-in-shaders]
+        technique: glsl-shader
+        note: One injected AtmosphereDensityFalloff replaces six exponential sites in four shaders so every LUT integrates the same function; adds a Mars dust layer and altitude-dependent Titan Rayleigh colour.
+      - n: 2
+        title: Relief-aware terminator closing over a sqrt(2 relief / R) band
+        mod: realatmospheres
+        features: [mods/realatmospheres/features/relief-softened-terminator]
+        technique: glsl-shader
+        note: Planet.frag and GroundClutter/Solid.frag replace the smooth-ball self-shadow with a horizon test from each point's height while keeping other bodies' eclipses.
+    related: [dispatch-shader-variants-with-sentinel-values, send-extra-data-to-stock-shaders-without-new-uniforms, add-per-pixel-detail-over-the-atmosphere-luts, make-the-game-rebuild-shaders-and-luts-after-a-change]
+    borrowed_from: []
+
+  - slug: add-per-pixel-detail-over-the-atmosphere-luts
+    title: Add per-pixel detail on top of KSA's sky look-up tables
+    summary: The stock sky comes from azimuth-free LUTs; to add haze bands or other structure, insert a per-pixel raymarch that mirrors the stock integrator and blend it over the LUT result only where it can be seen.
+    game_types: [KSA.AtmosphereRenderer]
+    engine_pointers:
+      - current/Content/Core/Shaders/Atmosphere/Atmosphere.comp
+      - current/Content/Core/Shaders/Atmosphere/AtmosphereLuts.glsl
+    lifecycle: [startup:starmap-before-main, render:atmosphere]
+    approaches:
+      - n: 1
+        title: Raymarch inserted in Atmosphere.comp, blended by tangent altitude
+        mod: realatmospheres
+        features: [mods/realatmospheres/features/haze-band-sky-march]
+        technique: glsl-shader
+        note: Bands baked into LUT density for thin hazes, a per-pixel march with horizontal 3D noise for sky pixels, work culled where invisible.
+    related: [branch-per-body-inside-shared-game-shaders, patch-game-glsl-with-anchored-text-edits, raymarch-a-local-volume-into-the-hdr-scene]
+    borrowed_from: []
+
+  - slug: fix-volumetric-cloud-lighting-and-the-2d-handover
+    title: Fix cloud shading in KSA's volumetric and 2D cloud shaders
+    summary: Patch the raymarched cloud shader and shared cloud functions so dense decks keep their brightness at large step sizes, volumetric and 2D layers agree at the handover, and ring shadows reach the cloud passes using the game's own include.
+    game_types: [KSA.Atmosphere.Rendering.CloudRenderer, KSA.AtmosphereRenderer]
+    engine_pointers:
+      - current/Content/Core/Shaders/Clouds/RaymarchCloud.comp
+      - current/Content/Core/Shaders/Clouds/CloudFunctions.glsl
+      - current/Content/Core/Shaders/Common/RingShadows.glsl
+    lifecycle: [startup:starmap-before-main, render:atmosphere, render:planet]
+    approaches:
+      - n: 1
+        title: Light a thick step at its first optical depth by bisection
+        mod: realatmospheres
+        features: [mods/realatmospheres/features/cloud-face-lighting]
+        technique: glsl-shader
+        note: Up to five halvings plus a short near-sample shadow march toward the Sun; dense decks keep brightness from 300 to 10,000 km.
+      - n: 2
+        title: Flow and lift the volumetric map to match the 2D layer
+        mod: realatmospheres
+        features: [mods/realatmospheres/features/volumetric-cloud-map-flow-and-lift]
+        technique: glsl-shader
+        note: Same flow phase and displacement, with inverse coverage tables for faint values.
+      - n: 3
+        title: Include RingShadows.glsl and select mips without derivatives
+        mod: realatmospheres
+        features: [mods/realatmospheres/features/cloud-pass-shading-and-ring-shadows]
+        technique: glsl-shader
+        note: Reuse stock helpers where the data is already bound; texture LOD in compute is computed from neighbouring-pixel coordinate change.
+    related: [patch-game-glsl-with-anchored-text-edits, include-the-game-shader-library-in-mod-glsl, add-per-pixel-detail-over-the-atmosphere-luts]
+    borrowed_from: []
+
+  - slug: make-the-game-rebuild-shaders-and-luts-after-a-change
+    title: Make the game recompile shaders or regenerate LUTs after a change
+    summary: A patched shader or changed atmosphere input does nothing until something rebuilds the pipeline or lookup table. Set the renderer-rebuild flag after toggling a shader patch, and invalidate a body's atmosphere LUTs when a side-channel value changes.
+    game_types: [KSA.Program, KSA.AtmosphereRenderer]
+    engine_pointers:
+      - current/decomp/KSA/Program.cs RendererRebuildNeeded
+      - current/decomp/KSA/AtmosphereRenderer.cs _planetLutsValid
+    lifecycle: [frame:prepare, frame:render, render:atmosphere]
+    approaches:
+      - n: 1
+        title: Program.RendererRebuildNeeded after enabling or retuning a shader patch
+        mod: gatos
+        features:
+          - mods/gatos/features/vehicle-and-eva-paint
+          - mods/unscience/features/humble-arteest-vehicle-paint-shader-patch
+        technique: reflection
+        note: The flag is picked up in PrepareFrame; the patched FromFile prefix then produces the new module. Wire it to the setting change, not every frame.
+      - n: 2
+        title: Clear AtmosphereRenderer._planetLutsValid for the affected body
+        mod: realatmospheres
+        features: [mods/realatmospheres/features/atmosphere-uniform-side-channel]
+        technique: reflection
+        note: Needed when the side-channel switch changes; same effect as the renderer's own invalidation call.
+    related: [patch-game-shaders-in-memory-at-compile-time, send-extra-data-to-stock-shaders-without-new-uniforms, handle-renderer-rebuilds]
+    borrowed_from: []
+
+  # ---------------------------------------------------------------- core library, runtime compile, tooling
+  - slug: include-the-game-shader-library-in-mod-glsl
+    title: Include KSA's own GLSL library from a mod shader
+    summary: A mod shader can reuse the game's Global, atmosphere LUT and texture-set headers instead of copying them, by generating an include file with absolute paths at load time. The folder name Content matters for shader hot reload.
+    game_types: [KSA.ShaderReference, KSA.AssetReloader.ShaderReloader, RenderCore.Shaders.ShaderCompilerResolve, Brutal.ShaderCApi.ShaderC, KSA.Mod, KSA.ModLibrary]
+    engine_pointers:
+      - current/decomp/KSA/ShaderReference.cs
+      - current/decomp/KSA.AssetReloader/ShaderReloader.cs GetModPath
+      - current/Content/Core/Shaders/Common/Global.glsl
+    lifecycle: [startup:immediate-load, startup:asset-load]
+    approaches:
+      - n: 1
+        title: Generated Shaders/Content/CoreAtmosphere.glsl pulling in atmosphere and texture headers
+        mod: ksarmory
+        features: [mods/ksarmory/features/core-shader-library-include]
+        technique: starmap-lifecycle
+        note: Written at StarMapImmediateLoad with absolute includes of Global, AtmosphereLuts and TextureSet; the same file feeds the offline glslang check.
+      - n: 2
+        title: Generated KSAStructuresCore.glsl under a folder called Content
+        mod: ksastructures
+        features: [mods/ksastructures/features/core-shader-library-include]
+        technique: starmap-lifecycle
+        note: ShaderReloader.GetModPath keys every include on the text after the last Content; an include path without that folder breaks reload. Shows how the mod's own Shader asset XML references the include.
+      - n: 3
+        title: Relative include of a stock helper inside a patched copy
+        mod: realatmospheres
+        features: [mods/realatmospheres/features/cloud-pass-shading-and-ring-shadows]
+        technique: glsl-shader
+        note: When the stock shader tree is copied, a plain relative include of ../Common/RingShadows.glsl works because includes follow the redirected path.
+    related: [write-glsl-for-a-mod-draw-pipeline, check-mod-shaders-offline-with-glslang, reload-a-mod-shader-in-a-running-game, compile-glsl-at-runtime]
+    borrowed_from:
+      - mods/ksarmory/features/core-shader-library-include
+      - mods/ksastructures/features/core-shader-library-include
+      - mods/realatmospheres/features/cloud-pass-shading-and-ring-shadows
+
+  - slug: write-glsl-for-a-mod-draw-pipeline
+    title: Write the GLSL for a mod's own quad or preview pipeline
+    summary: The shader source behind runtime-compiled mod pipelines - matching the game's UnlitMeshVert interface, emitting premultiplied alpha, reconstructing positions from depth with the game's library, and doing derivative-based normal mapping without tangents - and the compile call details like the NUL-terminated debug path.
+    game_types: [RenderCore.ShaderModuleUtils, KSA.ShaderReference, RenderCore.SimpleVkMesh]
+    engine_pointers:
+      - current/decomp/RenderCore/ShaderModuleUtils.cs FromString
+      - current/Content/Core/Shaders/Mesh/UnlitMesh.vert
+      - current/Content/Core/Shaders/Common/Global.glsl
+    lifecycle: [startup:all-mods-loaded, frame:render]
+    approaches:
+      - n: 1
+        title: Premultiplied-alpha fragment shader paired with the stock unlit vertex shader
+        mod: purrtty
+        features: [mods/purrtty/features/world-space-quad-pipeline-custom-shader]
+        technique: glsl-shader
+        note: Embedded source, compiled when the pipeline is first built; the vertex stage is a stock shader so only the fragment stage is custom.
+      - n: 2
+        title: Sticker fragment shader compiled with FromString and the game's includes
+        mod: gatos
+        features: [mods/gatos/features/sticker-projected-decals]
+        technique: glsl-shader
+        note: Includes the game's shader library for depth and camera data; the debug path passed to the compiler must be NUL-terminated.
+      - n: 3
+        title: Derivative normal mapping in a preview shader
+        mod: unscience
+        features: [mods/unscience/features/pebbles-workshop-offscreen-preview]
+        technique: glsl-shader
+        note: Tangent-free normal mapping from screen-space derivatives for a private offscreen mesh.
+    related: [compile-glsl-at-runtime, build-a-vulkan-pipeline-for-the-scene-target, include-the-game-shader-library-in-mod-glsl, draw-a-textured-quad-in-the-world]
+    borrowed_from:
+      - mods/purrtty/features/world-space-quad-pipeline-custom-shader
+      - mods/gatos/features/sticker-projected-decals
+      - mods/unscience/features/pebbles-workshop-offscreen-preview
+
+  - slug: reload-a-mod-shader-in-a-running-game
+    title: Recompile a mod's shader while the game runs
+    summary: KSA ships a shader reloader but it keys on the text after Content, so a mod's shader needs its own path. Reflect into the internal FileReference.DoLoad to recompile the file, then release and rebuild the pipelines that held the old module.
+    game_types: [KSA.FileReference, KSA.ShaderReference, KSA.AssetReloader.ShaderReloader, KSA.Rendering.ComputePipelineWrapper]
+    engine_pointers:
+      - current/decomp/KSA/FileReference.cs DoLoad
+      - current/decomp/KSA/ShaderReference.cs DoLoad, Compile
+      - current/decomp/KSA.AssetReloader/ShaderReloader.cs
+    lifecycle: [frame:after-on-frame, thread:background]
+    approaches:
+      - n: 1
+        title: Bridge command that invokes FileReference.DoLoad by reflection and drops cached pipelines
+        mod: ksastructures
+        features:
+          - mods/ksastructures/features/core-shader-library-include
+          - mods/ksastructures/features/dev-file-bridge-and-mcp
+        technique: reflection
+        note: Logs the module handle and file SHA-1 before and after; a missing file makes DoLoad destroy the old module and keep nothing; Compile throws on a bad compile in 5554.
+      - n: 2
+        title: Shader reload command in a developer file bridge
+        mod: ksarmory
+        features: [mods/ksarmory/features/file-command-bridge-and-mcp]
+        technique: reflection
+        note: Same reflective reload exposed to an MCP server so an agent edits GLSL and sees the result in a capture.
+    related: [check-mod-shaders-offline-with-glslang, include-the-game-shader-library-in-mod-glsl]
+    borrowed_from:
+      - mods/ksastructures/features/dev-file-bridge-and-mcp
+      - mods/ksarmory/features/file-command-bridge-and-mcp
+
+  - slug: check-mod-shaders-offline-with-glslang
+    title: Compile-check a mod's GLSL without launching the game
+    summary: Run glslangValidator against the install's shader folder so a shader typo or a missing include fails in CI or a pre-push hook rather than at game load, using the same generated include the game sees.
+    game_types: [KSA.ShaderReference, Brutal.ShaderCApi.ShaderC]
+    engine_pointers:
+      - current/Content/Core/Shaders
+    lifecycle: [startup:immediate-load]
+    approaches:
+      - n: 1
+        title: check-shaders.sh in a pre-push hook and CI, skipped without an install
+        mod: ksarmory
+        features:
+          - mods/ksarmory/features/repo-static-checks
+          - mods/ksarmory/features/core-shader-library-include
+        technique: glsl-shader
+        note: glslangValidator with the install's include directory; skips with a notice when the game is absent.
+      - n: 2
+        title: Per-folder check beside asset and mesh validation
+        mod: ksastructures
+        features:
+          - mods/ksastructures/features/asset-and-mesh-validation-tools
+          - mods/ksastructures/features/core-shader-library-include
+        technique: glsl-shader
+        note: The same script run with -I on the install's shader folder as part of the validation suite.
+    related: [reload-a-mod-shader-in-a-running-game, include-the-game-shader-library-in-mod-glsl, keep-glsl-constants-in-sync-with-csharp]
+    borrowed_from:
+      - mods/ksarmory/features/repo-static-checks
+      - mods/ksastructures/features/asset-and-mesh-validation-tools
+
+  - slug: keep-glsl-constants-in-sync-with-csharp
+    title: Keep GLSL constants in sync with C# using a text test
+    summary: When a shader and C# share a constant (a struct size, a flag value, a tunable), a unit test that parses the shader text catches drift that no compiler will.
+    game_types: [KSA.ShaderReference]
+    engine_pointers: []
+    lifecycle: [thread:background]
+    approaches:
+      - n: 1
+        title: Regex over const floats in the .comp file asserted against C# values
+        mod: ksarmory
+        features: [mods/ksarmory/features/raymarched-mushroom-cloud]
+        technique: glsl-shader
+        note: MushroomCloudShaderTests reads const floats out of KSArmoryCloud.comp; also protects the push-constant kind-tag contract.
+    related: [pack-parameters-for-a-compute-effect, check-mod-shaders-offline-with-glslang]
+    borrowed_from: []
+
+  - slug: ship-lookup-data-inside-glsl-source
+    title: Generate GLSL tables and lookup functions from an offline script
+    summary: Instead of a texture, emit data as GLSL source - a 361-sample phase LUT with a lookup function, or ln-density tables with their recognition keys - from Python that shares one model with the C# flight code.
+    game_types: [KSA.AtmosphereRenderer, KSA.MieScatteringReference]
+    engine_pointers:
+      - current/Content/Core/Shaders/Atmosphere/TransmittanceLut.comp
+    lifecycle: [startup:starmap-before-main]
+    approaches:
+      - n: 1
+        title: Mie-theory LUT emitted as MarsDustPhaseLut.glsl
+        mod: realatmospheres
+        features: [mods/realatmospheres/features/texture-and-phase-asset-scripts, mods/realatmospheres/features/mie-phase-sentinel-dispatch]
+        technique: glsl-shader
+        note: Needs no binding or texture upload and is text-patched into the dispatcher.
+      - n: 2
+        title: Density tables emitted into a generated C# payload next to flight tables
+        mod: realatmospheres
+        features:
+          - mods/realatmospheres/features/measured-atmosphere-generator
+          - mods/realatmospheres/features/measured-density-tables-in-shaders
+        technique: code-generation
+        note: One script emits C# tables, XML values and GLSL tables so the renderer and flight model agree; a numpy port of the renderer checks the result.
+    related: [dispatch-shader-variants-with-sentinel-values, branch-per-body-inside-shared-game-shaders, keep-glsl-constants-in-sync-with-csharp]
+    borrowed_from:
+      - mods/realatmospheres/features/texture-and-phase-asset-scripts
+      - mods/realatmospheres/features/measured-atmosphere-generator
+
+  # ---------------------------------------------------------------- compute shaders in mods
+  - slug: ship-a-compute-shader-as-a-mod-asset
+    title: Ship a compute shader as a mod Shader asset
+    summary: The shader-authoring view of a pre-bloom compute pass - declare .comp files as Shader assets so KSA compiles them from any mod folder, lay out storage image, depth and buffer bindings and push constants for ComputePipelineWrapper, and size the dispatch to the image.
+    game_types: [KSA.Rendering.ComputePipelineWrapper, KSA.ShaderReference, KSA.Rendering.RenderImage, KSA.Rendering.BarrierBatch, KSA.Rendering.ImageBarrierInfo]
+    engine_pointers:
+      - current/decomp/KSA.Rendering/ComputePipelineWrapper.cs
+      - current/decomp/KSA/SunbloomRenderer.cs Render
+      - current/decomp/KSA/ShaderReference.cs
+    lifecycle: [startup:asset-load, startup:all-mods-loaded, render:bloom]
+    approaches:
+      - n: 1
+        title: .comp Shader assets in the mod XML, pipelines built through the engine wrapper
+        mod: ksarmory
+        features: [mods/ksarmory/features/compute-pass-before-bloom]
+        technique: xml-asset
+        note: KSArmoryParticles.xml declares the shaders; one wrapper per kernel; scene colour in General layout, depth sampled. See insert-a-custom-pass-into-render-game for the hook.
+      - n: 2
+        title: A single darkening kernel over colour, depth and light images
+        mod: ksastructures
+        features: [mods/ksastructures/features/underground-dark-compute-pass]
+        technique: xml-asset
+        note: KSAStructuresDark.comp, a minimal in-place kernel; leaves a compute write-to-read barrier for other mods.
+    related: [modify-the-hdr-scene-with-a-compute-pass, insert-a-custom-pass-into-render-game, tune-compute-shader-constants-live-with-specialization-constants, include-the-game-shader-library-in-mod-glsl]
+    borrowed_from: []
+
+  - slug: tune-compute-shader-constants-live-with-specialization-constants
+    title: Tune compute shader constants live with Vulkan specialization constants
+    summary: Expose look parameters as specialization constants with stable ids so an in-game tuning UI rebuilds the pipeline instead of recompiling GLSL, and glare or lens constants stay in one table shared between C# and the shader.
+    game_types: [KSA.Rendering.ComputePipelineWrapper]
+    engine_pointers:
+      - current/decomp/KSA.Rendering/ComputePipelineWrapper.cs
+    lifecycle: [frame:draw-ui, render:bloom]
+    approaches:
+      - n: 1
+        title: ShaderTunables with VkSpecializationInfo marshalled and freed after construction
+        mod: ksarmory
+        features:
+          - mods/ksarmory/features/compute-pass-before-bloom
+          - mods/ksarmory/features/burst-flash-and-view-shake
+        technique: vulkan-pipeline
+        note: Glare constants use ids 7-13; changing one rebuilds the pipeline with no recompile.
+    related: [ship-a-compute-shader-as-a-mod-asset, keep-glsl-constants-in-sync-with-csharp]
+    borrowed_from: []
+
+  - slug: pack-parameters-for-a-compute-effect
+    title: Pack effect parameters for a compute shader
+    summary: Fit an effect's state into Vulkan's guaranteed 128 bytes of push constants (octahedral unit vectors, exact integer flag sums with a sign discriminator), run several effects through one pipeline with a kind tag, or spill many items into a host-visible storage buffer.
+    game_types: [KSA.Rendering.ComputePipelineWrapper, Brutal.VulkanApi.Abstractions.BufferEx, Brutal.VulkanApi.Abstractions.MappedMemory, KSA.KsaVmaAllocator, Core.KSADeviceContextEx]
+    engine_pointers:
+      - current/decomp/KSA.Rendering/ComputePipelineWrapper.cs
+      - current/decomp/KSA/KsaVmaAllocator.cs
+    lifecycle: [frame:draw-ui, frame:celestials, render:bloom]
+    approaches:
+      - n: 1
+        title: 128-byte push constant with octahedral vectors and flag sums
+        mod: ksarmory
+        features: [mods/ksarmory/features/raymarched-mushroom-cloud]
+        technique: vulkan-pipeline
+        note: Derive redundant values (width/height) in the shader; the sign of one field discriminates modes; constants mirrored in a text test.
+      - n: 2
+        title: One compute pipeline multiplexed by a kind tag, with a per-kind dispatch cap
+        mod: ksarmory
+        features: [mods/ksarmory/features/high-altitude-burst-sky]
+        technique: vulkan-pipeline
+        note: Negative bound plus a kind float; keep the newest N per kind so the choice is stable rather than flickering by brightness rank.
+      - n: 3
+        title: Host-visible storage buffer of screen-space segments
+        mod: ksarmory
+        features: [mods/ksarmory/features/compute-shell-tracers]
+        technique: vulkan-buffer
+        note: Allocator reached by reflection, per-frame ring buffer, filled when the pass records.
+    related: [send-push-constants-to-a-shaderextensions-shader, give-a-mod-shader-the-camera-pose-and-global-data, draw-many-streaks-with-tiled-compute, keep-glsl-constants-in-sync-with-csharp]
+    borrowed_from: []
+
+  - slug: reconstruct-scene-positions-from-depth-in-a-compute-shader
+    title: Reconstruct scene positions from the depth buffer and paint on them
+    summary: Rebuild each pixel's world point from reverse-Z depth in a compute shader, then draw exact circles, ellipses, bullet holes and soot on terrain and hulls with a fixed pixel line width and no geometry.
+    game_types: [KSA.SunbloomRenderer, KSA.ViewProjection, KSA.Camera, RenderCore.ReverseDepthBufferUtils, KSA.Part]
+    engine_pointers:
+      - current/decomp/KSA/SunbloomRenderer.cs Render
+      - current/decomp/RenderCore/ReverseDepthBufferUtils.cs
+    lifecycle: [frame:draw-ui, frame:celestials, render:bloom]
+    approaches:
+      - n: 1
+        title: Per-ring dispatch over the ring's screen patch with body-fixed storage
+        mod: ksarmory
+        features: [mods/ksarmory/features/depth-painted-ground-rings]
+        technique: glsl-shader
+        note: Exact circle or ellipse, octahedral packing, ecliptic only when the pass records.
+      - n: 2
+        title: Tile-gathered procedural holes held in the struck sub-part's frame
+        mod: ksarmory
+        features: [mods/ksarmory/features/bullet-hole-decals]
+        technique: glsl-shader
+        note: Up to 400 holes painted by one dispatch, positions carried through the draw matrix of the sub-part.
+    related: [project-decals-onto-scene-geometry, give-a-mod-shader-the-camera-pose-and-global-data, draw-many-streaks-with-tiled-compute]
+    borrowed_from: [mods/ksarmory/features/depth-painted-ground-rings, mods/ksarmory/features/bullet-hole-decals]
+
+  - slug: draw-many-streaks-with-tiled-compute
+    title: Draw thousands of streaks in one tiled compute dispatch
+    summary: Project segments on the CPU, gather them per 16x16 tile in a bitmask pass, and add depth-tested glowing streaks before bloom, with gizmo lines as a fallback for lesser hardware.
+    game_types: [KSA.SunbloomRenderer, KSA.Camera, Brutal.VulkanApi.Abstractions.BufferEx, KSA.GizmosRenderer]
+    engine_pointers:
+      - current/decomp/KSA/SunbloomRenderer.cs Render
+    lifecycle: [frame:draw-ui, frame:celestials, render:bloom]
+    approaches:
+      - n: 1
+        title: Tile-bitmask gather and additive streak evaluation
+        mod: ksarmory
+        features: [mods/ksarmory/features/compute-shell-tracers]
+        technique: glsl-shader
+        note: Segments are resolved when the pass records; added before bloom so streaks bloom with the scene.
+    related: [pack-parameters-for-a-compute-effect, reconstruct-scene-positions-from-depth-in-a-compute-shader]
+    borrowed_from: []
+
+  - slug: raymarch-a-local-volume-into-the-hdr-scene
+    title: Raymarch a local volumetric effect into the HDR scene
+    summary: Smoke, fire and cloud columns can be drawn with a bounding-sphere early-out, a chord-proportional step count, golden-ratio jitter and a reprojected temporal resolve, written back into the HDR scene before bloom, with GPU cost measured from KSA's profiler at a pinned camera.
+    game_types: [KSA.SunbloomRenderer, KSA.Rendering.RenderImage, KSA.GpuProfiler, KSA.ProfilerTag, KSA.ViewProjection]
+    engine_pointers:
+      - current/decomp/KSA/SunbloomRenderer.cs Render
+      - current/decomp/KSA/GpuProfiler.cs
+    lifecycle: [frame:draw-ui, frame:celestials, frame:after-on-frame, render:bloom]
+    approaches:
+      - n: 1
+        title: Noise-eroded SDF torus, dome and column with a storage-image history ping-pong
+        mod: ksarmory
+        features: [mods/ksarmory/features/raymarched-mushroom-cloud]
+        technique: glsl-shader
+        note: Reprojection shifted by the effect's own motion, hand-filled neighbourhood clamp; TagRegion and Profiler.Gpu frames compare runs.
+    related: [light-and-occlude-a-mod-volume-with-ksa-atmosphere-data, pack-parameters-for-a-compute-effect, keep-effects-fixed-to-a-rotating-body]
+    borrowed_from: []
+
+  - slug: light-and-occlude-a-mod-volume-with-ksa-atmosphere-data
+    title: Light a mod's volume with KSA's sky data and hide it behind weather clouds
+    summary: Use the game's atmosphere LUTs for ambient light and aerial perspective on a mod-drawn volume, take cloud shadows into account, and test against the cloud renderer's colour and distance images because weather clouds write no depth.
+    game_types: [KSA.AtmosphereRenderer, KSA.Atmosphere.Rendering.CloudRenderer, KSA.Atmosphere.Rendering.CloudShadowsRenderer, KSA.PlanetTransparenciesRenderer, KSA.Atmosphere.Rendering.CloudShadowRenderData]
+    engine_pointers:
+      - current/decomp/KSA.Atmosphere.Rendering/CloudRenderer.cs
+      - current/decomp/KSA/AtmosphereRenderer.cs
+    lifecycle: [frame:celestials, render:atmosphere, render:bloom]
+    approaches:
+      - n: 1
+        title: Reflection into CloudRenderer images and the shadow data buffer, GetAmbient LUT calls in the shader
+        mod: ksarmory
+        features: [mods/ksarmory/features/raymarched-mushroom-cloud]
+        technique: reflection
+        note: Build 5554 has public getters for the accumulate target; reflection reaches the flipped upscaled targets and the static shadow buffer.
+    related: [raymarch-a-local-volume-into-the-hdr-scene, include-the-game-shader-library-in-mod-glsl, fix-volumetric-cloud-lighting-and-the-2d-handover]
+    borrowed_from: []
+
+  - slug: draw-analytic-sky-effects-in-a-compute-pass
+    title: Draw analytic sky shells and curtains over the planet in a compute pass
+    summary: Full-screen dispatches that draw an X-ray glow, auroral curtains along a dipole field line, a thin-air debris shell or a red wave over the sky, chosen by the air at the effect and capped per kind, using the planet's lighting block and atmosphere boundary.
+    game_types: [KSA.PhysicalAtmosphereReference, KSA.AtmosphericBody, KSA.Celestial, KSA.SunbloomRenderer, KSA.Camera]
+    engine_pointers:
+      - current/decomp/KSA/PhysicalAtmosphereReference.cs
+      - current/decomp/KSA/SunbloomRenderer.cs Render
+    lifecycle: [frame:draw-ui, frame:celestials, render:bloom]
+    approaches:
+      - n: 1
+        title: Per-kind analytic dispatches with a negative-bound tag and an isothermal density model
+        mod: ksarmory
+        features: [mods/ksarmory/features/high-altitude-burst-sky]
+        technique: glsl-shader
+        note: Only valid for the camera's nearby atmospheric celestial; boundary is the larger of density 1e-9 and pressure 1e-4 Pa.
+    related: [pack-parameters-for-a-compute-effect, refract-and-distort-the-scene, flash-and-shake-the-view-from-a-compute-pass]
+    borrowed_from: []
+
+  - slug: flash-and-shake-the-view-from-a-compute-pass
+    title: Flash and shake the view from a compute pass instead of the camera
+    summary: Whiteouts driven by an eye-adaptation model and view shake done by translating, rolling and zooming a scene copy, written into the HDR scene so nothing fights the camera controller and the effect survives F2 and screenshots.
+    game_types: [KSA.Program, KSA.ScreenshotCapture, KSA.IGameViewport, KSA.SunbloomRenderer, KSA.GpuRegionExtensions]
+    engine_pointers:
+      - current/decomp/KSA/Program.cs DrawUI
+      - current/decomp/KSA/ScreenshotCapture.cs
+      - current/decomp/KSA/SunbloomRenderer.cs Render
+    lifecycle: [frame:draw-ui, frame:after-on-frame, render:bloom]
+    approaches:
+      - n: 1
+        title: Flash-only mode of the cloud shader plus a shock-pass shake, stepped on the sim clock
+        mod: ksarmory
+        features: [mods/ksarmory/features/burst-flash-and-view-shake]
+        technique: glsl-shader
+        note: Log response against adapted light, veil driven by the rise, day-or-night recovery; Program.DrawUI guards the ImGui pass and ScreenshotCapture clears it, so the effect is written into the scene rather than ImGui.
+    related: [refract-and-distort-the-scene, draw-analytic-sky-effects-in-a-compute-pass, choose-pre-or-post-imgui-post-processing]
+    borrowed_from: []
+
+  - slug: read-the-light-prepass-irradiance-in-a-compute-shader
+    title: Read KSA's light pre-pass irradiance in a mod compute shader
+    summary: Sample the clustered light system's diffuse and specular irradiance images, reached by reflection and barriered through BarrierBatch, to darken ambient-lit pixels (underground) or fill in a light the pre-pass dropped at long range (fireball).
+    game_types: [KSA.Rendering.Lighting.ClusteredLightSystem, KSA.PrePassRenderer, KSA.PrePassData, KSA.GpuTextureSystem, KSA.Rendering.Lighting.LightDebug, KSA.Rendering.BarrierBatch]
+    engine_pointers:
+      - current/decomp/KSA.Rendering.Lighting/ClusteredLightSystem.cs
+      - current/decomp/KSA/PrePassRenderer.cs
+    lifecycle: [startup:all-mods-loaded, frame:celestials, render:bloom]
+    approaches:
+      - n: 1
+        title: Rescale each pixel by the share of light not from ambient
+        mod: ksastructures
+        features: [mods/ksastructures/features/underground-dark-compute-pass]
+        technique: reflection
+        note: Reads _diffuseIrradianceImage and _specularIrradianceImage; Priority.First prefix so the result is in place for other mods.
+      - n: 2
+        title: Add a fireball's diffuse term where the pre-pass culled it beyond about 3 km
+        mod: ksarmory
+        features: [mods/ksarmory/features/fireball-light-injection]
+        technique: reflection
+        note: The point light itself goes through the public LightDebug list; the dispatch fills in the culled range.
+    related: [add-dynamic-lights-to-the-world, ship-a-compute-shader-as-a-mod-asset, modify-the-hdr-scene-with-a-compute-pass]
+    borrowed_from: []

@@ -1,0 +1,543 @@
+mod: realatmospheres
+repo: RealAtmospheres
+ref: 19dc37a55b2e359bd8eec2f5b41722ab11ae0c46
+summary: >-
+  Real Atmospheres (Brimfyr) is a StarMap mod that rebuilds the Sol system's atmospheres, hazes and
+  clouds from composition, particle optics and probe measurements, and replaces the flight
+  atmosphere's density and pressure with measured profiles. It modifies no game files: at
+  StarMapBeforeMain it copies Content/Core/Shaders and the Core XML (Astronomicals.xml and the Sol
+  templates, the latter shared with a sibling mod through a mutex-guarded folder), applies hundreds of
+  anchor-checked, fail-soft text edits, and redirects the game into the copies with a Harmony prefix on
+  RenderCore.ShaderModuleUtils.FromFile and prefixes on four KSA.Mod loader methods. Flight tables are
+  attached in a postfix on AstronomicalTemplate.OnDataLoad and served by prefixes on
+  PhysicalAtmosphereReference; a prefix/postfix pair on AtmosphereRenderer.FillPlanetAtmosphereData
+  smuggles the sim clock and haze spin into unused uniform fields; a transpiler fixes the nearby-body
+  choice. The build references only StarMap.API and Harmony; everything else is reflection, including
+  ImGui calls emitted as DynamicMethods. Offline Python generates the tables and textures.
+features:
+  - id: mods/realatmospheres/features/reflection-only-mod-build
+    title: Reflection-only mod build
+    category: getting-started
+    submod: null
+    summary: >-
+      Compiles against StarMap.API and 0Harmony only and reaches every KSA, RenderCore and Brutal
+      member by name, with parameter-name and field-type checks before each Harmony patch and one
+      try/log per subsystem so a game update costs one feature, not the mod.
+    novelty: medium
+    techniques: [starmap-lifecycle, reflection, harmony-prefix, harmony-postfix, harmony-transpiler, fail-soft-patching]
+    lifecycle: [startup:starmap-before-main]
+    hooks:
+      - "starmap StarMapBeforeMain"
+    game_types: [KSA.Mod, RenderCore.ShaderModuleUtils, KSA.AtmosphereRenderer, KSA.Universe, KSA.CelestialSystem, KSA.PhysicalAtmosphereReference]
+    key_paths: [RealAtmospheres.csproj, ModMain.cs, FlightAtmospheres.cs]
+    howto_topics:
+      - slug: reflection-with-visible-breakage
+        title: Reach game members by reflection and log what breaks
+        note: one consequence sentence per failed lookup; try old and new member names
+      - slug: check-harmony-target-shape-before-patching
+        title: Check a patch target's parameter names and field types before patching
+        note: Harmony binds injected args by name and throws at patch time
+      - slug: build-a-mod-without-game-references
+        title: Build a KSA mod that references only StarMap.API and Harmony
+        note: trades compile-time safety for resilience to game assembly changes
+  - id: mods/realatmospheres/features/shader-file-redirect
+    title: Shader file redirect into a patched shadow tree
+    category: shaders
+    submod: null
+    summary: >-
+      Copies the whole Content/Core/Shaders tree into the mod folder each launch and prefixes
+      ShaderModuleUtils.FromFile to rewrite paths into it, so shaderc's requesting-file-relative
+      includes also resolve to the patched copies; Planet.Render.Core.dll is preloaded into the game's
+      load context so the patched type is the one the game uses.
+    novelty: high
+    techniques: [harmony-prefix, reflection, glsl-shader, assembly-load-context]
+    lifecycle: [startup:starmap-before-main, startup:asset-load]
+    hooks:
+      - "starmap StarMapBeforeMain"
+      - "harmony-prefix RenderCore.ShaderModuleUtils.FromFile"
+    game_types: [RenderCore.ShaderModuleUtils, KSA.ShaderReference, RenderCore.Shaders.ShaderCompilerResolve, Brutal.ShaderCApi.ShaderC, KSA.AssetReloader.ShaderReloader, KSA.FileReference, KSA.ModLibrary, RenderCore.Pipelines.SimpleShaderStages, KSA.Mod]
+    key_paths: [ModMain.cs, ShadowBuilder.cs]
+    howto_topics:
+      - slug: replace-stock-shaders-without-editing-game-files
+        title: Replace stock shaders without editing game files
+        note: redirect FromFile into a full patched copy so includes follow
+      - slug: patch-a-lazily-loaded-game-assembly
+        title: Patch a type in a game assembly that is not loaded yet
+        note: LoadFromAssemblyPath into the KSA assembly's AssemblyLoadContext at BeforeMain
+      - slug: patch-code-that-runs-during-game-startup
+        title: Patch code that runs during game startup
+        note: StarMapBeforeMain is the only hook before ModLibrary.PrepareAll and shader loading
+      - slug: patch-code-running-on-threadpool
+        title: Write Harmony patches that run on thread-pool threads
+        note: stock shaders compile in parallel inside ModLibrary.LoadAll
+  - id: mods/realatmospheres/features/shadow-tree-anchor-patching
+    title: Anchor-verified text patching of the shadow tree
+    category: shaders
+    submod: null
+    summary: >-
+      (stock, corrected, marker) triples and (file, stock, patch, count) sites applied to LF-normalized
+      copies, exact-count checks, all-or-nothing per file, idempotent markers, asset-gated insertions and
+      invariant-culture numbers; every anchor was verified against build 2026.10.10.5554.
+    novelty: high
+    techniques: [glsl-shader, xml-patch, fail-soft-patching]
+    lifecycle: [startup:starmap-before-main]
+    hooks:
+      - "starmap StarMapBeforeMain"
+    game_types: []
+    key_paths: [ShadowBuilder.cs, Payloads.cs]
+    howto_topics:
+      - slug: text-patch-game-glsl-safely
+        title: Text-patch game GLSL so it survives game updates
+        note: exact anchor counts, markers, all-or-nothing per file, log and skip on drift
+      - slug: patch-game-xml-data
+        title: Patch game XML data
+        note: anchor-based string edits on a copy as an alternative to XPath patching
+      - slug: invariant-culture-in-generated-xml
+        title: Format numbers for game XML in invariant culture
+        note: a decimal-comma locale once stopped the game from starting
+      - slug: test-shader-text-patches-offline
+        title: Test shader text patches against a game build without launching it
+        note: run the patch engine in a console harness on Content/Core, then compile the output with glslc
+  - id: mods/realatmospheres/features/core-xml-entry-redirect
+    title: Core XML entry redirect
+    category: assets
+    submod: null
+    summary: >-
+      Prefixes on Mod.PrepareSystems, LoadSystems, LoadAssetBundles and LoadEditorTagDefinitions
+      rewrite the Core mod's private Assets and public SystemTemplates arrays to absolute shadow paths
+      (Path.Combine passes rooted paths through), instead of patching the shared generic
+      XmlLoader.Load<T>.
+    novelty: high
+    techniques: [harmony-prefix, reflection, xml-patch]
+    lifecycle: [startup:immediate-load, startup:asset-load]
+    hooks:
+      - "starmap StarMapBeforeMain"
+      - "harmony-prefix KSA.Mod.LoadAssetBundles"
+      - "harmony-prefix KSA.Mod.LoadEditorTagDefinitions"
+      - "harmony-prefix KSA.Mod.LoadSystems"
+      - "harmony-prefix KSA.Mod.PrepareSystems"
+      - "reflection KSA.Mod.Assets"
+      - "reflection KSA.Mod.SystemTemplates"
+    game_types: [KSA.Mod, KSA.ModLibrary, KSA.XmlLoader, KSA.SystemInfo, KSA.SystemLibrary, KSA.ConfigOnStartPopup, Core.Files.Paths.Filepath]
+    key_paths: [ModMain.cs]
+    howto_topics:
+      - slug: redirect-game-xml-loading
+        title: Make the game load a different copy of a stock XML file
+        note: swap the mod's file list entry; rooted paths escape the mod folder
+      - slug: avoid-patching-shared-generic-methods
+        title: Avoid Harmony patches on shared generic method instantiations
+        note: patching XmlLoader.Load<AssetBundle> hijacked every reference-type instantiation
+      - slug: edit-system-templates-and-body-library
+        title: Edit the Sol system templates and the body library
+        note: library bodies via Astronomicals.xml, inline bodies in each Sol template; XmlName consistency
+      - slug: file-redirects-and-xml-patch-loaders
+        title: Combine file-path redirects with KittenExtensions' XML patch loader
+        note: its document is keyed by the original mod.toml paths, so a swapped entry is looked up and missed
+  - id: mods/realatmospheres/features/cross-mod-shared-shadow
+    title: Shared shadow for two cooperating mods
+    category: assets
+    submod: null
+    summary: >-
+      Two mods that edit the same Core XML write into mods/_RealSharedShadow, guarded by a Global named
+      mutex and reset to stock once per process by a launch token (process start time), with
+      marker-guarded edits so either order works; one source file is linked into both projects.
+    novelty: high
+    techniques: [xml-patch, inter-mod-api, named-mutex]
+    lifecycle: [startup:starmap-before-main]
+    hooks:
+      - "starmap StarMapBeforeMain"
+    game_types: [KSA.ModLibrary]
+    key_paths: [Shared/SharedShadow.cs, ShadowBuilder.cs, RealAtmospheres.csproj]
+    howto_topics:
+      - slug: coordinate-file-edits-between-mods
+        title: Let two mods edit the same generated file without clobbering each other
+        note: named mutex, once-per-launch reset token, idempotent marker-guarded edits
+      - slug: share-source-between-mod-projects
+        title: Share one source file between two mod projects with a fallback copy
+        note: conditional Compile Include in the csproj
+  - id: mods/realatmospheres/features/measured-flight-atmospheres
+    title: Measured flight atmospheres
+    category: physics
+    submod: null
+    summary: >-
+      A postfix on AstronomicalTemplate.OnDataLoad registers a generated table per
+      PhysicalAtmosphereReference in a ConditionalWeakTable and sets its private _height; prefixes on
+      GetAtmosphericDensityAtAltitude/GetAtmosphericPressureAtAltitude return log-interpolated
+      measured values, so drag, engine back-pressure, plumes and the atmosphere boundary follow them.
+    novelty: high
+    techniques: [harmony-prefix, harmony-postfix, reflection, custom-physics]
+    lifecycle: [startup:asset-load, physics:vehicle-solver, frame:viewports, frame:pre-render, frame:post-render]
+    hooks:
+      - "starmap StarMapBeforeMain"
+      - "harmony-postfix KSA.AstronomicalTemplate.OnDataLoad"
+      - "harmony-prefix KSA.PhysicalAtmosphereReference.GetAtmosphericDensityAtAltitude"
+      - "harmony-prefix KSA.PhysicalAtmosphereReference.GetAtmosphericPressureAtAltitude"
+      - "reflection KSA.PhysicalAtmosphereReference._height"
+    game_types: [KSA.PhysicalAtmosphereReference, KSA.AtmosphereReference, KSA.AstronomicalTemplate, KSA.CelestialTemplate, KSA.DistanceReference, KSA.PhysicsEnvironment, KSA.PhysicsStates, KSA.PhysicsBubble, KSA.VehicleUpdateState, KSA.Rocket, KSA.Vehicle, KSA.AtmosphericBody, KSA.GameViewport, KSA.Program]
+    key_paths: [FlightAtmospheres.cs, AtmosphereTables.cs, AtmosphereTables.Generated.cs]
+    howto_topics:
+      - slug: replace-atmosphere-density-profile
+        title: Replace a body's atmosphere density and pressure profile
+        note: prefix the two PhysicalAtmosphereReference functions; move the private boundary height
+      - slug: patch-physics-environment-on-worker-threads
+        title: Patch functions the vehicle solver calls on worker threads
+        note: allocation-free prefix, read-only ConditionalWeakTable filled before physics starts
+      - slug: attach-mod-data-to-game-objects
+        title: Attach mod data to game objects without subclassing
+        note: ConditionalWeakTable keyed on the game's reference object
+      - slug: read-atmosphere-state
+        title: Read atmospheric density and pressure for a vehicle
+        note: PhysicsEnvironment fields come from these functions and the boundary height
+      - slug: atmosphere-boundary-and-physics-regions
+        title: How a body's atmosphere boundary sets its physics regions
+        note: Physical.Height feeds AtmosphereRadius (full-physics freefall) and GetNearSurfaceRadius (PhysicsRadius, periapsis tests)
+  - id: mods/realatmospheres/features/atmosphere-optics-in-system-xml
+    title: Per-body atmosphere optics in the system XML
+    category: celestials
+    submod: null
+    summary: >-
+      Generated Rayleigh, Mie and ozone values spliced into the XML copies for ten bodies; the ozone
+      tent used as a general per-channel absorber; scale heights doubling as shader keys; asymmetry
+      sentinels; Pluto and Triton promoted to AtmosphericBody by renaming the element and appending an
+      Atmosphere block.
+    novelty: medium
+    techniques: [xml-patch, glsl-shader]
+    lifecycle: [startup:starmap-before-main, startup:asset-load]
+    hooks:
+      - "starmap StarMapBeforeMain"
+    game_types: [KSA.VisualAtmosphereReference, KSA.AtmosphereReference, KSA.AtmosphericBodyTemplate, KSA.PlanetaryBodyTemplate, KSA.MinorBodyTemplate, KSA.SystemTemplate, KSA.AssetBundle, KSA.AtmosphereRenderer]
+    key_paths: [Payloads.cs, ShadowBuilder.cs, AtmosphereTables.Generated.cs]
+    howto_topics:
+      - slug: tune-atmosphere-scattering-xml
+        title: Tune a body's atmosphere scattering in XML
+        note: Rayleigh, Mie, asymmetry, absorption multiplier and the ozone tent
+      - slug: add-atmosphere-to-airless-body
+        title: Give an airless body an atmosphere
+        note: the element must be AtmosphericBody; include Ozone and StartHeight for IsValid
+  - id: mods/realatmospheres/features/cloud-layers-in-system-xml
+    title: Cloud layers in the system XML
+    category: celestials
+    submod: null
+    summary: >-
+      Templated volumetric decks for Saturn, Uranus and Neptune with per-planet masks and flowmaps
+      calibrated to measured jet speeds, Jupiter and Venus decks rebuilt, Mars cirrus and Titan haze
+      laminae added with absolute asset paths, Venus superrotation computed, and each layer's light
+      distance derived from its geometry.
+    novelty: medium
+    techniques: [xml-patch, xml-asset]
+    lifecycle: [startup:starmap-before-main, startup:asset-load]
+    hooks:
+      - "starmap StarMapBeforeMain"
+    game_types: [KSA.CloudsReference, KSA.CloudLayerReference, KSA.VolumetricCloudReference, KSA.RaymarchingReference, KSA.AstronomicalTemplate, KSA.Mod]
+    key_paths: [ShadowBuilder.cs, Payloads.cs]
+    howto_topics:
+      - slug: add-volumetric-cloud-layer
+        title: Add a volumetric cloud layer to a body
+        note: Clouds is a sibling of Atmosphere; masks, detail, flowmap, colour map, cloud types
+      - slug: reference-textures-from-another-mod-folder
+        title: Reference textures in your mod folder from Core XML
+        note: rooted paths pass through Mod.GetPath
+      - slug: cloud-flowmap-speed-calibration
+        title: Calibrate cloud flowmap speed to a real wind speed
+        note: velocity = peak flow x displacement / loop duration
+  - id: mods/realatmospheres/features/measured-density-tables-in-shaders
+    title: Measured density tables in the atmosphere shaders
+    category: shaders
+    submod: null
+    summary: >-
+      One injected AtmosphereDensityFalloff replaces six exponential density sites in four atmosphere
+      shaders; it looks up generated ln-density tables recognised by body radius plus the exact scale
+      height the mod wrote, adds a double-exponential Mars dust layer and an altitude-dependent Titan
+      Rayleigh colour.
+    novelty: high
+    techniques: [glsl-shader, harmony-prefix, code-generation]
+    lifecycle: [startup:starmap-before-main, render:atmosphere]
+    hooks:
+      - "starmap StarMapBeforeMain"
+      - "harmony-prefix RenderCore.ShaderModuleUtils.FromFile"
+    game_types: [RenderCore.ShaderModuleUtils, KSA.AtmosphereRenderer, KSA.Atmosphere.Rendering.ShaderStructs.AtmosphereData]
+    key_paths: [Payloads.cs, AtmosphereTables.Generated.cs, ShadowBuilder.cs]
+    howto_topics:
+      - slug: custom-atmosphere-density-profile-in-shaders
+        title: Use a custom density profile in KSA's atmosphere shaders
+        note: rewrite every density site so all LUTs integrate the same function
+      - slug: per-body-branches-in-shared-shaders
+        title: Branch per body inside shared game shaders
+        note: key on radius and a value only your XML writes
+  - id: mods/realatmospheres/features/mie-phase-sentinel-dispatch
+    title: Mie phase sentinel dispatch
+    category: shaders
+    submod: null
+    summary: >-
+      MiePhaseFunction replaced with a dispatcher; out-of-range XML asymmetry values select a
+      Mie-theory Martian dust phase (three-lobe HG fit, or a 361-entry LUT shipped as GLSL source) or a
+      two-part Pluto haze phase, so new per-body behaviour needs no new uniforms.
+    novelty: high
+    techniques: [glsl-shader, xml-patch, code-generation]
+    lifecycle: [startup:starmap-before-main, render:atmosphere]
+    hooks:
+      - "starmap StarMapBeforeMain"
+      - "harmony-prefix RenderCore.ShaderModuleUtils.FromFile"
+    game_types: [KSA.AtmosphereRenderer, KSA.MieScatteringReference]
+    key_paths: [Payloads.cs, ShadowBuilder.cs, make_mars_phase_lut.py, mars_dust_mie.py]
+    howto_topics:
+      - slug: flags-through-existing-xml-values
+        title: Pass flags to shaders through out-of-range XML values
+        note: sentinel asymmetry values, no new uniforms or C# hooks
+      - slug: custom-mie-phase-function
+        title: Replace the atmosphere's Mie phase function
+        note: cut the stock span between known anchors and insert a dispatcher
+  - id: mods/realatmospheres/features/atmosphere-uniform-side-channel
+    title: Atmosphere uniform side channel
+    category: shaders
+    submod: null
+    summary: >-
+      Around AtmosphereRenderer.FillPlanetAtmosphereData a prefix temporarily sets the ozone extent of
+      haze bodies to signed sim seconds (clock plus on/off switch) and a postfix on the boxed returned
+      struct writes the spin axis and angle into unused ring slots; the renderer's private
+      _planetLutsValid is cleared when the switch changes.
+    novelty: high
+    techniques: [harmony-prefix, harmony-postfix, reflection, glsl-shader]
+    lifecycle: [render:atmosphere]
+    hooks:
+      - "starmap StarMapBeforeMain"
+      - "harmony-prefix KSA.AtmosphereRenderer.FillPlanetAtmosphereData"
+      - "harmony-postfix KSA.AtmosphereRenderer.FillPlanetAtmosphereData"
+      - "reflection KSA.AtmosphereRenderer._planetLutsValid"
+      - "reflection KSA.DistanceReference._value"
+      - "reflection KSA.Universe.GetElapsedTime"
+      - "reflection KSA.Celestial.GetRotationAxisCce"
+    game_types: [KSA.AtmosphereRenderer, KSA.Atmosphere.Rendering.ShaderStructs.AtmosphereData, KSA.AtmosphereReference, KSA.DistanceReference, KSA.Universe, KSA.UniverseTime, KSA.Celestial, KSA.PlanetTransparenciesRenderer]
+    key_paths: [ModMain.cs, Payloads.cs]
+    howto_topics:
+      - slug: pass-time-to-shaders
+        title: Pass simulation time to stock shaders
+        note: sim clock freezes on pause and scales with warp; wall-clock does not
+      - slug: smuggle-data-through-unused-uniform-fields
+        title: Send extra per-frame data to stock shaders without new uniforms
+        note: temporary value swap during the fill call, or edit the returned struct in a postfix
+      - slug: invalidate-atmosphere-luts
+        title: Force KSA to regenerate a body's atmosphere LUTs
+        note: InvalidatePlanetLuts(body) or clear _planetLutsValid
+      - slug: player-time-vs-sim-time
+        title: Player time versus simulation time
+        note: Universe.GetElapsedTime is the last applied sim step
+  - id: mods/realatmospheres/features/haze-band-sky-march
+    title: Haze-band sky march
+    category: shaders
+    submod: null
+    summary: >-
+      Stratified haze bands baked into LUT density for thin hazes and, for sky pixels, a per-pixel
+      raymarch inserted in Atmosphere.comp that mirrors the stock integrator, adds horizontal 3D-noise
+      structure and is blended over the azimuth-free sky LUT only where a band can be seen.
+    novelty: high
+    techniques: [glsl-shader, harmony-prefix]
+    lifecycle: [startup:starmap-before-main, render:atmosphere]
+    hooks:
+      - "starmap StarMapBeforeMain"
+      - "harmony-prefix RenderCore.ShaderModuleUtils.FromFile"
+      - "harmony-prefix KSA.AtmosphereRenderer.FillPlanetAtmosphereData"
+    game_types: [KSA.AtmosphereRenderer, KSA.PlanetTransparenciesRenderer]
+    key_paths: [Payloads.cs, ShadowBuilder.cs]
+    howto_topics:
+      - slug: per-pixel-atmosphere-raymarch-over-luts
+        title: Add per-pixel atmosphere detail on top of KSA's sky LUTs
+        note: mirror the stock integration, blend by tangent altitude, cull invisible work
+  - id: mods/realatmospheres/features/cloud-face-lighting
+    title: Cloud face lighting
+    category: shaders
+    submod: null
+    summary: >-
+      RaymarchCloud.comp patched so an optically thick step is lit where its first optical depth ends
+      (bisection, up to five halvings) with a short near-sample shadow march toward the Sun; dense decks
+      keep their brightness from 300 to 10,000 km.
+    novelty: high
+    techniques: [glsl-shader, harmony-prefix]
+    lifecycle: [startup:starmap-before-main, render:atmosphere]
+    hooks:
+      - "starmap StarMapBeforeMain"
+      - "harmony-prefix RenderCore.ShaderModuleUtils.FromFile"
+    game_types: [KSA.Atmosphere.Rendering.CloudRenderer, KSA.PlanetTransparenciesRenderer]
+    key_paths: [Payloads.cs, ShadowBuilder.cs]
+    howto_topics:
+      - slug: fix-dense-volumetric-cloud-darkening
+        title: Keep dense volumetric clouds bright at large step sizes
+        note: light at the first optical depth, not the step's far end
+  - id: mods/realatmospheres/features/volumetric-cloud-map-flow-and-lift
+    title: Volumetric cloud map flow and faint-cloud lift
+    category: shaders
+    submod: null
+    summary: >-
+      CloudFunctions.glsl patches flow the volumetric map, selector and colour lookups along the 2D
+      layer's flowmap and phase, and lift faint map values through precomputed inverse tables so the
+      volumetric and 2D clouds match at the handover.
+    novelty: medium
+    techniques: [glsl-shader, harmony-prefix]
+    lifecycle: [startup:starmap-before-main, render:atmosphere]
+    hooks:
+      - "starmap StarMapBeforeMain"
+      - "harmony-prefix RenderCore.ShaderModuleUtils.FromFile"
+    game_types: [KSA.Atmosphere.Rendering.CloudRenderer]
+    key_paths: [Payloads.cs, ShadowBuilder.cs]
+    howto_topics:
+      - slug: match-volumetric-and-2d-clouds
+        title: Make volumetric clouds match the 2D cloud layer at the handover
+        note: same flow phase and displacement; inverse coverage tables
+  - id: mods/realatmospheres/features/cloud-pass-shading-and-ring-shadows
+    title: Cloud pass shading and ring shadows
+    category: shaders
+    submod: null
+    summary: >-
+      2D cloud fixes (geometry-aware terminator fade, map-coloured skylight, opaque Venus shell, thin
+      Triton shell), a column-limited thin-cloud ground shadow, and planetary ring shadows on both cloud
+      passes by including the game's RingShadows.glsl with derivative-free mip selection.
+    novelty: medium
+    techniques: [glsl-shader, harmony-prefix]
+    lifecycle: [startup:starmap-before-main, render:atmosphere, render:planet]
+    hooks:
+      - "starmap StarMapBeforeMain"
+      - "harmony-prefix RenderCore.ShaderModuleUtils.FromFile"
+    game_types: [KSA.Atmosphere.Rendering.CloudRenderer, KSA.AtmosphereRenderer]
+    key_paths: [Payloads.cs, ShadowBuilder.cs]
+    howto_topics:
+      - slug: include-core-shader-library
+        title: Reuse stock GLSL helpers in another stock shader
+        note: include ../Common/RingShadows.glsl where the data is already bound
+      - slug: texture-lod-in-compute-shaders
+        title: Pick a texture mip in a compute shader without derivatives
+        note: trace neighbouring pixels and measure the coordinate change
+  - id: mods/realatmospheres/features/relief-softened-terminator
+    title: Relief-softened terminator
+    category: shaders
+    submod: null
+    summary: >-
+      Planet.frag and GroundClutter/Solid.frag patched to replace the body's smooth-ball self-shadow
+      with a horizon test from each point's height that closes over a sqrt(2 relief / R) band, keeping
+      other bodies' eclipses.
+    novelty: medium
+    techniques: [glsl-shader, harmony-prefix]
+    lifecycle: [startup:starmap-before-main, render:planet]
+    hooks:
+      - "starmap StarMapBeforeMain"
+      - "harmony-prefix RenderCore.ShaderModuleUtils.FromFile"
+    game_types: [KSA.PlanetRenderer]
+    key_paths: [Payloads.cs, ShadowBuilder.cs]
+    howto_topics:
+      - slug: soften-planet-terminator
+        title: Soften the day-night terminator on airless bodies
+        note: horizon dip from the point's height plus a relief band
+  - id: mods/realatmospheres/features/nearby-body-transpiler
+    title: Nearby-body choice transpiler
+    category: patching
+    submod: null
+    summary: >-
+      Transpiles CelestialSystem.GetNearbyAstronomical, replacing sub/ldloc/clt with a call to a
+      ranking helper that takes the best value by ref, so a body within 25 radii always wins and a small
+      moon no longer flickers its planet to a distant render; IL shape and local slots are verified first.
+    novelty: high
+    techniques: [harmony-transpiler, reflection]
+    lifecycle: [startup:starmap-before-main, frame:celestials, frame:render]
+    hooks:
+      - "starmap StarMapBeforeMain"
+      - "harmony-transpiler KSA.CelestialSystem.GetNearbyAstronomical"
+    game_types: [KSA.CelestialSystem, KSA.Program, KSA.Camera, KSA.Astronomical]
+    key_paths: [NearbyBody.cs]
+    howto_topics:
+      - slug: harmony-transpiler-call-replacement
+        title: Replace an inline comparison with a helper call in a transpiler
+        note: pass a local by ref with ldloca.s; nop out the now-redundant store
+      - slug: change-which-body-renders-in-detail
+        title: Change which celestial body the camera renders in detail
+        note: GetNearbyAstronomical feeds camera.NearbyCelestial every frame
+  - id: mods/realatmospheres/features/modmenu-page-and-toml-settings
+    title: ModMenu page and TOML settings
+    category: ui
+    submod: null
+    summary: >-
+      A ModMenu page found through a vendored ModMenuEntryAttribute, ImGui.MenuItem and SetItemTooltip
+      called through DynamicMethods because ImString is a ref struct, and a hand-parsed settings.toml
+      under KSA.Constants.DocumentsFolderPath written on click.
+    novelty: medium
+    techniques: [imgui-menu, reflection, toml-config, dynamic-method]
+    lifecycle: [frame:draw-ui, render:atmosphere]
+    hooks:
+      - "modmenu ModMenuEntry Real Atmospheres"
+      - "reflection Brutal.ImGuiApi.ImGui.MenuItem"
+      - "reflection Brutal.ImGuiApi.ImGui.SetItemTooltip"
+      - "reflection KSA.Constants.DocumentsFolderPath"
+    game_types: [Brutal.ImGuiApi.ImGui, Brutal.ImGuiApi.ImString, KSA.Constants]
+    key_paths: [Menu.cs, Settings.cs]
+    howto_topics:
+      - slug: modmenu-integration-without-dependency
+        title: Add a ModMenu page without referencing ModMenu
+        note: vendored attribute matched by name
+      - slug: call-imgui-without-referencing-brutal
+        title: Call ImGui by reflection when arguments are ref structs
+        note: emit a DynamicMethod that converts string to ImString on the stack
+      - slug: persist-mod-settings-toml
+        title: Persist mod settings to a TOML file in the game's documents folder
+        note: read once, write on change, defaults for anything missing
+  - id: mods/realatmospheres/features/measured-atmosphere-generator
+    title: Measured-atmosphere code generator
+    category: testing-and-tooling
+    submod: null
+    summary: >-
+      make_flight_atmospheres.py builds profiles for ten bodies from NASA PDS data, reference
+      atmospheres and hydrostatic integration, applies KSA's 1e-9 kg/m^3 and 1e-4 Pa boundary rule,
+      decimates tables and emits C# flight tables, XML attribute strings and GLSL density tables;
+      atmosphere_model.py ports KSA's atmosphere renderer to numpy for offline colour fitting.
+    novelty: high
+    techniques: [code-generation, custom-physics, offline-renderer-model]
+    lifecycle: []
+    hooks: []
+    game_types: [KSA.PhysicalAtmosphereReference]
+    key_paths: [make_flight_atmospheres.py, atmosphere_model.py, fit_titan_colour.py, mie.py, AtmosphereTables.Generated.cs]
+    howto_topics:
+      - slug: generate-mod-data-as-csharp
+        title: Generate C#, XML values and GLSL from one offline script
+        note: one generated file keeps runtime tables, XML and shaders consistent
+      - slug: model-ksa-atmosphere-offline
+        title: Predict KSA's atmosphere rendering offline
+        note: port LUT sizes, step counts and tone curve to numpy; calibrate on a screenshot
+  - id: mods/realatmospheres/features/texture-and-phase-asset-scripts
+    title: Texture and phase asset scripts
+    category: assets
+    submod: null
+    summary: >-
+      Scripts build cloud masks (coverage in alpha, type in red), BC5 flowmaps, KTX2 diffuse cubemaps,
+      modified copies of stock textures and a Mie phase LUT emitted as GLSL source, compressed with
+      nvtt_export; release-files.txt lists what ships.
+    novelty: medium
+    techniques: [code-generation, texture-pipeline]
+    lifecycle: []
+    hooks: []
+    game_types: []
+    key_paths: [release-files.txt, make_giant_clouds.py, make_giant_flowmaps.py, make_jupiter_mask.py, make_venus_detail.py, make_mars_phase_lut.py, convert_titan_haze_maps.py, make_mars_cirrus.py]
+    howto_topics:
+      - slug: build-cloud-masks-and-flowmaps
+        title: Build cloud coverage masks and flowmaps for KSA
+        note: channel layout follows GetCoverageAndCloudType; flowmap encoding follows stock Jupiter
+      - slug: ship-data-as-glsl-source
+        title: Ship lookup data as GLSL source instead of a texture
+        note: no new bindings needed
+  - id: mods/realatmospheres/features/release-packaging-and-deploy
+    title: Release packaging and deploy scripts
+    category: testing-and-tooling
+    submod: null
+    summary: >-
+      deploy.ps1 and package.ps1 share release-files.txt; deploy finds the active Borea instance,
+      prunes stale assets and enables the mod in manifest.toml; package names the zip after the last
+      run game build and writes forward-slash entries and an LF sha256 file.
+    novelty: low
+    techniques: [build-scripts, packaging]
+    lifecycle: []
+    hooks: []
+    game_types: []
+    key_paths: [deploy.ps1, package.ps1, release-files.txt, RealAtmospheres.csproj]
+    howto_topics:
+      - slug: package-mod-release-zip
+        title: Package a mod release zip that extracts on every platform
+        note: forward-slash entry names; folder name is the mod id
+      - slug: deploy-mod-locally
+        title: Deploy a mod into the local game for testing
+        note: Borea instance detection; enable in manifest.toml

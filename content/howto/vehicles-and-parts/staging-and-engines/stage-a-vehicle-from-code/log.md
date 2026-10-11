@@ -1,0 +1,5 @@
+# Staging a vehicle from code, from igniting the stage to firing one decoupler history
+
+## 2026-10-10
+* **Update**: Review: corrected the PrepareWorker-window timing in article 2 (the request waits for the next frame's dispatch, not the same frame's), added the plan feature fly-another-vehicle to article 2, and stated that the vehicle-solver worker walks the live SequenceList every step while the default Sequence and EngineControl gauge canvases are enabled (article 1, article 2, overview).
+* **Creation**: Added [Staging a vehicle from code, from igniting the stage to firing one decoupler](overview.md) and 3 approaches: [Stage, ignite, fire decouplers and undock by calling the game's own entry points](stage-a-vehicle-from-code-1.md); [Stage inside the PrepareWorker prefix window so the sequence list is not mutated under the worker](stage-a-vehicle-from-code-2.md); [Release a part by firing only the decoupler on its own joint](stage-a-vehicle-from-code-3.md). Written against game build 2026.10.10.5554 from the mod features cited in each article.

@@ -1,0 +1,647 @@
+mod: purrtty
+repo: purrtty
+ref: 71da9efe9ed7b8ec533cad7a0bb15bea9f59a9a5
+summary: "In-game terminal emulator for Kitten Space Agency. Hosts real shells (ConPTY on Windows, fork-free POSIX ptys on Linux and macOS), the KSA developer console, and shells registered by other mods through a shared contract assembly that importers resolve from purrTTY's load context (gatOS), using Ghostty's libghostty-vt engine through a vendored native binding loaded per OS from the mod folder. Terminals render as multi-window, tabbed ImGui windows drawn with draw lists, or into off-screen Vulkan textures shown on world-space quads anchored to parts or the camera, injected after KSA's translucency pass. Harmony prefixes keep game hotkeys and mouse bindings from firing while typing; settings, themes and layouts persist as TOML."
+features:
+  - id: mods/purrtty/features/terminal-grid-drawlist-renderer
+    title: "Terminal grid drawn with ImGui draw lists"
+    category: ui
+    submod: null
+    summary: "Paints a full terminal cell grid into an ImGui window draw list every frame with run batching (backgrounds, metric-validated glyph runs), exact-rect block elements, braille dot matrices, decorations and cursor shapes."
+    novelty: high
+    techniques: [imgui-drawlist, imgui-font, starmap-lifecycle]
+    lifecycle: ["frame:draw-ui", "frame:imgui-render", "render:imgui"]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: [Brutal.ImGuiApi.ImDrawListPtr, Brutal.ImGuiApi.ImGui, Brutal.ImGuiApi.ImFontPtr, KSA.ImGuiBackendVulkanImpl, KSA.Program]
+    key_paths: [purrTTY.Display/Ghostty/FrameGridRenderer.cs, purrTTY.Display/Ghostty/TerminalWindow.cs, purrTTY.Display/Ghostty/TerminalWindow.Fonts.cs, purrTTY.Display/Ghostty/FrameFonts.cs]
+    howto_topics:
+      - slug: draw-text-grid-with-imgui-drawlist
+        title: "Draw a monospace text grid efficiently with ImGui draw lists"
+        note: "run batching gated on measured glyph advances"
+      - slug: batch-imgui-draw-calls
+        title: "Reduce ImGui draw calls by merging runs"
+        note: "merge equal-color rects and same-font text runs"
+      - slug: render-box-and-block-glyphs-as-shapes
+        title: "Render block elements and braille as shapes instead of font glyphs"
+        note: "avoids hinting seams and missing glyphs"
+      - slug: imgui-window-ui-overlay-lifecycle
+        title: "Draw custom ImGui UI at the right point of the KSA frame"
+        note: "StarMapAfterGui inside frame:draw-ui"
+  - id: mods/purrtty/features/nerd-font-loading-into-imgui-atlas
+    title: "Bundled Nerd Fonts loaded into the ImGui atlas"
+    category: ui
+    submod: null
+    summary: "Ships Nerd Fonts renamed to .iamttf so KSA's Content/*.ttf scanner skips them, adds them to the shared ImGui atlas at StarMapAllModsLoaded, and sizes them per draw with PushFont(font, size) on KSA's dynamic atlas."
+    novelty: medium
+    techniques: [imgui-font, starmap-lifecycle]
+    lifecycle: ["startup:all-mods-loaded", "frame:draw-ui"]
+    hooks: ["starmap StarMapAllModsLoaded", "starmap StarMapAfterGui"]
+    game_types: [KSA.FontManager, Brutal.ImGuiApi.ImFontAtlasPtr, Brutal.ImGuiApi.ImFontPtr, Brutal.ImGuiApi.ImGui, KSA.ImGuiBackendVulkanImpl, KSA.Program, KSA.ModLibrary]
+    key_paths: [purrTTY.Display/Rendering/PurrTTYFontManager.cs, purrTTY.Display/Ghostty/TerminalWindow.Fonts.cs, purrTTY.Display/Ghostty/FrameFonts.cs]
+    howto_topics:
+      - slug: load-custom-font-into-imgui
+        title: "Load a custom font into KSA's ImGui atlas"
+        note: "AddFontFromFileTTF at all-mods-loaded; PushFont with explicit size"
+      - slug: avoid-ksa-font-autoload
+        title: "Keep KSA from auto-loading a mod's fonts"
+        note: "rename .ttf because FontManager scans Content/**/*.ttf"
+      - slug: survive-game-font-rebuild
+        title: "Reload mod fonts after the game rebuilds its font atlas"
+        note: "FontManager.RegenerateFonts clears the atlas"
+  - id: mods/purrtty/features/terminal-window-chrome-tabs-and-resize-snap
+    title: "Multi-window terminals with tabs, hidden chrome and grid snap"
+    category: ui
+    submod: null
+    summary: "Multi-window, tabbed, title-bar-less ImGui windows whose chrome fades to alpha 0 without changing layout, with an InvisibleButton over the content to stop drag-moves and a resize that snaps to whole cells."
+    novelty: medium
+    techniques: [imgui-window, imgui-drawlist, starmap-lifecycle]
+    lifecycle: ["frame:draw-ui"]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: [Brutal.ImGuiApi.ImGui, Brutal.ImGuiApi.ImGuiWindowFlags, Brutal.ImGuiApi.ImGuiTabBarFlags, Brutal.ImGuiApi.ImGuiViewportPtr]
+    key_paths: [purrTTY.Display/Ghostty/TerminalWindow.cs, purrTTY.Display/Ghostty/GhosttyTerminalController.cs, purrTTY.Display/Ghostty/TerminalWindowSettings.cs]
+    howto_topics:
+      - slug: immersive-imgui-window-hidden-chrome
+        title: "Make an ImGui window that hides its chrome when not hovered"
+        note: "alpha 0 and transparent colors keep layout stable"
+      - slug: imgui-tabbed-window
+        title: "Build a tabbed ImGui window with closeable tabs"
+        note: "SetSelected and stale-selection guard"
+      - slug: imgui-window-snap-resize
+        title: "Snap an ImGui window size to a content grid after resize"
+        note: "detect resize by size change while LMB held"
+  - id: mods/purrtty/features/imgui-keyboard-mouse-to-vt-input
+    title: "ImGui keyboard and mouse to terminal input"
+    category: ui
+    submod: null
+    summary: "Reads ImGui key presses, the character queue and mouse state to drive libghostty-vt's key, mouse and paste encoders, with AltGr handling, clipboard chords, selection gestures and integer-metric app-mouse reporting."
+    novelty: medium
+    techniques: [imgui-window, starmap-lifecycle]
+    lifecycle: ["frame:input", "frame:draw-ui"]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: [Brutal.ImGuiApi.ImGui, Brutal.ImGuiApi.ImGuiIOPtr, Brutal.ImGuiApi.ImGuiKey, KSA.ImGuiBackendGlfwImpl, KSA.Program]
+    key_paths: [purrTTY.Display/Ghostty/TerminalInputEncoder.cs, purrTTY.Display/Ghostty/TerminalWindow.Input.cs]
+    howto_topics:
+      - slug: read-keyboard-text-input-in-imgui
+        title: "Read typed text and key chords from ImGui IO"
+        note: "character queue vs IsKeyPressed for Ctrl/Alt chords"
+      - slug: use-system-clipboard-from-mod
+        title: "Use the system clipboard from a KSA mod"
+        note: "ImGui.Get/SetClipboardText backed by GLFW"
+  - id: mods/purrtty/features/gate-game-input-while-terminal-focused
+    title: "Gate game input while a terminal is focused"
+    category: patching
+    submod: null
+    summary: "Harmony prefixes on Program.OnKey, GameSettings.OnKeyAll and the private Program.DispatchKeyEvent stop KSA hotkeys and mouse bindings while a mod UI owns the keyboard, tracking held keys so releases are never stranded or leaked."
+    novelty: high
+    techniques: [harmony-prefix, starmap-lifecycle]
+    lifecycle: ["frame:input", "frame:draw-ui"]
+    hooks: ["harmony-prefix KSA.Program.OnKey", "harmony-prefix KSA.GameSettings.OnKeyAll", "harmony-prefix KSA.Program.DispatchKeyEvent", "starmap StarMapAfterGui"]
+    game_types: [KSA.Program, KSA.GameSettings, RenderCore.Input.GlfwKeyEvent, Brutal.ImGuiApi.ImGuiIOPtr, KSA.ImGuiBackendGlfwImpl, KSA.GameViewport, Brutal.ImGuiApi.Abstractions.ConsoleWindow]
+    key_paths: [purrTTY.GameMod/Patcher.cs, purrTTY.Display/Ghostty/GhosttyTerminalController.cs]
+    howto_topics:
+      - slug: block-game-hotkeys-while-typing
+        title: "Stop KSA hotkeys from firing while the player types in a mod UI"
+        note: "prefix Program.OnKey with a held-key model"
+      - slug: ksa-input-chain
+        title: "Understand KSA's keyboard and mouse input chain"
+        note: "GLFW callbacks to OnKey, OnKeyAll, WantCaptureKeyboard, DispatchKeyEvent"
+      - slug: gate-mouse-bound-game-actions
+        title: "Gate mouse-bound game actions"
+        note: "prefix private DispatchKeyEvent for IsMouse events"
+  - id: mods/purrtty/features/rebindable-toggle-hotkey
+    title: "Rebindable toggle hotkey with a capture modal"
+    category: ui
+    submod: null
+    summary: "A key plus modifiers hotkey polled from ImGui IO with IsKeyPressed(repeat false), suppressed while a text field is active, captured through a modal and persisted in TOML."
+    novelty: low
+    techniques: [imgui-window, reflection, toml-config, starmap-lifecycle]
+    lifecycle: ["frame:draw-ui"]
+    hooks: ["starmap StarMapAfterGui", "reflection Brutal.ImGuiApi.ImGuiIOPtr.KeySuper"]
+    game_types: [Brutal.ImGuiApi.ImGui, Brutal.ImGuiApi.ImGuiIOPtr, Brutal.ImGuiApi.ImGuiKey]
+    key_paths: [purrTTY.GameMod/ToggleHotkeyBinding.cs, purrTTY.GameMod/TerminalMod.cs]
+    howto_topics:
+      - slug: rebindable-mod-hotkey
+        title: "Add a rebindable hotkey to a KSA mod"
+        note: "ImGui capture modal plus config persistence"
+  - id: mods/purrtty/features/game-menu-with-modmenu-fallback
+    title: "Game menu with a ModMenu entry and a DrawProgramMenusHook fallback"
+    category: ui
+    submod: null
+    summary: "Registers the mod menu through ModMenu's [ModMenuEntry] when present and otherwise through a Harmony postfix on KSA's empty Program.DrawProgramMenusHook, keeping the draw path allocation-free and reading slow detection results from a background snapshot."
+    novelty: high
+    techniques: [imgui-menu, harmony-postfix, background-thread, inter-mod-api]
+    lifecycle: ["frame:draw-ui", "startup:all-mods-loaded", "thread:background"]
+    hooks: ["harmony-postfix KSA.Program.DrawProgramMenusHook", "attribute ModMenu.ModMenuEntry"]
+    game_types: [KSA.Program, KSA.IGameViewportLifecycle, KSA.GameViewport, KSA.ModLibrary, Brutal.ImGuiApi.ImGui]
+    key_paths: [purrTTY.GameMod/Patcher.cs, purrTTY.GameMod/TerminalMenus.cs, purrTTY.GameMod/ShellMenuCache.cs, purrTTY.GameMod/TerminalMod.cs]
+    howto_topics:
+      - slug: add-mod-menu-to-ksa-menu-bar
+        title: "Add a menu to KSA's top menu bar"
+        note: "postfix Program.DrawProgramMenusHook; SetMenuBarInUse keeps it open"
+      - slug: modmenu-integration-with-fallback
+        title: "Integrate with ModMenu and fall back when it is absent"
+        note: "ModLibrary.Find(\"ModMenu\")"
+      - slug: precompute-slow-work-off-render-thread
+        title: "Keep slow probes off the render thread"
+        note: "background Task plus volatile snapshot"
+  - id: mods/purrtty/features/click-through-lock-mode-hot-zone
+    title: "Click-through lock mode with a refocus hot zone"
+    category: ui
+    submod: null
+    summary: "An unfocused ImGui window gets NoMouseInputs so clicks reach the game, and a tiny separate hot-zone window with an InvisibleButton refocuses it; focus visuals go on the foreground draw list."
+    novelty: medium
+    techniques: [imgui-window, imgui-drawlist, starmap-lifecycle]
+    lifecycle: ["frame:draw-ui"]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: [Brutal.ImGuiApi.ImGui, Brutal.ImGuiApi.ImGuiWindowFlags, KSA.Program, KSA.GameViewport]
+    key_paths: [purrTTY.Display/Ghostty/TerminalWindow.cs, purrTTY.Display/Ghostty/TerminalWindow.HotZone.cs]
+    howto_topics:
+      - slug: click-through-imgui-overlay
+        title: "Make an ImGui overlay that lets clicks pass through to the game"
+        note: "NoMouseInputs plus WantCaptureMouse false"
+  - id: mods/purrtty/features/kitty-graphics-as-imgui-vulkan-textures
+    title: "Kitty graphics images as ImGui Vulkan textures"
+    category: rendering
+    submod: null
+    summary: "Uploads CPU RGBA images into RenderCore.SimpleVkTexture via a staging pool, registers them with ImGuiBackend.Vulkan.AddTexture, draws them with AddImage, refreshes same-size images in place and LRU-evicts with deferred destroy under the 1000-set ImGui descriptor pool."
+    novelty: high
+    techniques: [vulkan-texture, imgui-drawlist, starmap-lifecycle]
+    lifecycle: ["frame:draw-ui", "render:imgui"]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: [RenderCore.SimpleVkTexture, KSA.ImGuiBackend, KSA.ImGuiBackendVulkanImpl, Core.Renderer, KSA.Program, Brutal.ImGuiApi.ImDrawListPtr, Brutal.ImGuiApi.ImTextureRef]
+    key_paths: [purrTTY.Display/Ghostty/ImageTextureCache.cs, purrTTY.Display/Ghostty/KittyImageRenderer.cs, purrTTY.Terminal/Ghostty/GhosttyTerminalSurface.cs]
+    howto_topics:
+      - slug: show-runtime-image-in-imgui
+        title: "Show a runtime-generated image in an ImGui window"
+        note: "SimpleVkTexture upload plus ImGuiBackend.Vulkan.AddTexture"
+      - slug: manage-imgui-texture-lifetime
+        title: "Manage ImGui texture lifetimes in KSA"
+        note: "RemoveTexture first, destroy image frames later, cap under the shared pool"
+  - id: mods/purrtty/features/imgui-filter-combo-and-form-widgets
+    title: "Filterable combo and form-table widgets for Brutal ImGui"
+    category: ui
+    submod: null
+    summary: "A combo box with a live substring filter that works around Brutal's ImInputString only refreshing Length on a true InputText return, plus label-gutter form tables and a destructive button."
+    novelty: medium
+    techniques: [imgui-window]
+    lifecycle: ["frame:draw-ui"]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: [Brutal.ImGuiApi.ImInputString, Brutal.ImGuiApi.ImGui, Brutal.ImGuiApi.ImGuiTableFlags]
+    key_paths: [purrTTY.GameMod/UI/ImGuiWidgets.cs]
+    howto_topics:
+      - slug: brutal-iminputstring-live-text
+        title: "Read live text from a Brutal ImGui InputText"
+        note: "call EvaluateLength every frame"
+      - slug: imgui-form-layout-tables
+        title: "Lay out settings forms with ImGui tables"
+        note: "fixed label gutter and full-width widgets"
+  - id: mods/purrtty/features/vendored-libghostty-vt-binding
+    title: "Vendored libghostty-vt binding as the terminal engine"
+    category: external-io
+    submod: null
+    summary: "Embeds Ghostty's standalone VT engine through a vendored, pruned and patched .NET binding with source-generated P/Invoke, managed packed-cell decoding and a startup layout self-check, natives cross-compiled with zig for three RIDs."
+    novelty: high
+    techniques: [native-interop]
+    lifecycle: ["frame:draw-ui"]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: []
+    key_paths: [vendor/Ghostty.Vt/README.md, vendor/Ghostty.Vt/src/Native/NativeMethods.cs, vendor/Ghostty.Vt/src/RenderState.FrameReader.cs, purrTTY.Terminal/Ghostty/GhosttyTerminalSurface.cs]
+    howto_topics:
+      - slug: embed-native-library-in-mod
+        title: "Embed a native C library in a KSA mod"
+        note: "vendored binding plus per-RID shared libraries"
+      - slug: vendor-and-patch-third-party-binding
+        title: "Vendor and patch a third-party binding safely"
+        note: "divergence markers and pin-bump self-checks"
+  - id: mods/purrtty/features/per-platform-native-library-resolver
+    title: "Per-platform native library resolver for a mod's AssemblyLoadContext"
+    category: getting-started
+    submod: null
+    summary: "A ModuleInitializer installs NativeLibrary.SetDllImportResolver so P/Invoke loads the right per-OS library from beside the mod DLL inside StarMap's mod AssemblyLoadContext, plus a libc mapping for glibc and macOS."
+    novelty: high
+    techniques: [native-interop, assembly-load-context]
+    lifecycle: ["startup:all-mods-loaded"]
+    hooks: ["module-initializer Ghostty.Vt.Native.NativeLibraryResolver.Register", "module-initializer purrTTY.Core.Terminal.Process.UnixPtyNative.RegisterResolver"]
+    game_types: []
+    key_paths: [vendor/Ghostty.Vt/src/Native/NativeLibraryResolver.cs, purrTTY.Terminal/Pty/Process/UnixPtyNative.cs, vendor/Ghostty.Vt/Ghostty.Vt.csproj]
+    howto_topics:
+      - slug: load-native-dll-from-mod-folder
+        title: "Load a native library from the mod folder"
+        note: "SetDllImportResolver in a ModuleInitializer"
+      - slug: ship-one-mod-for-all-platforms
+        title: "Ship one mod zip for Windows, Linux and macOS"
+        note: "flat per-OS native file names"
+  - id: mods/purrtty/features/headless-terminal-surface-and-frame-snapshot
+    title: "Headless terminal surface with a renderer-neutral frame snapshot"
+    category: external-io
+    submod: null
+    summary: "A renderer-neutral backend owns the native engine on one thread, accepts bytes from any thread into a bounded inbox with backpressure, and produces dirty-aware, pre-resolved TerminalFrame snapshots for any frontend."
+    novelty: medium
+    techniques: [native-interop, background-thread]
+    lifecycle: ["frame:draw-ui", "thread:background"]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: []
+    key_paths: [purrTTY.Terminal/ITerminalSurface.cs, purrTTY.Terminal/Ghostty/GhosttyTerminalSurface.cs, purrTTY.Terminal/Rendering/TerminalFrame.cs]
+    howto_topics:
+      - slug: separate-mod-logic-from-game-ui
+        title: "Keep mod logic testable by separating it from KSA UI types"
+        note: "renderer-neutral seam"
+      - slug: bounded-cross-thread-queue-to-frame
+        title: "Feed background-thread data into the main frame safely"
+        note: "bounded inbox drained on the frame"
+  - id: mods/purrtty/features/conpty-shell-hosting
+    title: "Hosting Windows shells in a ConPTY from inside the game"
+    category: external-io
+    submod: null
+    summary: "Spawns Windows shells under a ConPTY from the game process with STARTF_USESTDHANDLES and null handles, a never-sleeping ReadFile pump, a queued writer thread and a close-pseudoconsole-first teardown that leaks rather than closes handles in use."
+    novelty: high
+    techniques: [native-interop, background-thread]
+    lifecycle: ["thread:background", "frame:draw-ui"]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: []
+    key_paths: [purrTTY.Terminal/Pty/ProcessManager.cs, purrTTY.Terminal/Pty/Process/StartupInfoBuilder.cs, purrTTY.Terminal/Pty/Process/ConPtyOutputPump.cs, purrTTY.Terminal/Pty/Process/ConPtyPipeManager.cs]
+    howto_topics:
+      - slug: host-external-process-in-mod
+        title: "Run and talk to an external process from a KSA mod"
+        note: "background pumps and queued writes"
+      - slug: windows-conpty-from-csharp
+        title: "Host a Windows console program in a pseudoconsole from C#"
+        note: "CreatePseudoConsole plus attribute list"
+  - id: mods/purrtty/features/posix-pty-spawn-without-fork
+    title: "POSIX pty shells spawned without fork"
+    category: external-io
+    submod: null
+    summary: "Allocates a pty with posix_openpt and starts the shell with posix_spawnp (SETSID, slave as stdin, signal reset) so the game never forks, with the Apple arm64 variadic ioctl fix, a poll-based reader and a waitpid thread."
+    novelty: high
+    techniques: [native-interop, background-thread]
+    lifecycle: ["thread:background", "frame:draw-ui"]
+    hooks: ["starmap StarMapAfterGui", "module-initializer purrTTY.Core.Terminal.Process.UnixPtyNative.RegisterResolver"]
+    game_types: []
+    key_paths: [purrTTY.Terminal/Pty/Process/UnixPtySpawner.cs, purrTTY.Terminal/Pty/Process/UnixPtyNative.cs, purrTTY.Terminal/Pty/Process/UnixPtyOutputPump.cs, purrTTY.Terminal/Pty/UnixProcessManager.cs]
+    howto_topics:
+      - slug: spawn-process-without-fork-on-unix
+        title: "Spawn child processes from a large game process on Linux and macOS"
+        note: "posix_spawnp instead of fork"
+      - slug: call-variadic-c-functions-on-arm64
+        title: "Call variadic C functions via P/Invoke on Apple arm64"
+        note: "pad register arguments so varargs land on the stack"
+  - id: mods/purrtty/features/pty-threads-to-frame-tick-handoff
+    title: "Handing PTY threads' output to the game frame"
+    category: external-io
+    submod: null
+    summary: "Maps every thread (spawn, pump, writer, waiter, teardown, detection) to the single main-thread tick inside StarMapAfterGui, using bounded queues in both directions, configure-before-publish session creation and synchronous close."
+    novelty: medium
+    techniques: [background-thread, starmap-lifecycle]
+    lifecycle: ["frame:draw-ui", "thread:background"]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: [KSA.Program]
+    key_paths: [purrTTY.Terminal/Sessions/TerminalSession.cs, purrTTY.Terminal/Sessions/SessionManager.cs, purrTTY.Display/Ghostty/GhosttyTerminalController.cs, purrTTY.Terminal/Pty/Process/PtyInputQueue.cs]
+    howto_topics:
+      - slug: background-threads-and-ksa-main-thread
+        title: "Combine background threads with KSA's main-thread-only APIs"
+        note: "publish after configure and drain on the frame"
+      - slug: ui-skipped-when-hud-hidden
+        title: "Handle work that stops when the KSA HUD is hidden"
+        note: "StarMapAfterGui does not run when DrawUI is false"
+  - id: mods/purrtty/features/game-console-shell
+    title: "The KSA game console as a terminal shell"
+    category: external-io
+    submod: null
+    summary: "A custom shell that executes lines through Program.TerminalInterface and captures the game console's colored output with a Harmony postfix on ConsoleWindow.Print, gated to the command's synchronous extent; commands run in frame:draw-ui after physics dispatch, whereas the stock console runs them in frame:input."
+    novelty: high
+    techniques: [harmony-postfix, inter-mod-api]
+    lifecycle: ["frame:draw-ui", "thread:background"]
+    hooks: ["harmony-postfix Brutal.ImGuiApi.Abstractions.ConsoleWindow.Print(ReadOnlySpan<char>, ImColor8, int)", "starmap StarMapAfterGui"]
+    game_types: [KSA.Program, Brutal.ImGuiApi.Abstractions.ConsoleWindow, Brutal.ImGuiApi.Abstractions.TerminalInterface, Brutal.ImGuiApi.ImColor8]
+    key_paths: [purrTTY.CustomShells/GameConsoleShell.cs, purrTTY.GameMod/Patches/ConsoleWindowPrintPatch.cs]
+    howto_topics:
+      - slug: run-ksa-console-commands-from-code
+        title: "Run KSA console commands from mod code"
+        note: "Program.TerminalInterface.Execute"
+      - slug: capture-ksa-console-output
+        title: "Capture KSA console output"
+        note: "postfix ConsoleWindow.Print(ReadOnlySpan<char>, ImColor8, int)"
+  - id: mods/purrtty/features/shell-detection-and-command-resolution
+    title: "Shell detection and launch command resolution"
+    category: external-io
+    submod: null
+    summary: "Detects shells, WSL distributions and /etc/shells entries once on a background thread with bounded waits, defines availability as resolvability, and builds Windows command lines with CommandLineToArgvW quoting versus discrete argv on Unix."
+    novelty: low
+    techniques: [background-thread]
+    lifecycle: ["startup:all-mods-loaded", "thread:background", "frame:draw-ui"]
+    hooks: ["starmap StarMapAllModsLoaded"]
+    game_types: []
+    key_paths: [purrTTY.Terminal/Pty/Process/ShellCommandResolver.cs, purrTTY.Terminal/Pty/WslDistributionDetector.cs, purrTTY.Terminal/Pty/UnixShellDetector.cs, purrTTY.GameMod/ShellMenuCache.cs]
+    howto_topics:
+      - slug: quote-windows-command-lines
+        title: "Quote process arguments correctly on Windows"
+        note: "CommandLineToArgvW rules"
+  - id: mods/purrtty/features/osc52-clipboard-sidecar
+    title: "OSC 52 clipboard writes into the game clipboard"
+    category: external-io
+    submod: null
+    summary: "Tees the PTY byte stream through a small allocation-free OSC scanner so programs can set the system clipboard via OSC 52, applied with ImGui.SetClipboardText on the main thread."
+    novelty: low
+    techniques: [imgui-window]
+    lifecycle: ["frame:draw-ui"]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: [Brutal.ImGuiApi.ImGui, KSA.ImGuiBackendGlfwImpl]
+    key_paths: [purrTTY.Terminal/Ghostty/OscSidecar.cs, purrTTY.Display/Ghostty/TerminalWindow.cs]
+    howto_topics:
+      - slug: use-system-clipboard-from-mod
+        title: "Use the system clipboard from a KSA mod"
+        note: "ImGui clipboard is backed by GLFW"
+  - id: mods/purrtty/features/custom-shell-contract-via-assembly-imports
+    title: "Inter-mod shell contract shared through StarMap assembly imports"
+    category: external-io
+    submod: null
+    summary: "Publishes a small contract assembly that other mods resolve from purrTTY's AssemblyLoadContext by listing it in their own mod.toml ImportedAssemblies (purrTTY's ExportedAssemblies is parsed but never read by StarMap 4dc60f8), so both share one static registry, with a vendored fallback when purrTTY is absent."
+    novelty: high
+    techniques: [inter-mod-api, assembly-load-context, starmap-lifecycle]
+    lifecycle: ["startup:starmap-before-main", "startup:all-mods-loaded"]
+    hooks: ["starmap StarMapAllModsLoaded", "mod.toml StarMap.ModDependencies.ImportedAssemblies"]
+    game_types: []
+    key_paths: [purrTTY.GameMod/mod.toml, purrTTY.CustomShellContract/CustomShellRegistry.cs, purrTTY.GameMod/TerminalMenus.cs]
+    howto_topics:
+      - slug: share-types-between-mods-starmap
+        title: "Share types and static state between StarMap mods"
+        note: "the importer's ImportedAssemblies is what takes effect; ExportedAssemblies is not read by StarMap 4dc60f8"
+      - slug: optional-mod-dependency-with-fallback
+        title: "Declare an optional mod dependency with a fallback"
+        note: "vendored copies plus detection by assembly location"
+      - slug: design-inter-mod-api
+        title: "Design a versioned inter-mod API for KSA"
+        note: "contract assembly free of game and UI types"
+  - id: mods/purrtty/features/custom-shell-registry-and-lifecycle
+    title: "Custom shell registry, lifecycle and PTY bridge"
+    category: external-io
+    submod: null
+    summary: "An ICustomShell interface with a validated, reflection-discovered registry, line-buffered and channel-output base classes, and a bridge that presents in-process shells as PTY process managers."
+    novelty: medium
+    techniques: [inter-mod-api, reflection, background-thread]
+    lifecycle: ["startup:all-mods-loaded", "frame:draw-ui", "thread:background"]
+    hooks: ["starmap StarMapAllModsLoaded"]
+    game_types: []
+    key_paths: [purrTTY.CustomShellContract/ICustomShell.cs, purrTTY.CustomShellContract/CustomShellRegistry.cs, purrTTY.CustomShellContract/Base/BaseLineBufferedShell.cs, purrTTY.Terminal/Pty/CustomShellPtyBridge.cs]
+    howto_topics:
+      - slug: plugin-registry-for-other-mods
+        title: "Let other mods register plugins with your mod"
+        note: "factory registry with validation probe"
+      - slug: register-with-another-mods-plugin-registry
+        title: "Register a plugin with another mod's published registry"
+        note: "purrTTY CustomShellRegistry.RegisterShell from StarMapAllModsLoaded, optional dependency plus ImportedAssemblies"
+  - id: mods/purrtty/features/brutal-logging-category
+    title: "Logging through a Brutal LogCategory in a shared assembly"
+    category: getting-started
+    submod: null
+    summary: "One Brutal.Logging LogCategory in a tiny shared assembly that every project and importing mods log through, landing in KSA's console window, stdout and monitor."
+    novelty: low
+    techniques: [inter-mod-api]
+    lifecycle: ["startup:all-mods-loaded"]
+    hooks: ["static-init purrTTY.Logging.ModLog.Log"]
+    game_types: [Brutal.Logging.LogCategory, Brutal.Logging.LogSystem, KSA.Program, Brutal.ImGuiApi.Abstractions.ConsoleWindow]
+    key_paths: [purrTTY.Logging/Logging.cs]
+    howto_topics:
+      - slug: log-from-a-ksa-mod
+        title: "Log from a KSA mod through the game's logging"
+        note: "LogCategory.Make with interpolated handlers"
+  - id: mods/purrtty/features/toml-themes-and-settings
+    title: "TOML settings and alacritty-format themes"
+    category: persistence
+    submod: null
+    summary: "Persists settings with Tomlyn under the KSA documents folder, loads bundled and user color schemes in alacritty TOML format through the DOM, expands 16 colors to a 256-color palette and writes files atomically."
+    novelty: low
+    techniques: [toml-config, starmap-lifecycle]
+    lifecycle: ["startup:all-mods-loaded", "frame:draw-ui"]
+    hooks: ["starmap StarMapAllModsLoaded"]
+    game_types: [KSA.Constants]
+    key_paths: [purrTTY.Display/Configuration/ThemeConfiguration.cs, purrTTY.Display/Theming/ThemeCatalog.cs, purrTTY.Display/Theming/ThemeTomlFormat.cs, purrTTY.Display/Configuration/AtomicFile.cs]
+    howto_topics:
+      - slug: persist-mod-settings-toml
+        title: "Persist mod settings as TOML in the KSA documents folder"
+        note: "Tomlyn plus atomic temp-then-rename writes"
+      - slug: mod-config-location
+        title: "Choose where a KSA mod stores its files"
+        note: "Constants.DocumentsFolderPath honors StarMap instance overrides"
+  - id: mods/purrtty/features/named-terminal-registry-and-theme-dialog
+    title: "Named terminal registry and per-target theme dialog"
+    category: ui
+    submod: null
+    summary: "Addresses 2D and in-world terminals by unique name through one INamedTerminal registry, and drives a non-modal dialog that applies full appearance bundles to the selected target."
+    novelty: low
+    techniques: [imgui-window, toml-config, starmap-lifecycle]
+    lifecycle: ["frame:draw-ui"]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: [Brutal.ImGuiApi.ImGui]
+    key_paths: [purrTTY.Display/Ghostty/TerminalTargetRegistry.cs, purrTTY.GameMod/UI/ThemeDialog.cs]
+    howto_topics:
+      - slug: renameable-imgui-window-ids
+        title: "Rename ImGui windows without losing their state"
+        note: "Label##stable-id"
+  - id: mods/purrtty/features/saved-terminal-layouts
+    title: "Saved terminal layouts with startup commands"
+    category: persistence
+    submod: null
+    summary: "Saves and restores named sets of 2D and in-world terminals as hand-emitted TOML, applied only on request with name-collision skips, per-terminal startup commands typed into the shell and an MRU history."
+    novelty: medium
+    techniques: [toml-config, imgui-window, starmap-lifecycle]
+    lifecycle: ["frame:draw-ui"]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: []
+    key_paths: [purrTTY.Display/Layouts/LayoutTomlFormat.cs, purrTTY.GameMod/Layouts/LayoutManager.cs, purrTTY.Terminal/Sessions/TerminalSession.cs]
+    howto_topics:
+      - slug: save-and-restore-ui-layouts
+        title: "Save and restore a set of mod windows"
+        note: "user-initiated apply with collision skips"
+  - id: mods/purrtty/features/failure-isolated-harmony-patching
+    title: "Failure-isolated Harmony patching with reload-safe statics"
+    category: patching
+    submod: null
+    summary: "Applies each Harmony patch class separately with CreateClassProcessor inside try/catch and classifies required vs optional; also recreates the Harmony instance lazily and resets static patch state on unload, which is defensive because StarMap 4dc60f8 never reloads mods in-process and removes every patch before StarMapUnload."
+    novelty: medium
+    techniques: [harmony-prefix, harmony-postfix, starmap-lifecycle]
+    lifecycle: ["startup:all-mods-loaded"]
+    hooks: ["starmap StarMapAllModsLoaded", "starmap StarMapUnload"]
+    game_types: [KSA.Program, KSA.GameSettings, KSA.SuperMeshRenderSystem, Brutal.ImGuiApi.Abstractions.ConsoleWindow]
+    key_paths: [purrTTY.GameMod/Patcher.cs, purrTTY.GameMod/TerminalMod.cs]
+    howto_topics:
+      - slug: resilient-harmony-patching
+        title: "Patch game methods so one drifted target cannot break the mod"
+        note: "per-class CreateClassProcessor with logging"
+      - slug: starmap-reload-safe-statics
+        title: "Keep static state correct across StarMap reloads"
+        note: "reset caches on unload"
+  - id: mods/purrtty/features/cross-platform-build-and-release
+    title: "One-zip cross-platform build, deploy and release pipeline"
+    category: testing-and-tooling
+    submod: null
+    summary: "Resolves KSA reference assemblies from an env var or sibling checkout with a fail-fast check, wipes and copies an allow-listed payload plus all native libraries into the mod folder, and tests on three OSes before stamping and publishing a release zip."
+    novelty: medium
+    techniques: [native-interop]
+    lifecycle: ["event:build"]
+    hooks: ["msbuild target CopyCustomContent (AfterTargets=AfterBuild)", "github-actions .github/workflows/release.yml"]
+    game_types: []
+    key_paths: [Directory.Build.props, purrTTY.GameMod/purrTTY.GameMod.csproj, .github/workflows/release.yml]
+    howto_topics:
+      - slug: deploy-mod-on-build
+        title: "Deploy a KSA mod to the mods folder on every build"
+        note: "MSBuild AfterBuild copy target that wipes the destination"
+      - slug: ci-for-ksa-mods
+        title: "Build and release a KSA mod in CI"
+        note: "private game-assembly checkout and three-OS test matrix"
+  - id: mods/purrtty/features/headless-test-suites
+    title: "Headless test suites for a KSA mod"
+    category: testing-and-tooling
+    submod: null
+    summary: "Four NUnit projects test the mod without the game, compile against KSA reference assemblies where cheap, include real-PTY OS-gated tests and FsCheck properties, and enforce silent-on-success and no-fixed-sleep rules."
+    novelty: medium
+    techniques: []
+    lifecycle: ["event:test"]
+    hooks: ["dotnet test purrtty.slnx"]
+    game_types: [Brutal.ImGuiApi.Abstractions.ConsoleWindow, Brutal.ImGuiApi.ImColor8]
+    key_paths: [docs/build-and-test.md, purrTTY.CustomShellContract.Tests/Unit/BaseLineBufferedShellTests.cs, purrTTY.CustomShells.Tests/Unit/GameConsoleShellTests.cs]
+    howto_topics:
+      - slug: unit-test-ksa-mod
+        title: "Unit-test a KSA mod without launching the game"
+        note: "keep game types out of tested layers"
+      - slug: deterministic-async-tests
+        title: "Write deterministic async tests without sleeps"
+        note: "sentinel flush and bounded polling"
+  - id: mods/purrtty/features/ksa-upgrade-coupling-review-skill
+    title: "KSA upgrade coupling review skill"
+    category: testing-and-tooling
+    submod: null
+    summary: "An AI-assistant skill that diffs two decompiled KSA builds against a catalog of every mod-to-game coupling, classified by how each fails, and reports severity per touchpoint."
+    novelty: high
+    techniques: [harmony-prefix, harmony-postfix, reflection]
+    lifecycle: ["event:game-update"]
+    hooks: ["claude-code skill upgrade-ksa"]
+    game_types: [KSA.Program, KSA.GameSettings, KSA.SuperMeshRenderSystem, Brutal.ImGuiApi.Abstractions.ConsoleWindow, KSA.ImGuiBackendVulkanImpl, KSA.Cursor]
+    key_paths: [.claude/skills/upgrade-ksa/SKILL.md]
+    howto_topics:
+      - slug: validate-mod-against-new-ksa-build
+        title: "Check a mod against a new KSA build"
+        note: "diff decompiled sources per coupling point"
+      - slug: offline-harmony-patch-check
+        title: "Verify Harmony patches apply without launching the game"
+        note: "CreateClassProcessor harness"
+  - id: mods/purrtty/features/offscreen-imgui-context-render-to-texture
+    title: "Render-to-texture with a second ImGui context and Vulkan backend"
+    category: rendering
+    submod: null
+    summary: "Renders ImGui UI into a mod-owned Vulkan image using a second ImGui context that shares the game's atlas, a second ImGuiBackendVulkanImpl on a mod render pass, and a mod command pool with a fence ring and its own queue submit."
+    novelty: high
+    techniques: [vulkan-texture, imgui-window, imgui-drawlist, starmap-lifecycle]
+    lifecycle: ["frame:draw-ui", "startup:all-mods-loaded"]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: [KSA.ImGuiBackendVulkanImpl, Brutal.ImGuiApi.ImGui, Brutal.ImGuiApi.ImGuiContextPtr, Core.Renderer, Brutal.VulkanApi.Abstractions.ImageEx, Brutal.VulkanApi.Queue, KSA.Program]
+    key_paths: [purrTTY.GameMod/InWorld/OffscreenRenderTarget.cs, purrTTY.GameMod/InWorld/OffscreenImGuiContext.cs, purrTTY.GameMod/InWorld/OffscreenImGuiBackend.cs, purrTTY.GameMod/InWorld/PerFrameRenderer.cs]
+    howto_topics:
+      - slug: render-imgui-to-texture
+        title: "Render ImGui UI into a texture for use in the 3D world"
+        note: "secondary context plus second Vulkan backend"
+      - slug: submit-own-vulkan-work
+        title: "Submit your own Vulkan command buffers alongside KSA's frame"
+        note: "mod command pool, fence ring, locked queue submit"
+      - slug: ingame-screen-on-part
+        title: "Put an interactive screen on a part"
+        note: "render-to-texture plus world-space quad"
+  - id: mods/purrtty/features/world-space-quad-pipeline-custom-shader
+    title: "World-space textured quad pipeline with a runtime-compiled shader"
+    category: rendering
+    submod: null
+    summary: "Builds a dynamic-rendering pipeline that draws a textured quad into KSA's scene target, reusing UnlitMeshVert, compiling a premultiplied-alpha fragment shader at runtime with ShaderModuleUtils.FromString, and depth-testing against reverse-Z without writing depth."
+    novelty: high
+    techniques: [vulkan-pipeline, vulkan-buffer, glsl-shader, vulkan-texture]
+    lifecycle: ["frame:draw-ui", "render:translucency"]
+    hooks: ["starmap StarMapAfterGui", "harmony-postfix KSA.SuperMeshRenderSystem.RenderTranslucencyPass"]
+    game_types: [RenderCore.ShaderModuleUtils, KSA.ModLibrary, KSA.ShaderReference, KSA.RenderingPresets, Brutal.VulkanApi.Abstractions.Presets, KSA.Program, KSA.Rendering.RenderTarget, KSA.Camera, Core.Renderer]
+    key_paths: [purrTTY.GameMod/InWorld/Display/SharedQuadResource.cs, purrTTY.GameMod/InWorld/Display/InWorldQuad.cs]
+    howto_topics:
+      - slug: draw-textured-quad-in-world
+        title: "Draw a textured quad in the KSA world"
+        note: "dynamic-rendering pipeline matched to the scene target"
+      - slug: compile-glsl-at-runtime
+        title: "Compile a GLSL shader at runtime in a KSA mod"
+        note: "RenderCore.ShaderModuleUtils.FromString"
+      - slug: premultiplied-alpha-compositing
+        title: "Composite translucent mod content correctly"
+        note: "premultiplied alpha blend and shader"
+  - id: mods/purrtty/features/draw-after-translucency-pass-postfix
+    title: "Injecting world-space draws after KSA's translucency pass"
+    category: rendering
+    submod: null
+    summary: "A Harmony postfix on SuperMeshRenderSystem.RenderTranslucencyPass issues tracked image barriers and opens its own dynamic-rendering scope over the scene attachments so custom translucent geometry draws after atmosphere, clouds and ocean; it fires at every call site (each visible secondary viewport via RenderViewport, the main view in RenderGame, RenderEditor)."
+    novelty: high
+    techniques: [harmony-postfix, vulkan-pipeline]
+    lifecycle: ["frame:render", "render:translucency"]
+    hooks: ["harmony-postfix KSA.SuperMeshRenderSystem.RenderTranslucencyPass"]
+    game_types: [KSA.SuperMeshRenderSystem, KSA.Program, KSA.Rendering.RenderTarget, KSA.Rendering.ImageBarrierInfo, KSA.CommandBufferEx, KSA.IViewport, KSA.PartModelGlass]
+    key_paths: [purrTTY.GameMod/InWorld/Patches/RenderTranslucencyPassPatch.cs, purrTTY.GameMod/InWorld/InWorldTerminalManager.cs]
+    howto_topics:
+      - slug: inject-draw-into-ksa-render-pass
+        title: "Inject custom draws into KSA's scene rendering"
+        note: "postfix a render pass and reopen dynamic rendering"
+      - slug: ksa-render-pass-order
+        title: "Choose where in KSA's render order to draw"
+        note: "opaque vs translucency vs post-process"
+      - slug: ksa-tracked-image-barriers
+        title: "Use KSA's tracked image barriers"
+        note: "CommandBufferEx.PipelineBarrier2 with ImageBarrierInfo presets"
+  - id: mods/purrtty/features/anchor-quad-to-part-or-camera
+    title: "Anchoring a world-space quad to a part or to the camera"
+    category: rendering
+    submod: null
+    summary: "Places a quad in camera-relative ego space from a part's position and rotation plus user offsets, follows the same Part object through decoupling and docking, or pins it in view space as a billboard."
+    novelty: high
+    techniques: [vulkan-pipeline]
+    lifecycle: ["frame:render", "frame:draw-ui"]
+    hooks: ["harmony-postfix KSA.SuperMeshRenderSystem.RenderTranslucencyPass", "starmap StarMapAfterGui"]
+    game_types: [KSA.Vehicle, KSA.Part, KSA.Camera, KSA.Universe, KSA.Program, KSA.CelestialSystem, Brutal.Numerics.float4x4, Brutal.Numerics.doubleQuat]
+    key_paths: [purrTTY.GameMod/InWorld/Display/InWorldQuad.cs, purrTTY.GameMod/InWorld/VehicleLookup.cs]
+    howto_topics:
+      - slug: attach-object-to-part-transform
+        title: "Attach rendered content to a vehicle part"
+        note: "ego-space part transform each frame"
+      - slug: follow-part-across-decouple
+        title: "Track a part across staging and docking"
+        note: "follow the Part object by reference identity"
+      - slug: camera-fixed-billboard
+        title: "Draw a camera-fixed billboard in the 3D view"
+        note: "view-space model times projection"
+  - id: mods/purrtty/features/ray-pick-focus-for-world-quads
+    title: "Click-to-focus and input routing for world-space panels"
+    category: ui
+    submod: null
+    summary: "Picks the nearest world-space quad under the mouse with Cursor.GetEgoRay and Moller-Trumbore triangle tests, converts the hit to texture UV and cells, and routes keyboard and app-mouse input to it while gating game input."
+    novelty: high
+    techniques: [harmony-prefix, starmap-lifecycle]
+    lifecycle: ["frame:draw-ui", "frame:input"]
+    hooks: ["starmap StarMapAfterGui", "harmony-prefix KSA.Program.OnKey", "harmony-prefix KSA.GameSettings.OnKeyAll"]
+    game_types: [KSA.Cursor, KSA.Ray, KSA.Camera, KSA.Program, Brutal.ImGuiApi.ImGui, Brutal.ImGuiApi.ImGuiIOPtr]
+    key_paths: [purrTTY.GameMod/InWorld/InWorldTerminalManager.cs, purrTTY.GameMod/InWorld/Display/InWorldQuad.cs, purrTTY.Display/Ghostty/InWorldTerminalRenderer.cs]
+    howto_topics:
+      - slug: mouse-pick-world-objects
+        title: "Pick objects in the 3D view with the mouse"
+        note: "Cursor.GetEgoRay plus Ray.RaycastMollerTrumbore"
+      - slug: interactive-in-world-ui
+        title: "Make in-world UI clickable and typeable"
+        note: "ray hit to UV to widget coordinates"
+  - id: mods/purrtty/features/vulkan-resource-teardown-discipline
+    title: "Safe Vulkan teardown and live resize for mod-owned GPU resources"
+    category: rendering
+    submod: null
+    summary: "Stops recording a GPU resource immediately, frees it two frames later after a device WaitIdle, rebuilds targets in place for live resizes, holds ImageEx as nullable, and never touches the device in StarMapUnload."
+    novelty: high
+    techniques: [vulkan-texture, vulkan-pipeline, starmap-lifecycle]
+    lifecycle: ["frame:draw-ui", "frame:render"]
+    hooks: ["starmap StarMapAfterGui", "starmap StarMapUnload"]
+    game_types: [Core.Renderer, Brutal.VulkanApi.Abstractions.ImageEx, KSA.Program, KSA.ImGuiBackendVulkanImpl]
+    key_paths: [purrTTY.GameMod/InWorld/InWorldTerminalManager.cs, purrTTY.GameMod/InWorld/InWorldTerminalInstance.cs, purrTTY.GameMod/InWorld/OffscreenRenderTarget.cs]
+    howto_topics:
+      - slug: free-vulkan-resources-safely
+        title: "Free mod-owned Vulkan resources without device loss"
+        note: "deferred destroy after frames in flight"
+      - slug: mod-shutdown-and-vulkan
+        title: "Shut a mod down safely at game exit"
+        note: "do not touch the destroyed Vulkan device"

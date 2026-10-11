@@ -1,0 +1,843 @@
+category: getting-started
+description: Build, deploy and understand a StarMap code mod end to end - project and mod.toml setup, how KSA and StarMap discover and load mods, startup hook choice, dependencies and shared assemblies, logging, version guards, fault containment and release packaging.
+topics:
+  # ------------------------------------------------------------------ first mod
+  - slug: create-a-minimal-starmap-mod
+    title: Create a minimal StarMap mod
+    summary: Stand up the smallest mod StarMap will load - a mod.toml, one [StarMapMod] entry class with lifecycle methods, a csproj that references the game DLLs without copying them, and a Harmony instance - then see it log from the game.
+    game_types: [KSA.Mod, KSA.ModLibrary, KSA.Program]
+    engine_pointers:
+      - current/decomp/KSA/Mod.cs (TomlField members, DirectoryPath)
+      - current/decomp/KSA/ModLibrary.cs PrepareManifest / PrepareAll / LoadAll
+    lifecycle: [startup:starmap-before-main, startup:all-mods-loaded, frame:draw-ui]
+    approaches:
+      - n: 1
+        title: Hand-built project from the discovery rules
+        mod: starmap
+        features: [mods/starmap/features/manifest-mod-discovery, mods/starmap/features/attribute-hook-discovery, mods/kitten-engineer-redux/features/dist-zip-and-post-build-deploy]
+        technique: starmap-lifecycle
+        note: Walk the minimum - mod.toml with only name (EntryAssembly defaults to the folder/manifest id so no [StarMap] table is needed), public class with [StarMapMod], StarMap.API and Harmony from NuGet, game DLLs with Private=false. Shows what StarMap checks and what it silently ignores.
+      - n: 2
+        title: Copy and rename the repo template with mkmod.ts
+        mod: unscience
+        features: [mods/unscience/features/fixme-mod-name-standalone-mod-template]
+        technique: starmap-lifecycle
+        note: The fixme-mod-name project pair is a ready scaffold (entry class with four lifecycle attributes, Harmony patcher with hotkey guard, F11 ImGui window, sibling library project) cloned by a TypeScript script. Good starting point for a mod that grows into a library plus entry layout.
+    related: [mod-toml-reference, reference-game-assemblies-from-a-mod-project, deploy-a-mod-on-every-build, choose-a-starmap-startup-hook, game-loop-and-lifecycle]
+    borrowed_from: []
+
+  - slug: mod-toml-reference
+    title: Write mod.toml - KSA keys and the [StarMap] table
+    summary: What each mod.toml key means to KSA (name, assets, patches and other TomlFields) and to StarMap (EntryAssembly, ExportedAssemblies, ModDependencies), including the defaults, the smallest valid file and the keys that are parsed but never acted on.
+    game_types: [KSA.Mod, KSA.ModEntry, KSA.ModManifest]
+    engine_pointers:
+      - current/decomp/KSA/Mod.cs every [TomlField] member and LoadFromFile
+      - StarMap manifest reader (StarMap.Core) for the [StarMap] table
+    lifecycle: [startup:starmap-before-main, startup:asset-load]
+    approaches:
+      - n: 1
+        title: Reference table with smallest-file examples
+        mod: starmap
+        features: [mods/starmap/features/manifest-mod-discovery, mods/starmap/features/mod-dependency-graph, mods/kitten-engineer-redux/features/dist-zip-and-post-build-deploy, mods/ohmystars/features/mod-root-and-packaging]
+        technique: toml-config
+        note: Document every KSA.Mod TomlField, EntryAssembly default (folder/manifest id), ModDependencies shape, and contrast the no-[StarMap] files (kitten-engineer-redux, ohmystars) with the explicit ones. Flag ExportedAssemblies as parsed but not effective at the pinned StarMap commit.
+    related: [ksa-mod-folders-and-manifest, declare-a-mod-dependency, ship-content-and-code-in-one-mod, generate-mod-toml-from-msbuild]
+    borrowed_from: []
+
+  - slug: ksa-mod-folders-and-manifest
+    title: Understand how KSA finds, enables and orders mods
+    summary: KSA's own mod system under a StarMap mod - the Content/manifest.toml and Documents "My Games/Kitten Space Agency/mods" folders, the local manifest.toml copy, mod ids equal to folder names, new mods starting disabled behind the MOD FOUND popup, and manifest order as load order.
+    game_types: [KSA.ModLibrary, KSA.ModManifest, KSA.ModEntry, KSA.Mod, KSA.Constants]
+    engine_pointers:
+      - current/decomp/KSA/ModLibrary.cs CONTENT_MANIFEST, LocalManifestPath, PrepareManifest
+      - current/decomp/KSA/Constants.cs DocumentsFolderPath
+    lifecycle: [startup:asset-load]
+    approaches:
+      - n: 1
+        title: Folder and manifest rules as StarMap consumes them
+        mod: starmap
+        features: [mods/starmap/features/manifest-mod-discovery, mods/starmap/features/new-mods-restart-flow, mods/ksagolf/features/content-and-code-mod-layout]
+        technique: toml-config
+        note: Explains Content vs Documents mod roots, where a hand-copied mod must be registered, why a mod can seem to be ignored (disabled or New in the manifest), and how enabling a New mod in the popup leads to StarMap's restart. KSAGolf shows a mod that is both a KSA content mod and a code mod.
+    related: [mod-toml-reference, relaunch-the-game-from-a-mod, how-starmap-launches-ksa, separate-game-instances]
+    borrowed_from: [mods/starmap/features/instance-path-override]
+
+  - slug: how-starmap-launches-ksa
+    title: How StarMap launches KSA and loads your mod
+    summary: End-to-end walkthrough of StarMap.exe - StarMapConfig.json, the custom game AssemblyLoadContext and base-directory trick, instance path handling, manifest discovery, per-mod load contexts, dependency ordering and attribute binding - so a modder can predict what is loaded, in which context and when.
+    game_types: [KSA.Program, KSA.App, KSA.ModLibrary]
+    engine_pointers:
+      - StarMap/Program.cs, StarMap.Core/StarMapCore.cs (outside the decomp; see mods/starmap pages)
+      - current/decomp/KSA/Program.cs Main and CliArgs
+    lifecycle: [startup:starmap-before-main, startup:immediate-load, startup:all-mods-loaded]
+    approaches:
+      - n: 1
+        title: Host process, contexts and hook binding walkthrough
+        mod: starmap
+        features: [mods/starmap/features/host-process-launch, mods/starmap/features/manifest-mod-discovery, mods/starmap/features/per-mod-assembly-load-context, mods/starmap/features/mod-dependency-graph, mods/starmap/features/attribute-hook-discovery]
+        technique: assembly-load-context
+        note: A reference narrative with a numbered boot sequence and a context-resolution diagram. Covers why Harmony lives in the default context, what resolves where, why the game ignores extra CLI args, and the places a mod can observe all this (Assembly.Location, AssemblyLoadContext.GetLoadContext). Absorbs the "host a .NET game inside your own launcher" suggestion.
+    related: [ksa-mod-folders-and-manifest, declare-a-mod-dependency, find-your-mod-folder-at-runtime, run-and-debug-a-starmap-mod-from-an-ide]
+    borrowed_from: []
+
+  - slug: run-and-debug-a-starmap-mod-from-an-ide
+    title: Run and debug a StarMap mod from Rider or Visual Studio
+    summary: Launch StarMap.exe under the debugger with the right working directory so breakpoints in your mod hit, using a generated launch profile that points at the StarMap folder and deploys on every build.
+    game_types: []
+    engine_pointers: [StarMap/Program.cs working directory and StarMapConfig.json handling]
+    lifecycle: [startup:starmap-before-main]
+    approaches:
+      - n: 1
+        title: Generated launchSettings profile from ModDeploy.targets
+        mod: ksaero
+        features: [mods/ksaero/features/mod-deploy-targets, mods/ksa-deltavmap/features/mod-deploy-targets-and-release, mods/starmap/features/host-process-launch]
+        technique: msbuild
+        note: The same ModDeploy.targets in KSAero, DeltaVMap and MeasureTools writes a launch profile for fresh worktrees; the working directory must be the StarMap folder, and a deploy stamp records which checkout last deployed.
+    related: [deploy-a-mod-on-every-build, how-starmap-launches-ksa, separate-game-instances]
+    borrowed_from: []
+
+  # ------------------------------------------------------------------ hooks
+  - slug: choose-a-starmap-startup-hook
+    title: Choose the right StarMap hook for initialization
+    summary: Pick between StarMapBeforeMain, StarMapImmediateLoad and StarMapAllModsLoaded by what must already exist - startup patches, data that asset XML must see, or a fully loaded asset set - with a map of what game state is available at each.
+    game_types: [KSA.Program, KSA.ModLibrary, KSA.Mod, KSA.Universe]
+    engine_pointers:
+      - current/decomp/KSA/Program.cs constructor / startup sequence
+      - current/decomp/KSA/ModLibrary.cs PrepareAll, LoadAll, AttachGameData
+      - current/decomp/KSA/Mod.cs PrepareSystems
+    lifecycle: [startup:starmap-before-main, startup:immediate-load, startup:asset-load, startup:all-mods-loaded, startup:game-loaded]
+    approaches:
+      - n: 1
+        title: StarMapBeforeMain - patch code that runs during startup
+        mod: realatmospheres
+        features: [mods/starmap/features/startup-lifecycle-hooks, mods/realatmospheres/features/reflection-only-mod-build, mods/shaderextensions/features/duck-typed-attribute-api]
+        technique: starmap-lifecycle
+        note: Only loader-level work is legal; no game state exists. Install Harmony patches on code that runs before AllModsLoaded (Program.Main prefix scans, shader path redirects).
+      - n: 2
+        title: StarMapImmediateLoad - register data before assets deserialize
+        mod: ksa-advancedflightcomputer
+        features: [mods/starmap/features/startup-lifecycle-hooks, mods/ksa-advancedflightcomputer/features/superseded-mod-detection-and-settings-import, mods/compendium/features/cross-mod-json-catalog]
+        technique: starmap-lifecycle
+        note: Per-mod prefix on Mod.PrepareSystems inside PrepareAll, before asset bundles load. Use it to register enum values, markers or data that XML deserialization must already see; mind the signature trap (see diagnose topic).
+      - n: 3
+        title: StarMapAllModsLoaded - work that needs the full mod set
+        mod: ksarmory
+        features: [mods/starmap/features/startup-lifecycle-hooks, mods/ksarmory/features/starmap-entry-and-fault-containment, mods/gatos/features/compile-gated-game-seam, mods/ksaero/features/game-version-check]
+        technique: starmap-lifecycle
+        note: Postfix on ModLibrary.LoadAll, before GPU upload, AttachGameData and universe load. Typical for installing the bulk of Harmony patches, version checks, logging setup and background warm-ups.
+    related: [diagnose-a-starmap-hook-that-never-fires, game-loop-and-lifecycle, warm-up-hot-code-at-load, contain-exceptions-in-starmap-hooks, patch-a-lazily-loaded-game-assembly]
+    borrowed_from: [mods/compendium/features/cross-mod-json-catalog]
+
+  - slug: diagnose-a-starmap-hook-that-never-fires
+    title: Diagnose a StarMap hook that never fires
+    summary: Why a lifecycle method is silently skipped - non-public method, wrong parameter list (the zero-argument StarMapImmediateLoad trap), a second [StarMapMod] class, attribute type mismatch - and how to verify what StarMap bound.
+    game_types: []
+    engine_pointers: [StarMap.Core attribute discovery and signature validation (see mods/starmap pages)]
+    lifecycle: [startup:starmap-before-main, startup:immediate-load]
+    approaches:
+      - n: 1
+        title: Signature checklist against StarMap's binding rules
+        mod: starmap
+        features: [mods/starmap/features/attribute-hook-discovery, mods/ksarmory/features/starmap-entry-and-fault-containment]
+        technique: starmap-lifecycle
+        note: StarMap matches attribute types by name, takes the first [StarMapMod] class, requires public methods with exact parameter lists and dispatches by MethodInfo.Invoke with no handler. Includes a firing-point table (ksarmory) verified against the 5554 decomp and logging probes to prove a hook ran.
+    related: [choose-a-starmap-startup-hook, contain-exceptions-in-starmap-hooks, discover-plugins-by-attribute-name, game-loop-and-lifecycle]
+    borrowed_from: []
+
+  - slug: discover-plugins-by-attribute-name
+    title: Discover plugins by attribute name across load contexts
+    summary: Build your own plugin or hook scan that survives version skew and separate AssemblyLoadContexts by matching attributes by full type name instead of type identity.
+    game_types: []
+    engine_pointers: [System.Reflection.CustomAttributeData, System.Runtime.Loader.AssemblyLoadContext.All]
+    lifecycle: [startup:starmap-before-main]
+    approaches:
+      - n: 1
+        title: StarMap's name-based attribute binding
+        mod: starmap
+        features: [mods/starmap/features/attribute-hook-discovery]
+        technique: reflection
+        note: Compare attribute type names, then validate signatures with the host's own attribute instances. Shows the host side of the contract.
+      - n: 2
+        title: Scan every AssemblyLoadContext with GetCustomAttributesData
+        mod: shaderextensions
+        features: [mods/shaderextensions/features/duck-typed-attribute-api]
+        technique: reflection
+        note: A Program.Main prefix enumerates all contexts, matches look-alike attributes copied into consumer assemblies, closes a generic registration method over the consumer type and fills static delegate fields. No assembly reference between mods.
+    related: [share-types-between-mods, diagnose-a-starmap-hook-that-never-fires]
+    borrowed_from: [mods/shaderextensions/features/duck-typed-attribute-api]
+
+  - slug: clean-up-on-game-exit
+    title: Clean up threads, processes and files when the game exits
+    summary: Release what the mod owns at shutdown with StarMapUnload, know when it does not run (Environment.Exit paths), and reset static state so a reload or second init starts clean.
+    game_types: [KSA.Program]
+    engine_pointers: [current/decomp/KSA/Program.cs Main, Dispose]
+    lifecycle: [event:shutdown, thread:background]
+    approaches:
+      - n: 1
+        title: StarMapUnload plus ProcessExit for exit paths that skip it
+        mod: starmap
+        features: [mods/starmap/features/unload-and-shutdown, mods/ksa-measuretools/features/resilient-patching-and-diagnostics]
+        technique: starmap-lifecycle
+        note: StarMapUnload runs after Main returns, Program.Dispose and StarMap's global UnpatchAll, so GPU, window and audio state is already gone. Pair with AppDomain.ProcessExit for Environment.Exit. MeasureTools resets every static on unload.
+    related: [relaunch-the-game-from-a-mod, contain-exceptions-in-starmap-hooks]
+    borrowed_from: []
+
+  - slug: relaunch-the-game-from-a-mod
+    title: Relaunch the game process from inside a mod
+    summary: Restart KSA after a change that only applies at startup (newly enabled mods, config) by starting the current executable again with the correct working directory and arguments, then exiting cleanly.
+    game_types: [KSA.ModLibrary, KSA.ModEntry, KSA.Popup]
+    engine_pointers: [current/decomp/KSA/ModLibrary.cs PrepareAll, current/decomp/KSA/ConfirmMods.cs]
+    lifecycle: [startup:asset-load]
+    approaches:
+      - n: 1
+        title: Harmony prefix on ModLibrary.PrepareAll plus Process.Start --restarted
+        mod: starmap
+        features: [mods/starmap/features/new-mods-restart-flow, mods/starmap/features/startup-modal-popup]
+        technique: harmony-prefix
+        note: Detects New manifest entries the player just enabled, shows a restart popup, relaunches StarMap.exe with --restarted and exits. Shows the cleanest relaunch inputs (MainModule path, working directory, forwarded args).
+    related: [ksa-mod-folders-and-manifest, clean-up-on-game-exit]
+    borrowed_from: [mods/starmap/features/startup-modal-popup]
+
+  - slug: separate-game-instances
+    title: Run separate KSA instances with different user-data folders
+    summary: Redirect the KSA documents folder (settings, saves, logs, manifest, local mods) per instance with -InstancePath or STARMAP_INSTANCE_PATH so test and play profiles do not mix.
+    game_types: [KSA.Constants]
+    engine_pointers: [current/decomp/KSA/Constants.cs DocumentsFolderPath, LogsFolderPath]
+    lifecycle: [startup:starmap-before-main]
+    approaches:
+      - n: 1
+        title: Manual Harmony prefix on Constants.DocumentsFolderPath
+        mod: starmap
+        features: [mods/starmap/features/instance-path-override]
+        technique: harmony-prefix
+        note: Borrowed from persistence. Explains what moves with the folder, why a mod must use Constants paths rather than hard-coded Documents locations, and the argument/env precedence.
+    related: [write-a-per-mod-log-file, ksa-mod-folders-and-manifest, run-and-debug-a-starmap-mod-from-an-ide]
+    borrowed_from: [mods/starmap/features/instance-path-override]
+
+  # ------------------------------------------------------------------ build and deploy
+  - slug: reference-game-assemblies-from-a-mod-project
+    title: Reference the game's assemblies from a mod project without shipping them
+    summary: Point a csproj at the installed KSA DLLs (KSA.dll, Brutal.*, Planet*, Tomlet and friends) with Private=false so builds compile against the real API but never copy or redistribute game files.
+    game_types: []
+    engine_pointers: [KSA install folder managed DLLs (KSA.dll, Brutal.*.dll, Planet.*.dll, RenderCore.dll)]
+    lifecycle: []
+    approaches:
+      - n: 1
+        title: KsaDir property with wildcard Reference items and HintPath
+        mod: ksa-aircrafthud
+        features: [mods/ksa-aircrafthud/features/props-based-build, mods/ksaero/features/mod-deploy-targets]
+        technique: msbuild
+        note: A shared .props holds KSADir, NuGet StarMap.API and Harmony, and an item transform that turns a DLL glob into References with Private=False.
+      - n: 2
+        title: Tiered KsaDllDir resolution in Directory.Build.props
+        mod: ksagolf
+        features: [mods/ksagolf/features/content-and-code-mod-layout]
+        technique: msbuild
+        note: Environment variable, local override and well-known install locations are tried in order so contributors and CI use the same project file.
+      - n: 3
+        title: Shared KSADLLs.props glob for several mods
+        mod: kittenextensions
+        features: [mods/kittenextensions/features/msbuild-mod-toml-generation]
+        technique: msbuild
+        note: One props file shared across KittenExtensions, ShaderExtensions and MPFX globbing Brutal*.dll, KSA.dll, Planet*.dll and Tomlet.dll; the same file is what CI points at a private DLL checkout.
+    related: [deploy-a-mod-on-every-build, build-a-mod-without-game-references, build-in-ci-without-the-game-installed]
+    borrowed_from: []
+
+  - slug: deploy-a-mod-on-every-build
+    title: Deploy a mod into the game's mods folder on every build
+    summary: Make F5 or dotnet build leave a runnable mod in the KSA mods folder, with a clear message when the game is running and holding the DLL, and a consistent payload list.
+    game_types: [KSA.Constants]
+    engine_pointers: [current/decomp/KSA/Constants.cs DocumentsFolderPath (Documents/My Games/Kitten Space Agency/mods)]
+    lifecycle: []
+    approaches:
+      - n: 1
+        title: Imported ModDeploy.targets with locked-DLL diagnosis
+        mod: ksaero
+        features: [mods/ksaero/features/mod-deploy-targets, mods/ksa-deltavmap/features/mod-deploy-targets-and-release, mods/ksa-measuretools/features/mod-deploy-targets-and-release]
+        technique: msbuild
+        note: AfterTargets=Build copies DLL and mod.toml with a single-attempt copy that names the running game when the file is locked, plus launch profile and deploy stamp. The same file is used by three repos.
+      - n: 2
+        title: OutputPath straight into the mods folder
+        mod: ksa-aircrafthud
+        features: [mods/ksa-aircrafthud/features/props-based-build]
+        technique: msbuild
+        note: Simplest possible - set OutputPath to the user mods folder and mark content CopyToOutputDirectory. No target needed, no cleanup of stale files.
+      - n: 3
+        title: Explicit payload list shared by deploy and packaging
+        mod: ksa-advancedflightcomputer
+        features: [mods/ksa-advancedflightcomputer/features/mod-deploy-msbuild-targets, mods/ksarmory/features/build-deploy-package-release]
+        technique: msbuild
+        note: One payload item list drives both the deploy copy and the release zip, with a running-game check; includes per-RID native payloads.
+      - n: 4
+        title: Post-build copy with an overridable game directory
+        mod: ohmystars
+        features: [mods/ohmystars/features/mod-root-and-packaging, mods/kitten-engineer-redux/features/dist-zip-and-post-build-deploy, mods/gatos/features/build-deploy-and-ci]
+        technique: msbuild
+        note: A plain PostBuild target with a KSAGameDir override; kitten-engineer-redux also copies ModMenu.Attributes.dll. Lowest ceremony, no running-game diagnosis.
+    related: [reference-game-assemblies-from-a-mod-project, package-a-mod-release-zip, run-and-debug-a-starmap-mod-from-an-ide, ship-third-party-dlls-with-a-mod]
+    borrowed_from: [mods/ksarmory/features/build-deploy-package-release, mods/gatos/features/build-deploy-and-ci]
+
+  - slug: generate-mod-toml-from-msbuild
+    title: Generate mod.toml and StarMap dependencies from the project file
+    summary: Keep version, id, asset list and [[StarMap.ModDependencies]] in csproj properties and items so mod.toml is written on every build and cannot drift from the code.
+    game_types: [KSA.Mod]
+    engine_pointers: [current/decomp/KSA/Mod.cs TomlField members that mod.toml must satisfy]
+    lifecycle: []
+    approaches:
+      - n: 1
+        title: Shared CopyOutput.targets writing mod.toml
+        mod: kittenextensions
+        features: [mods/kittenextensions/features/msbuild-mod-toml-generation, mods/shaderextensions/features/generated-mod-toml, mods/mpfx/features/ci-release-pipeline]
+        technique: msbuild
+        note: ModManifestArray-tagged None items and StarMapModDependency items (with ImportedAssemblies) become TOML; the target also replaces Release/<ModName> and the installed folder each build. Used verbatim by three mods.
+    related: [mod-toml-reference, declare-a-mod-dependency, publish-a-release-from-ci]
+    borrowed_from: [mods/mpfx/features/ci-release-pipeline]
+
+  - slug: package-a-mod-release-zip
+    title: Package a mod release zip
+    summary: Produce the exact folder users unzip into their mods directory - mod.toml, DLLs, content, licences - and verify the payload so nothing is missing or stray.
+    game_types: []
+    engine_pointers: []
+    lifecycle: []
+    approaches:
+      - n: 1
+        title: Release target that zips the deployed folder
+        mod: ksaero
+        features: [mods/ksaero/features/mod-deploy-targets, mods/ksa-deltavmap/features/mod-deploy-targets-and-release, mods/realatmospheres/features/release-packaging-and-deploy]
+        technique: msbuild
+        note: A Release MSBuild target zips the same files deploy copies; the version comes from the project.
+      - n: 2
+        title: Payload list verified file by file
+        mod: ksa-advancedflightcomputer
+        features: [mods/ksa-advancedflightcomputer/features/mod-deploy-msbuild-targets, mods/ksacars/features/package-deploy-release, mods/ksagolf/features/packaging-and-release]
+        technique: msbuild
+        note: Check the zip against the declared payload and fail on drift; the same list covers native libraries and data files.
+      - n: 3
+        title: Ship data files and third-party licences with the mod
+        mod: ohmystars
+        features: [mods/ohmystars/features/mod-root-and-packaging]
+        technique: msbuild
+        note: Content items with TargetPath, plus a NOTICE for GPL/CC BY-SA data. Also the pitfall of a hand-committed dist zip going stale (kitten-engineer-redux).
+    related: [publish-a-release-from-ci, ship-third-party-dlls-with-a-mod, ship-native-libraries-with-a-mod]
+    borrowed_from: [mods/ksacars/features/package-deploy-release, mods/ksagolf/features/packaging-and-release, mods/realatmospheres/features/release-packaging-and-deploy]
+
+  - slug: build-in-ci-without-the-game-installed
+    title: Build a mod in CI when the game DLLs are private
+    summary: Compile mods on GitHub Actions without redistributing KSA - fetch a private DLL repository with a GitHub App token, use stripped reference assemblies keyed by game build, or compile a game-free subset - and keep the tested game version in one place.
+    game_types: []
+    engine_pointers: [KSA install managed DLLs, version constant read by both CI and the mod]
+    lifecycle: []
+    approaches:
+      - n: 1
+        title: Private DLL repository fetched with a GitHub App token
+        mod: kittenextensions
+        features: [mods/kittenextensions/features/msbuild-mod-toml-generation, mods/mpfx/features/ci-release-pipeline, mods/shaderextensions/features/ci-build-and-release]
+        technique: github-actions
+        note: The KSADLLs.props glob is pointed at a checked-out private repo; release triggers on VersionPrefix change and publishes to GitHub and SpaceDock.
+      - n: 2
+        title: Refasmer reference assemblies stored per game build
+        mod: ksa-advancedflightcomputer
+        features: [mods/ksa-advancedflightcomputer/features/ci-reference-assemblies]
+        technique: github-actions
+        note: Strip installed DLLs to API-only references, keep them in a private bucket keyed by build, fetch by the TestedGameVersion constant; nightlies are promoted to releases without rebuilding.
+      - n: 3
+        title: Compile-gated game seam
+        mod: gatos
+        features: [mods/gatos/features/compile-gated-game-seam, mods/gatos/features/build-deploy-and-ci]
+        technique: msbuild
+        note: Game-facing code lives in a folder removed from compilation when KSA.dll is absent, with partial methods bridging; CI builds and unit-tests the rest with no game at all.
+    related: [build-a-mod-without-game-references, publish-a-release-from-ci, reference-game-assemblies-from-a-mod-project]
+    borrowed_from: [mods/mpfx/features/ci-release-pipeline, mods/shaderextensions/features/ci-build-and-release, mods/ksa-advancedflightcomputer/features/ci-reference-assemblies, mods/gatos/features/build-deploy-and-ci]
+
+  - slug: publish-a-release-from-ci
+    title: Publish a mod release to GitHub and SpaceDock from CI
+    summary: Automate release - read the tested game version and version number from the source, package the zip, tag, upload to SpaceDock and GitHub - and ship tools with an installer when the mod is more than a folder.
+    game_types: []
+    engine_pointers: []
+    lifecycle: []
+    approaches:
+      - n: 1
+        title: Workflow reading the tested game version from Mod.cs
+        mod: ksa-deltavmap
+        features: [mods/ksa-deltavmap/features/mod-deploy-targets-and-release, mods/ksa-measuretools/features/mod-deploy-targets-and-release]
+        technique: github-actions
+        note: The release workflow extracts a constant from Mod.cs so the code, the guard and the SpaceDock game-version field cannot disagree.
+      - n: 2
+        title: Rolling releases from a multi-assembly mod
+        mod: unscience
+        features: [mods/unscience/features/unscience-build-and-release, mods/purrtty/features/cross-platform-build-and-release]
+        technique: github-actions
+        note: Version stamping, folder validation and cross-platform native payload assembly before publishing rolling releases.
+      - n: 3
+        title: Release RC builds, NuGet and a Windows installer
+        mod: starmap
+        features: [mods/starmap/features/release-packaging-and-installer]
+        technique: github-actions
+        note: For launcher-style tools - framework-dependent win-x64 zip without pdb/xml, StarMap.API pushed to NuGet when changed, Inno Setup installer that writes StarMapConfig.json with the chosen KSA folder.
+    related: [package-a-mod-release-zip, build-in-ci-without-the-game-installed, check-the-game-version]
+    borrowed_from: [mods/unscience/features/unscience-build-and-release, mods/purrtty/features/cross-platform-build-and-release, mods/starmap/features/release-packaging-and-installer]
+
+  - slug: build-a-mod-without-game-references
+    title: Build a KSA mod that references only StarMap.API and Harmony
+    summary: Compile with no KSA assembly reference at all and reach every game type and member by name through reflection, trading compile-time safety for resilience to game assembly changes and a build that needs no game install.
+    game_types: [KSA.Program, KSA.ModLibrary]
+    engine_pointers: [reflection targets named per patch; see mods/realatmospheres pages]
+    lifecycle: [startup:starmap-before-main]
+    approaches:
+      - n: 1
+        title: Reflection-only mod with visible breakage
+        mod: realatmospheres
+        features: [mods/realatmospheres/features/reflection-only-mod-build]
+        technique: reflection
+        note: Parameter-name and field-type checks before each Harmony patch, old/new member name fallbacks, one consequence sentence logged per failed lookup, and one try/log per subsystem.
+      - n: 2
+        title: Game-free half and compile-gated Game half
+        mod: gatos
+        features: [mods/gatos/features/compile-gated-game-seam]
+        technique: msbuild
+        note: Typed game access in a Game/ folder that exists only when KSA.dll is available; the rest of the mod, including tests, builds anywhere. Layering for testability.
+    related: [build-in-ci-without-the-game-installed, isolate-game-api-access-behind-providers, apply-harmony-patches-independently]
+    borrowed_from: []
+
+  # ------------------------------------------------------------------ layout
+  - slug: ship-content-and-code-in-one-mod
+    title: Ship assets and code in one mod folder
+    summary: Lay out a single mod folder that is both a KSA content mod (XML, glb, textures, sounds listed in mod.toml) and a StarMap code mod, with asset paths resolved against the mod root.
+    game_types: [KSA.Mod, KSA.ModLibrary]
+    engine_pointers: [current/decomp/KSA/Mod.cs LoadAssetBundles, GetPath]
+    lifecycle: [startup:asset-load, startup:immediate-load, startup:all-mods-loaded]
+    approaches:
+      - n: 1
+        title: Flat folder with an explicit assets list
+        mod: ksacars
+        features: [mods/ksacars/features/mod-folder-content-and-code-mod]
+        technique: toml-config
+        note: XML at the folder root beside Meshes, Textures, Sounds; no globbing, so an unlisted file is silently never loaded; paths resolve via Mod.GetPath against the mod folder rather than the XML file's folder.
+      - n: 2
+        title: Mixed assets list with csproj content copy and build stamp
+        mod: ksagolf
+        features: [mods/ksagolf/features/content-and-code-mod-layout]
+        technique: toml-config
+        note: The assets list names XML, glb, png and wav; csproj copies content beside the DLL; the KSA build compiled against is stamped from a lock file.
+    related: [mod-toml-reference, ksa-mod-folders-and-manifest, find-your-mod-folder-at-runtime, package-a-mod-release-zip]
+    borrowed_from: []
+
+  - slug: find-your-mod-folder-at-runtime
+    title: Find your mod's install folder at runtime
+    summary: Locate files shipped beside the mod DLL reliably, even under instance paths and stale copies, using the loaded assembly location first and the game's mod library as a fallback.
+    game_types: [KSA.Mod, KSA.ModLibrary]
+    engine_pointers: [current/decomp/KSA/Mod.cs DirectoryPath, current/decomp/KSA/ModLibrary.cs Find]
+    lifecycle: [startup:all-mods-loaded]
+    approaches:
+      - n: 1
+        title: Assembly.Location, then ModLibrary.Find, then Documents
+        mod: ohmystars
+        features: [mods/ohmystars/features/mod-root-and-packaging, mods/starmap/features/per-mod-assembly-load-context]
+        technique: reflection
+        note: Assembly.Location is correct inside StarMap's per-mod context; KSA.Mod.DirectoryPath is the manifest-driven alternative; the fallbacks cover instance paths and a stale second copy of the mod.
+    related: [ship-content-and-code-in-one-mod, ship-native-libraries-with-a-mod, how-starmap-launches-ksa]
+    borrowed_from: [mods/compendium/features/cross-mod-json-catalog]
+
+  - slug: host-several-features-in-one-mod-or-standalone
+    title: Write features that run standalone or inside a supermod
+    summary: Structure a feature library behind a small ISubmod-style contract and static Apply/Remove patch classes so the same code can be hosted by its own StarMap mod or by an aggregating mod that shows them as sections of one window.
+    game_types: []
+    engine_pointers: []
+    lifecycle: [startup:all-mods-loaded, frame:draw-ui]
+    approaches:
+      - n: 1
+        title: ISubmod contract with a supermod host
+        mod: unscience
+        features: [mods/unscience/features/lib-isubmod-contract, mods/unscience/features/unscience-supermod-host, mods/unscience/features/fixme-mod-name-standalone-mod-template]
+        technique: starmap-lifecycle
+        note: Five-method panel interface, Apply/Remove patch classes, host builds every submod at AllModsLoaded and ticks them per frame. Persists only its own window layout.
+    related: [create-a-minimal-starmap-mod, apply-harmony-patches-independently, isolate-game-api-access-behind-providers]
+    borrowed_from: []
+
+  - slug: isolate-game-api-access-behind-providers
+    title: Centralize game-state access behind thin providers
+    summary: Wrap vessels, celestials, sim time, part trees and user-data paths in one static library so a game update breaks one place instead of every feature.
+    game_types: [KSA.Universe, KSA.Vehicle, KSA.CelestialSystem, KSA.Program]
+    engine_pointers: [current/decomp/KSA/Universe.cs CurrentSystem, current/decomp/KSA/Program.cs ControlledVehicle]
+    lifecycle: [frame:draw-ui]
+    approaches:
+      - n: 1
+        title: Static provider library
+        mod: unscience
+        features: [mods/unscience/features/lib-game-state-providers]
+        technique: reflection
+        note: Also hosts reflection and easing helpers; consumers never touch KSA types directly.
+      - n: 2
+        title: Per-frame census from Universe.CurrentSystem.All
+        mod: ksacars
+        features: [mods/ksacars/features/frame-step-latch-and-car-registry]
+        technique: starmap-lifecycle
+        note: Program.VehiclesInFrame is empty after PostRender, so rebuild the vehicle set from Universe.CurrentSystem.All and sync a Vehicle-keyed registry that drops disposed craft.
+    related: [build-a-mod-without-game-references, step-mod-simulation-on-sim-time]
+    borrowed_from: []
+
+  - slug: step-mod-simulation-on-sim-time
+    title: Step mod simulation on the game's simulated time
+    summary: Advance mod-side simulation with Universe.GetLastSimStep exactly once per sim step so it respects time warp and pause, even when the step is reachable from several hooks.
+    game_types: [KSA.Universe, KSA.SimStep]
+    engine_pointers: [current/decomp/KSA/Universe.cs GetLastSimStep]
+    lifecycle: [frame:draw-ui, frame:celestials, frame:after-on-frame, startup:game-loaded]
+    approaches:
+      - n: 1
+        title: Latch the step across GUI, celestials and after-on-frame hooks
+        mod: ksastructures
+        features: [mods/ksastructures/features/frame-step-plumbing, mods/ksacars/features/frame-step-latch-and-car-registry]
+        technique: starmap-lifecycle
+        note: A FrameLatch lets the first hook that fires consume the step per NextTime, with gap closing; released in a finally on the frame postfix. Also the way to keep stepping while the HUD is hidden.
+    related: [game-loop-and-lifecycle, draw-ui-while-the-hud-is-hidden, keep-overlays-updating-when-hud-hidden]
+    borrowed_from: []
+
+  # ------------------------------------------------------------------ dependencies
+  - slug: declare-a-mod-dependency
+    title: Declare a dependency on another StarMap mod
+    summary: Add [[StarMap.ModDependencies]] to mod.toml so a mod loads after another, imports its assemblies, and is parked until the dependency initializes - with the rules for required versus optional.
+    game_types: []
+    engine_pointers: [StarMap.Core ModLoader dependency graph (see mods/starmap pages)]
+    lifecycle: [startup:starmap-before-main]
+    approaches:
+      - n: 1
+        title: Required dependency with ImportedAssemblies
+        mod: ksarmory
+        features: [mods/starmap/features/mod-dependency-graph, mods/ksarmory/features/armoury-pack-registration-api, mods/shaderextensions/features/generated-mod-toml]
+        technique: toml-config
+        note: ModId is the folder name; ImportedAssemblies are assembly names; Optional defaults to false. Dependencies decide hook order across mods.
+    related: [share-types-between-mods, integrate-with-an-optional-mod, fork-a-library-mod-compatibly, generate-mod-toml-from-msbuild]
+    borrowed_from: [mods/ksarmory/features/armoury-pack-registration-api]
+
+  - slug: integrate-with-an-optional-mod
+    title: Integrate with another mod only when it is installed
+    summary: Mark a dependency Optional so the mod still loads without it, and keep the integration code safe to run when the dependency's types are missing, using vendored fallback copies of the contract or a late bound lookup.
+    game_types: []
+    engine_pointers: []
+    lifecycle: [startup:starmap-before-main, startup:all-mods-loaded]
+    approaches:
+      - n: 1
+        title: Optional = true with vendored fallback copies of the contract
+        mod: gatos
+        features: [mods/gatos/features/purrtty-custom-shell-contract, mods/purrtty/features/custom-shell-contract-via-assembly-imports, mods/starmap/features/mod-dependency-graph]
+        technique: inter-mod-api
+        note: The optional importer falls back to its own vendored contract copy; optional-missing mods are retried last by the dependency graph.
+      - n: 2
+        title: Late-bound type lookup with AccessTools.TypeByName
+        mod: ksa-advancedflightcomputer
+        features: [mods/ksa-advancedflightcomputer/features/optional-kittenextensions-patches, mods/ksa-advancedflightcomputer/features/superseded-mod-detection-and-settings-import]
+        technique: reflection
+        note: No mod.toml dependency; probe for the other mod's type at AllModsLoaded and enable the integration only when found.
+    related: [declare-a-mod-dependency, share-types-between-mods, detect-a-conflicting-or-superseded-mod]
+    borrowed_from: [mods/gatos/features/purrtty-custom-shell-contract, mods/purrtty/features/custom-shell-contract-via-assembly-imports, mods/ksa-advancedflightcomputer/features/optional-kittenextensions-patches]
+
+  - slug: share-types-between-mods
+    title: Share types and registries between StarMap mods
+    summary: Publish a small contract assembly or attribute set that other mods use to talk to yours, without the type-identity splits that occur when each mod loads its own copy in its own AssemblyLoadContext.
+    game_types: []
+    engine_pointers: [System.Runtime.Loader.AssemblyLoadContext; StarMap ModAssemblyLoadContext resolution order (see mods/starmap/features/per-mod-assembly-load-context)]
+    lifecycle: [startup:starmap-before-main, startup:all-mods-loaded]
+    approaches:
+      - n: 1
+        title: Importer lists the contract assembly in ImportedAssemblies
+        mod: purrtty
+        features: [mods/purrtty/features/custom-shell-contract-via-assembly-imports, mods/starmap/features/shared-contract-assemblies, mods/gatos/features/purrtty-custom-shell-contract, mods/ksarmory/features/armoury-pack-registration-api]
+        technique: inter-mod-api
+        note: The importer resolves the name from the dependency's load context so both share one Assembly and static registry. Key finding - ExportedAssemblies is parsed but never filled at StarMap 4dc60f8, so only the importer's ImportedAssemblies is effective, and shipping your own copy of the contract produces a second identity.
+      - n: 2
+        title: Duck-typed attributes copied into the consumer
+        mod: shaderextensions
+        features: [mods/shaderextensions/features/duck-typed-attribute-api, mods/mpfx/features/duck-typed-buffer-structs, mods/ksa-aircrafthud/features/sx-push-constants-and-buffers]
+        technique: reflection
+        note: Consumers copy look-alike attribute classes; the host matches by full name and wires delegates. No assembly reference or mod dependency, at the cost of by-name coupling.
+    related: [declare-a-mod-dependency, integrate-with-an-optional-mod, discover-plugins-by-attribute-name, fork-a-library-mod-compatibly]
+    borrowed_from: [mods/purrtty/features/custom-shell-contract-via-assembly-imports, mods/starmap/features/shared-contract-assemblies, mods/gatos/features/purrtty-custom-shell-contract, mods/ksarmory/features/armoury-pack-registration-api, mods/shaderextensions/features/duck-typed-attribute-api, mods/mpfx/features/duck-typed-buffer-structs, mods/ksa-aircrafthud/features/sx-push-constants-and-buffers]
+
+  - slug: fork-a-library-mod-compatibly
+    title: Fork or rename a library mod without breaking its dependents
+    summary: Continue an abandoned library mod under a new mod id while keeping assembly name, namespaces, attribute names and Harmony id so dependents compiled against the old DLL keep binding.
+    game_types: []
+    engine_pointers: []
+    lifecycle: [startup:starmap-before-main]
+    approaches:
+      - n: 1
+        title: New mod id, unchanged assembly identity
+        mod: kittenextensions
+        features: [mods/kittenextensions/features/continued-fork-identity]
+        technique: toml-config
+        note: The folder name KittenExtensionsContinued changes; dependents keep a non-optional dependency whose ImportedAssemblies names the KittenExtensions assembly. Both forks installed at once is the failure case to document.
+    related: [declare-a-mod-dependency, share-types-between-mods]
+    borrowed_from: []
+
+  - slug: detect-a-conflicting-or-superseded-mod
+    title: Detect a superseded or conflicting mod and stand down
+    summary: When your mod absorbs another, detect it and keep your built-in copy off or warn, then import the old mod's settings once on first load.
+    game_types: [KSA.ModLibrary]
+    engine_pointers: [current/decomp/KSA/ModLibrary.cs PrepareAll before LoadAll]
+    lifecycle: [startup:immediate-load, startup:all-mods-loaded]
+    approaches:
+      - n: 1
+        title: Marker registered at immediate load, or type lookup, plus copy-once settings import
+        mod: ksa-advancedflightcomputer
+        features: [mods/ksa-advancedflightcomputer/features/superseded-mod-detection-and-settings-import]
+        technique: starmap-lifecycle
+        note: A gauge-enum marker registered by the old mod at StarMapImmediateLoad (PrepareAll runs before LoadAll) or AccessTools.TypeByName finds it; settings TOML is copied once only when the new file is absent.
+    related: [integrate-with-an-optional-mod, choose-a-starmap-startup-hook]
+    borrowed_from: []
+
+  # ------------------------------------------------------------------ shipping deps
+  - slug: ship-third-party-dlls-with-a-mod
+    title: Ship third-party DLLs next to your mod
+    summary: Which assemblies to include in the mod folder (NuGet dependencies, vendored attribute DLLs such as ModMenu.Attributes.dll, Tomlyn), which never to ship (0Harmony.dll, StarMap.API.dll), and how StarMap resolves them via deps.json.
+    game_types: []
+    engine_pointers: [StarMap ModAssemblyLoadContext resolution order; AssemblyDependencyResolver]
+    lifecycle: [startup:starmap-before-main]
+    approaches:
+      - n: 1
+        title: Copy the DLL beside the mod and let AssemblyDependencyResolver find it
+        mod: kitten-engineer-redux
+        features: [mods/kitten-engineer-redux/features/dist-zip-and-post-build-deploy, mods/ksa-aircrafthud/features/modmenu-entry-vendored-attributes]
+        technique: assembly-load-context
+        note: ModMenu.Attributes.dll is referenced by HintPath and copied to output; no mod.toml dependency is needed.
+      - n: 2
+        title: Package NuGet dependencies with deps.json
+        mod: starmap
+        features: [mods/starmap/features/per-mod-assembly-load-context, mods/unscience/features/unscience-build-and-release]
+        technique: assembly-load-context
+        note: Resolution order is default context, game context, imported dependency contexts, then the mod's deps.json. Game copies win, so shipping Harmony or StarMap.API is wrong; unscience deploys exactly its reference closure plus Tomlyn.
+    related: [share-types-between-mods, ship-native-libraries-with-a-mod, package-a-mod-release-zip]
+    borrowed_from: [mods/ksa-aircrafthud/features/modmenu-entry-vendored-attributes, mods/unscience/features/unscience-build-and-release]
+
+  - slug: ship-native-libraries-with-a-mod
+    title: Ship and load native libraries from a mod folder
+    summary: Put per-OS native libraries beside the mod and load them with a DllImportResolver installed from a ModuleInitializer, because StarMap's per-mod load contexts do not resolve native libraries.
+    game_types: []
+    engine_pointers: [System.Runtime.InteropServices.NativeLibrary.SetDllImportResolver]
+    lifecycle: [startup:all-mods-loaded]
+    approaches:
+      - n: 1
+        title: Flat per-OS file names with a libc mapping
+        mod: purrtty
+        features: [mods/purrtty/features/per-platform-native-library-resolver, mods/starmap/features/per-mod-assembly-load-context]
+        technique: native-interop
+        note: One mod zip for Windows, Linux and macOS; resolver maps names to the OS file and handles glibc/macOS libc.
+      - n: 2
+        title: Per-RID payload from the deploy targets
+        mod: ksa-advancedflightcomputer
+        features: [mods/ksa-advancedflightcomputer/features/native-conic-solver-interop, mods/ksa-advancedflightcomputer/features/mod-deploy-msbuild-targets, mods/ksa-advancedflightcomputer/features/native-solver-build-and-abi-check]
+        technique: native-interop
+        note: clarabel_c and scs placed beside the assembly per RID and bound with layout-exact structs, one native thread per solver instance.
+    related: [ship-third-party-dlls-with-a-mod, find-your-mod-folder-at-runtime, package-a-mod-release-zip]
+    borrowed_from: [mods/ksa-advancedflightcomputer/features/native-conic-solver-interop, mods/ksa-advancedflightcomputer/features/native-solver-build-and-abi-check]
+
+  - slug: patch-a-lazily-loaded-game-assembly
+    title: Patch code in a game assembly the game has not loaded yet
+    summary: Preload the target assembly into the game's load context (not your mod's) before patching, so the patched Type is the one the game uses.
+    game_types: [KSA.Program]
+    engine_pointers: [Planet.Render.Core.dll loaded lazily by the game]
+    lifecycle: [startup:starmap-before-main]
+    approaches:
+      - n: 1
+        title: Preload into the core load context from StarMapBeforeMain
+        mod: realatmospheres
+        features: [mods/starmap/features/per-mod-assembly-load-context, mods/realatmospheres/features/shader-file-redirect]
+        technique: assembly-load-context
+        note: Loading it into your own context yields a second copy that the game never calls.
+    related: [choose-a-starmap-startup-hook, how-starmap-launches-ksa]
+    borrowed_from: [mods/realatmospheres/features/shader-file-redirect]
+
+  # ------------------------------------------------------------------ logging
+  - slug: log-to-the-game-log
+    title: Log from a mod through the game's logging system
+    summary: Create a Brutal LogCategory for the mod so messages appear in KSA's console window, stdout and monitor, with interpolated handlers that skip formatting when the level is off.
+    game_types: [Brutal.Logging.LogCategory, Brutal.Logging.LogSystem]
+    engine_pointers: [current/decomp/Brutal.Logging/LogCategory.cs]
+    lifecycle: [startup:all-mods-loaded]
+    approaches:
+      - n: 1
+        title: One LogCategory in a tiny shared assembly
+        mod: purrtty
+        features: [mods/purrtty/features/brutal-logging-category]
+        technique: logging
+        note: A shared assembly lets every project and importing mod log through one category.
+      - n: 2
+        title: Game-free logging interface swapped for a Brutal sink at load
+        mod: gatos
+        features: [mods/gatos/features/logging-and-perfstats]
+        technique: logging
+        note: Keeps game-free code testable; LogCategory.Make with a LogSystem.IsEnabled guard.
+    related: [write-a-per-mod-log-file, log-each-problem-once]
+    borrowed_from: []
+
+  - slug: write-a-per-mod-log-file
+    title: Give a StarMap mod its own log file
+    summary: Write a batched, thread-safe log file beside KSA's logs with previous-session rotation, timer flush, immediate flush on warnings and a runtime verbose toggle - and use it for build stamps and developer switches.
+    game_types: [KSA.Constants]
+    engine_pointers: [current/decomp/KSA/Constants.cs LogsFolderPath]
+    lifecycle: [startup:immediate-load, startup:all-mods-loaded, thread:background, event:shutdown]
+    approaches:
+      - n: 1
+        title: Rotation to .prev.log, timer flush, runtime debug toggle
+        mod: ksagolf
+        features: [mods/ksagolf/features/mod-log-file-with-rotation, mods/ksacars/features/mod-log-file]
+        technique: logging
+        note: Copy to .prev.log then truncate on first use; 100 ms flush timer; debug level from an ImGui checkbox; KSACars adds a fault counter that disables the mod.
+      - n: 2
+        title: Constants.LogsFolderPath and a developer marker file
+        mod: ksarmory
+        features: [mods/ksarmory/features/own-log-file-and-developer-switch]
+        technique: logging
+        note: Uses the game's own logs folder constant rather than guessing; developer tools enabled by an empty file written by the deploy script.
+      - n: 3
+        title: Path probing across Documents and XDG locations
+        mod: ksastructures
+        features: [mods/ksastructures/features/mod-log-file]
+        technique: logging
+        note: Probes Documents/My Games and XDG paths, thread-pool timer flush, immediate flush on warnings, lazily formatted debug.
+    related: [log-to-the-game-log, log-each-problem-once, check-the-game-version, separate-game-instances]
+    borrowed_from: []
+
+  - slug: log-each-problem-once
+    title: Log per-frame failures and warnings once instead of every frame
+    summary: Keep logs readable and cheap by de-duplicating warnings with a keyed set (including exception type in the key), throttling diagnostics, and resetting the set on unload.
+    game_types: []
+    engine_pointers: []
+    lifecycle: [frame:draw-ui, frame:apply-solvers, physics:vehicle-solver, thread:background]
+    approaches:
+      - n: 1
+        title: Thread-safe warn-once set reset on unload
+        mod: ksa-advancedflightcomputer
+        features: [mods/ksa-advancedflightcomputer/features/warn-once-logging-and-diagnostics]
+        technique: logging
+        note: Safe from worker threads; compile-time per-feature debug switches.
+      - n: 2
+        title: HashSet-keyed WarnOnce/ErrorOnce with the exception type
+        mod: ksa-measuretools
+        features: [mods/ksa-measuretools/features/resilient-patching-and-diagnostics, mods/ksa-public-telemetry/features/error-budget-self-disable]
+        technique: logging
+        note: A new exception type in the same hook still logs; first-of-a-streak logging for telemetry.
+    related: [write-a-per-mod-log-file, contain-exceptions-in-starmap-hooks]
+    borrowed_from: []
+
+  - slug: profile-mod-frame-cost
+    title: Measure what a mod costs per frame
+    summary: Time hot paths without allocating and report averages, minimums and worst frames, in debug builds or always-on cheap counters.
+    game_types: []
+    engine_pointers: []
+    lifecycle: [frame:draw-ui, frame:after-on-frame]
+    approaches:
+      - n: 1
+        title: DEBUG-only readonly ref struct stopwatch scope
+        mod: ksa-measuretools
+        features: [mods/ksa-measuretools/features/resilient-patching-and-diagnostics, mods/ksa-advancedflightcomputer/features/warn-once-logging-and-diagnostics]
+        technique: logging
+        note: Compiled out of release; periodic avg/min/max reports.
+      - n: 2
+        title: Allocation-free single-writer stats shown in a window
+        mod: gatos
+        features: [mods/gatos/features/logging-and-perfstats]
+        technique: imgui-window
+        note: Stopwatch ticks with volatile single-writer counters.
+      - n: 3
+        title: Nested budget spans with rate-limited overrun warnings
+        mod: ksarmory
+        features: [mods/ksarmory/features/starmap-entry-and-fault-containment]
+        technique: logging
+        note: FrameBudget spans with top-level totals and worst frame; OverrunLog limits spam.
+    related: [log-each-problem-once, warm-up-hot-code-at-load]
+    borrowed_from: []
+
+  # ------------------------------------------------------------------ versions and faults
+  - slug: check-the-game-version
+    title: Warn when the running game build differs from the one a mod was tested on
+    summary: Read the running KSA version, compare it with a tested-version constant (also read by CI), and log both the build the mod was compiled against and the one running, so bug reports state the context.
+    game_types: [KSA.VersionInfo]
+    engine_pointers: [current/decomp/KSA/VersionInfo.cs Current.VersionString]
+    lifecycle: [startup:all-mods-loaded]
+    approaches:
+      - n: 1
+        title: Runtime VersionInfo compare at AllModsLoaded
+        mod: ksaero
+        features: [mods/ksaero/features/game-version-check, mods/ksa-measuretools/features/resilient-patching-and-diagnostics]
+        technique: starmap-lifecycle
+        note: VersionString is v-prefixed and drops +commit metadata; the warning is advisory because structural checks of the patch target decide whether features run.
+      - n: 2
+        title: Stamp the targeted build into assembly metadata
+        mod: ksagolf
+        features: [mods/ksagolf/features/mod-log-file-with-rotation, mods/ksacars/features/mod-log-file, mods/ksarmory/features/own-log-file-and-developer-switch]
+        technique: msbuild
+        note: AssemblyMetadata from a lock file or MSBuild property at build time, compared with the running KSA.dll version and logged.
+    related: [apply-harmony-patches-independently, publish-a-release-from-ci, write-a-per-mod-log-file]
+    borrowed_from: []
+
+  - slug: contain-exceptions-in-starmap-hooks
+    title: Keep mod exceptions out of KSA's frame loop
+    summary: StarMap invokes hooks without a handler, so an exception in a per-frame hook can take down the frame; wrap every hook, count consecutive faults, log the first of a streak, then disable the mod and undo its side effects.
+    game_types: [KSA.Program]
+    engine_pointers: [current/decomp/KSA/Program.cs OnFrame, OnDrawUiViewports (no catch)]
+    lifecycle: [startup:all-mods-loaded, frame:draw-ui, frame:after-on-frame, event:shutdown]
+    approaches:
+      - n: 1
+        title: Per-hook try/catch feeding a shared fault counter, unpatch at ten
+        mod: ksarmory
+        features: [mods/ksarmory/features/starmap-entry-and-fault-containment, mods/ksacars/features/mod-log-file, mods/ksastructures/features/frame-step-plumbing]
+        technique: starmap-lifecycle
+        note: Ten faults disable the mod and remove its patches (StandDown); exceptions inside patches are swallowed.
+      - n: 2
+        title: Consecutive-failure budget that restores the stock HUD
+        mod: ksa-public-telemetry
+        features: [mods/ksa-public-telemetry/features/error-budget-self-disable]
+        technique: starmap-lifecycle
+        note: Only consecutive failures count; after ten the mod disables itself and undoes visible side effects.
+    related: [apply-harmony-patches-independently, log-each-problem-once, diagnose-a-starmap-hook-that-never-fires]
+    borrowed_from: []
+
+  - slug: apply-harmony-patches-independently
+    title: Apply Harmony patches so one broken target does not disable the rest
+    summary: Patch each class or feature with its own processor and validate target shape first, so a game update costs one feature rather than the whole mod, and failures are logged with their consequence.
+    game_types: []
+    engine_pointers: [HarmonyLib Harmony.CreateClassProcessor, PatchClassProcessor]
+    lifecycle: [startup:all-mods-loaded]
+    approaches:
+      - n: 1
+        title: CreateClassProcessor per patch class inside try/catch
+        mod: ksa-measuretools
+        features: [mods/ksa-measuretools/features/resilient-patching-and-diagnostics]
+        technique: harmony-prefix
+        note: Typed reflection handles with a load-time drift warning.
+      - n: 2
+        title: One Harmony instance per feature, rolled back on failure
+        mod: ksa-advancedflightcomputer
+        features: [mods/ksa-advancedflightcomputer/features/feature-gated-patch-sets]
+        technique: harmony-prefix
+        note: Borrowed from patching. Validated before patching, rolled back on failure, features gated on patch success.
+      - n: 3
+        title: Pre-check parameter names and field types, one try per subsystem
+        mod: realatmospheres
+        features: [mods/realatmospheres/features/reflection-only-mod-build]
+        technique: reflection
+        note: Harmony binds injected arguments by name and throws at patch time; check first, log one consequence sentence per failure.
+      - n: 4
+        title: Static Apply/Remove patch classes
+        mod: unscience
+        features: [mods/unscience/features/lib-isubmod-contract]
+        technique: harmony-prefix
+        note: Symmetric Apply and Remove make a feature cleanly removable and hostable by a supermod.
+    related: [contain-exceptions-in-starmap-hooks, check-the-game-version, build-a-mod-without-game-references]
+    borrowed_from: [mods/ksa-advancedflightcomputer/features/feature-gated-patch-sets]
+
+  - slug: warm-up-hot-code-at-load
+    title: Pre-compile hot code paths on a background thread at load
+    summary: Avoid a first-use hitch by walking a mod's and the engine's methods with RuntimeHelpers.PrepareMethod on a background task started from StarMapAllModsLoaded.
+    game_types: []
+    engine_pointers: [System.Runtime.CompilerServices.RuntimeHelpers.PrepareMethod]
+    lifecycle: [startup:all-mods-loaded, thread:background]
+    approaches:
+      - n: 1
+        title: Task.Run PrepareMethod sweep
+        mod: ksarmory
+        features: [mods/ksarmory/features/jit-warmup-kill-path]
+        technique: background-thread
+        note: Tens of milliseconds of JIT removed from the first kill; no game state is touched off thread.
+    related: [profile-mod-frame-cost, choose-a-starmap-startup-hook]
+    borrowed_from: []

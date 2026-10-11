@@ -1,0 +1,5 @@
+# Add a menu that uses ModMenu when present and the game menu bar otherwise history
+
+## 2026-10-10
+* **Creation**: Added [overview](overview.md) and 3 how-to articles: [Show the same menu through ModMenu or a Harmony postfix, chosen once with ModLibrary.Find](add-a-menu-with-modmenu-fallback-1.md); [Name an active-flag property in ModMenuEntry and skip your own menu when ModMenu sets it](add-a-menu-with-modmenu-fallback-2.md); [Render one settings tree as a ModMenu menu or as a hotkey-toggled window](add-a-menu-with-modmenu-fallback-3.md). Written from the pinned mod sources and checked against the decompiled game build 2026.10.10.5554.
+* **Update**: Reviewed against build 2026.10.10.5554 and the lifecycle reference: `PrepareAll` registration wording made precise (folder and valid mod.toml required); approach 3 gotcha corrected (the settings hotkey still runs on hidden-HUD frames through the `DrawFps` path, only the window is skipped); overview `repos`, `lifecycle` and `game_types` widened to the union of the articles.

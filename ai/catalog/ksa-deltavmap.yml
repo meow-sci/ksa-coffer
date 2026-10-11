@@ -1,0 +1,393 @@
+mod: ksa-deltavmap
+repo: KSA-DeltaVMap
+ref: 0441981a4c59b90e462fd81fc20d3924b356841a
+summary: >-
+  DeltaVMap is a StarMap mod by Maximilian-Nesslauer that draws an auto-generated, interactive
+  KSP-style delta-v subway map for Kitten Space Agency in an ImGui window. It reads every star system
+  of the loaded CelestialSystem live, prices routes with closed-form patched conics (Hohmann with
+  Oberth-combined ejection and capture, per-body state ladders), roots the map at the vessel's SOI
+  body, compares routes with the vessel's staged delta-v from the game's own SequencePerformanceList,
+  prices interstellar trips with the game's own InterstellarBurnPlan, and adds transfer windows (list,
+  polar phase clock, opt-in 3D map-mode overlay). One Harmony postfix (Program.DrawProgramMenusHook)
+  adds the menu; everything else runs from StarMapAfterGui. Ships offline unit tests and
+  HeadlessHarness tests that compare against stock private code via reflection.
+features:
+  - id: mods/ksa-deltavmap/features/map-window-and-menu-entry
+    title: Menu-bar entry and stock ImGuiWindow subclass drawn from AfterGui
+    category: ui
+    submod: null
+    summary: A Harmony postfix on the empty Program.DrawProgramMenusHook adds a top-level menu; a KSA.ImGuiWindow subclass created lazily inside that menu is drawn every frame from StarMapAfterGui with try/finally stack discipline. No settings are persisted (NoSavedSettings base window).
+    novelty: medium
+    techniques: [harmony-postfix, starmap-lifecycle, imgui-window, imgui-menu]
+    lifecycle: [startup:all-mods-loaded, frame:draw-ui, event:starmap-unload]
+    hooks: ["starmap StarMapAllModsLoaded", "harmony-postfix KSA.Program.DrawProgramMenusHook", "starmap StarMapAfterGui", "starmap StarMapUnload"]
+    game_types: [KSA.Program, KSA.ImGuiWindow, KSA.VersionInfo, KSA.IGameViewport, KSA.GameViewport]
+    key_paths: [DeltaVMap/Mod.cs, DeltaVMap/Patches/Patch_MenuBar.cs, DeltaVMap/Render/MapWindow.cs, DeltaVMap/Core/LogHelper.cs]
+    howto_topics:
+      - slug: add-top-level-menu-bar-entry
+        title: Add a top-level menu to the main menu bar
+        note: postfix the empty Program.DrawProgramMenusHook; works in flight and editor
+      - slug: subclass-stock-imguiwindow
+        title: Build a mod window on the stock KSA.ImGuiWindow base
+        note: construct lazily inside an ImGui frame; draw from AfterGui; balance stacks in finally
+      - slug: game-version-guard
+        title: Warn when the running game build differs from the tested one
+        note: VersionInfo.Current.VersionString vs a constant also read by CI
+  - id: mods/ksa-deltavmap/features/live-celestial-system-graph
+    title: Live celestial forest of every star system, cached per loaded system
+    category: celestials
+    submod: null
+    summary: Builds one physical tree per IIndependentRoot from the loaded CelestialSystem, reading mass, radius, SOI, orbit, rotation, atmosphere and rings once per body, and rebuilds only when Universe.CurrentSystem changes instance.
+    novelty: medium
+    techniques: [system-graph, per-system-cache]
+    lifecycle: [frame:draw-ui]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: [KSA.Universe, KSA.CelestialSystem, KSA.IIndependentRoot, KSA.IParentBody, KSA.IOrbiter, KSA.Astronomical, KSA.StellarBody, KSA.FixedStar, KSA.Barycenter, KSA.OrbitingStar, KSA.Celestial, KSA.MinorBody, KSA.Comet, KSA.Orbit, KSA.AtmosphereReference]
+    key_paths: [DeltaVMap/Model/SystemGraph.cs, DeltaVMap/Model/ForestRules.cs, DeltaVMap/Dv/OrbitalStates.cs, DeltaVMap/Render/MapWindow.cs]
+    howto_topics:
+      - slug: enumerate-star-systems-and-bodies
+        title: Enumerate every star system, star, planet and moon of the loaded universe
+        note: CelestialSystem.All.OfType<IIndependentRoot>() then IParentBody.Children; skip vehicles
+      - slug: multi-star-systems-and-barycenters
+        title: Handle multiple star systems and barycenters correctly
+        note: Barycenter.IsStar() is false; Celestial.IsMoon() misfires under barycenters
+      - slug: cache-per-celestial-system
+        title: Cache derived data per loaded CelestialSystem
+        note: latch on the Universe.CurrentSystem reference, not the Id
+  - id: mods/ksa-deltavmap/features/patched-conic-transfer-model
+    title: Closed-form patched-conic transfer model
+    category: flight-and-orbits
+    submod: null
+    summary: Sibling transfers are a closed-form Hohmann ellipse with an Oberth ejection and capture, plus comet, multiple-star, ascent, landing, plane-change and transfer-time terms, cached per unordered body pair for each loaded system.
+    novelty: medium
+    techniques: [patched-conic-math, pure-math-kernel, per-system-cache]
+    lifecycle: [frame:draw-ui]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: [KSA.Orbit, KSA.IOrbiter, KSA.IParentBody, KSA.Astronomical, KSA.AtmosphereReference, KSA.PhysicalAtmosphereReference, KSA.OrbitalTransfers, KSA.Universe, KSA.CelestialSystem]
+    key_paths: [DeltaVMap/Dv/DeltaVCalculator.cs, DeltaVMap/Dv/DvCache.cs, DeltaVMap/Model/TransferBurns.cs, DeltaVMap/Dv/OrbitalStates.cs]
+    howto_topics:
+      - slug: estimate-transfer-delta-v
+        title: Estimate transfer delta-v between bodies in closed form
+        note: Hohmann hub legs wrapped in Oberth burns at each end's low orbit
+      - slug: cache-per-celestial-system
+        title: Cache derived data per loaded CelestialSystem
+        note: latch on the Universe.CurrentSystem reference, not the Id
+      - slug: read-celestial-orbit-elements
+        title: Read celestial orbit elements and Mu safely from mods
+        note: Orbit.Mu vs Parent.Mu for multiple-star systems
+  - id: mods/ksa-deltavmap/features/body-state-ladder-and-you-are-here
+    title: Per-body state ladder and "you are here"
+    category: flight-and-orbits
+    submod: null
+    summary: Builds a surface, low-orbit, stationary and SOI-edge ladder for each body (a 1 AU parking orbit for stars and barycenters) from live celestial data, and classifies the controlled vessel's orbit onto it as the route origin.
+    novelty: medium
+    techniques: [patched-conic-math, celestial-introspection, vehicle-state-classification]
+    lifecycle: [frame:draw-ui]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: [KSA.IParentBody, KSA.IRadius, KSA.Astronomical, KSA.AtmosphericBody, KSA.AstronomicalTemplate, KSA.AtmosphereReference, KSA.PhysicalAtmosphereReference, KSA.Celestial, KSA.Vehicle, KSA.Orbit, KSA.Program]
+    key_paths: [DeltaVMap/Dv/OrbitalStates.cs, DeltaVMap/Dv/LowOrbitHeuristic.cs, DeltaVMap/Dv/StateClassifier.cs, DeltaVMap/Model/DetailLevel.cs, DeltaVMap/Model/VisualTree.cs]
+    howto_topics:
+      - slug: derive-low-orbit-altitude
+        title: Derive a safe low-orbit altitude for any body
+        note: atmosphere height or GetNearSurfaceRadius plus clearance
+      - slug: classify-vessel-orbit-state
+        title: Classify the controlled vessel's orbit (landed, parked, escaping)
+        note: Vehicle.HasMeaningfulOrbit and eccentricity snapping
+      - slug: detect-gas-giants-and-rings
+        title: Detect gas giants, atmospheres and rings from body templates
+  - id: mods/ksa-deltavmap/features/ego-rerooting-and-vessel-follow
+    title: Ego-centric re-rooting that follows the controlled vessel
+    category: ui
+    submod: null
+    summary: Turns the physical tree inside out at the vessel's SOI body with ancestor hubs as buses, and re-roots on window open, vehicle switch, star-system crossing, System menu pick or Shift+click by comparing the vehicle and its parent by reference each frame.
+    novelty: medium
+    techniques: [tree-rerooting, change-detection-by-reference]
+    lifecycle: [frame:draw-ui]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: [KSA.Program, KSA.Vehicle, KSA.IParentBody, KSA.CelestialSystem, KSA.PhysicsStates]
+    key_paths: [DeltaVMap/Model/ReRooter.cs, DeltaVMap/Model/VisualTree.cs, DeltaVMap/Model/DetailLevel.cs, DeltaVMap/Render/MapWindow.cs]
+    howto_topics:
+      - slug: detect-soi-and-vessel-changes
+        title: Detect SOI changes and vessel switches from the UI
+        note: compare Program.ControlledVehicle and Vehicle.Parent by reference after PrepareFrame
+      - slug: reroot-a-celestial-tree
+        title: Re-root the celestial hierarchy at any body
+        note: parent-chain walk into hub levels with sibling lanes
+  - id: mods/ksa-deltavmap/features/route-finding-and-accumulation
+    title: Route finding and accumulation
+    category: flight-and-orbits
+    submod: null
+    summary: Click-to-route along the unique tree path (lowest common ancestor), summing per-leg burns with toggles for from-surface, landing, aerobraking, plane change and return trip, with a piloting margin applied at display time in a cached ImGui breakdown panel.
+    novelty: medium
+    techniques: [tree-lca-routing, patched-conic-math, imgui-window, imgui-drawlist, cached-ui-strings]
+    lifecycle: [frame:draw-ui]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: [KSA.Program, KSA.Vehicle, KSA.Orbit, KSA.IParentBody, KSA.PhysicalAtmosphereReference, KSA.ConsoleWidgets]
+    key_paths: [DeltaVMap/Route/RouteFinder.cs, DeltaVMap/Route/RouteAccumulator.cs, DeltaVMap/Route/RouteOptions.cs, DeltaVMap/Render/RoutePanelRenderer.cs, DeltaVMap/Render/MapWindow.cs]
+    howto_topics:
+      - slug: plan-multi-leg-delta-v-route
+        title: Plan and total a multi-leg delta-v route
+        note: LCA path on a re-rooted tree, direction-aware ladder costs
+      - slug: stock-styled-console-widgets
+        title: Build stock-looking panels with KSA.ConsoleWidgets
+      - slug: event-driven-ui-recompute
+        title: Recompute expensive UI data only on input events
+  - id: mods/ksa-deltavmap/features/interstellar-routes-and-fuel
+    title: Interstellar routes and fuel
+    category: flight-and-orbits
+    submod: null
+    summary: Prices an inter-system trip at a chosen cruise speed with patched-conic gravity-well chains, a Newtonian coast and cheapest and fastest-affordable speed searches; fuel comes from the game's public InterstellarBurnPlan for antimatter drives or the rocket equation otherwise.
+    novelty: high
+    techniques: [patched-conic-math, golden-section-search, stock-model-reuse, cached-ui-strings, imgui-window]
+    lifecycle: [frame:draw-ui]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: [KSA.InterstellarBurnPlan, KSA.InterstellarDrive, KSA.InterstellarBurnEstimate, KSA.InterstellarBurnEnd, KSA.OrbitalTransfers, KSA.TransferPlanner, KSA.CelestialSystem, KSA.Vehicle, KSA.VehicleProperties, KSA.Mole, KSA.Orbit, KSA.IParentBody, KSA.Universe, KSA.ConsoleWidgets]
+    key_paths: [DeltaVMap/Dv/InterstellarMath.cs, DeltaVMap/Model/InterstellarLegs.cs, DeltaVMap/Dv/InterstellarFuel.cs, DeltaVMap/Dv/CruiseSpeed.cs, DeltaVMap/Dv/RocketPropellant.cs, DeltaVMap/Render/InterstellarSection.cs]
+    howto_topics:
+      - slug: estimate-interstellar-trip
+        title: Estimate an interstellar trip's delta-v and coast time
+        note: mirrors OrbitalTransfers.SolveInterstellar's Newtonian model
+      - slug: reuse-antimatter-drive-burn-model
+        title: Reuse the game's antimatter ram-drive burn integrator
+        note: InterstellarDrive.TryGetFrom plus InterstellarBurnPlan.Burn/CoastCollection
+      - slug: rocket-equation-propellant-from-stages
+        title: Compute propellant needed from staged sequence masses
+  - id: mods/ksa-deltavmap/features/vehicle-staged-dv-readout
+    title: Vehicle staged delta-v readout
+    category: vehicles-and-parts
+    submod: null
+    summary: Reads total staged delta-v from a private SequencePerformanceList (flight or editor), gated by a propellant and part-count signature with a 0.25 s floor, and checks the reflected PartTree._derivedDirty so the UI draw does not race the dispatched vehicle solver.
+    novelty: high
+    techniques: [reflection, stock-model-reuse, change-gating, imgui-drawlist]
+    lifecycle: [frame:draw-ui]
+    hooks: ["starmap StarMapAfterGui", "reflection KSA.PartTree._derivedDirty"]
+    game_types: [KSA.SequencePerformanceList, KSA.SequencePerformance, KSA.PartTree, KSA.DerivedData, KSA.SequenceList, KSA.MoleState, KSA.Program, KSA.Vehicle, KSA.VehicleEditor, KSA.VehicleEditingSpace, KSA.PhysicsBubble, KSA.Universe, KSA.ResourceGroups]
+    key_paths: [DeltaVMap/Dv/StagedDv.cs, DeltaVMap/Render/RoutePanelRenderer.cs, DeltaVMap/Render/MapWindow.cs, DeltaVMap.HarnessTests/StagedDvTest.cs]
+    howto_topics:
+      - slug: read-vehicle-staged-delta-v
+        title: Read a vessel's staged delta-v from the game's own model
+        note: private SequencePerformanceList; RecomputeForFlight vs RecomputeIfDirty
+      - slug: avoid-racing-vehicle-solver-from-ui
+        title: Read part-tree derived data from the UI without racing the vehicle solver
+        note: PrepareFrame flushes dirty trees before dispatch; check _derivedDirty
+      - slug: gate-expensive-per-frame-work
+        title: Gate expensive per-frame work on a cheap change signature
+  - id: mods/ksa-deltavmap/features/subway-map-canvas-rendering
+    title: Pannable, zoomable ImGui canvas that draws the subway map with draw-list primitives
+    category: ui
+    submod: null
+    summary: Draws the map every frame on the window draw list inside a clipped child with a full-canvas InvisibleButton (allow-overlap, wheel key ownership) for pan, zoom-about-cursor, hover and click; screen-fixed KSP-style glyphs shared with the legend, per-system colors, priority label culling and allocation-free cached text.
+    novelty: high
+    techniques: [imgui-drawlist, imgui-window, screen-space-culling, cached-text]
+    lifecycle: [frame:draw-ui, render:imgui]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: [KSA.ConsoleWidgets, KSA.ConsoleStyle]
+    key_paths: [DeltaVMap/Render/MapWindow.cs, DeltaVMap/Render/CanvasRenderer.cs, DeltaVMap/Render/NodeGlyphs.cs, DeltaVMap/Render/LegendRenderer.cs, DeltaVMap/Render/ColorPalette.cs, DeltaVMap/Layout/LabelLod.cs, DeltaVMap/Render/CachedText.cs]
+    howto_topics:
+      - slug: imgui-pan-zoom-canvas
+        title: Build a pannable, zoomable canvas inside an ImGui window
+        note: InvisibleButton + SetNextItemAllowOverlap + SetItemKeyOwner(MouseWheelY) + PushClipRect
+      - slug: draw-icons-with-drawlist-primitives
+        title: Draw icons and legends from ImGui draw-list primitives
+        note: one glyph function shared by map and legend
+      - slug: allocation-free-imgui-text
+        title: Keep per-frame ImGui text allocation-free
+        note: cache strings until the shown value's key changes
+      - slug: screen-space-label-culling
+        title: Cull overlapping labels at any zoom with a priority pass
+  - id: mods/ksa-deltavmap/features/three-layout-modes
+    title: Game-free subway-map layout engine with three modes
+    category: ui
+    submod: null
+    summary: A game-type-free pipeline (measure, bands or wells, variable-width tidy tree or Barnes-Hut spring, grid snap, octilinear routing, greedy labels) lays out the delta-v tree three ways, measuring labels with ImGui.CalcTextSize so it runs inside the ImGui frame.
+    novelty: high
+    techniques: [graph-layout, tidy-tree, force-directed-layout, imgui-text-metrics]
+    lifecycle: [frame:draw-ui]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: []
+    key_paths: [DeltaVMap/Layout/LayoutEngine.cs, DeltaVMap/Layout/LayoutConfig.cs, DeltaVMap/Layout/BandLayout.cs, DeltaVMap/Layout/TidyTree.cs, DeltaVMap/Layout/WellLayout.cs, DeltaVMap/Layout/SpringLayout.cs, DeltaVMap/Layout/GridSnap.cs, DeltaVMap/Layout/EdgeRouter.cs, DeltaVMap/Layout/LabelPlacer.cs, DeltaVMap/Layout/VisualTreeAdapter.cs]
+    howto_topics:
+      - slug: layout-graph-diagram-in-imgui
+        title: Lay out a tree or graph diagram for an ImGui window
+        note: keep the engine game-free; measure text with ImGui.CalcTextSize inside the frame
+      - slug: bounded-work-on-draw-thread
+        title: Bound expensive work that must run on the draw thread
+        note: Barnes-Hut, iteration budget by node count, hard node ceiling
+  - id: mods/ksa-deltavmap/features/multi-system-scene-composition
+    title: Other star systems as separate graph parts joined by dashed interstellar connectors
+    category: ui
+    submod: null
+    summary: Cuts the visual tree at Interstellar edges, lays out each other star system as a collapsed or expanded part cached per root build, places parts in a strip beside the never-moved home map with routed dashed connectors, and anchors the clicked node on screen when a system opens.
+    novelty: medium
+    techniques: [graph-layout, scene-composition, imgui-drawlist]
+    lifecycle: [frame:draw-ui]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: []
+    key_paths: [DeltaVMap/Layout/SceneComposer.cs, DeltaVMap/Layout/SceneFit.cs, DeltaVMap/Layout/LayoutModel.cs, DeltaVMap/Layout/VisualTreeAdapter.cs, DeltaVMap/Render/MapWindow.cs]
+    howto_topics:
+      - slug: compose-diagram-parts-without-jumps
+        title: Open and close diagram sections without moving the view
+        note: never move the main layout; cache parts; re-anchor only when the anchor leaves the canvas
+  - id: mods/ksa-deltavmap/features/search-focus-isolate-and-aggregation
+    title: Search, focus, isolate and minor-body aggregation for dense systems
+    category: ui
+    submod: null
+    summary: Collapses a hub's minor bodies into a "+N" node above 24 and folds star systems past eight, while a body search over the whole universe reveals, centers and optionally isolates any body; an 8,000-node ceiling refuses pathological layouts.
+    novelty: medium
+    techniques: [imgui-window, level-of-detail, node-aggregation]
+    lifecycle: [frame:draw-ui]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: [KSA.MinorBody, KSA.Comet, KSA.Astronomical]
+    key_paths: [DeltaVMap/Model/BuildOptions.cs, DeltaVMap/Model/VisualTree.cs, DeltaVMap/Render/MapWindow.cs, DeltaVMap/Render/ConsoleUi.cs]
+    howto_topics:
+      - slug: scale-ui-to-thousands-of-bodies
+        title: Keep a body list or map usable with thousands of asteroids
+        note: threshold aggregation plus search-to-reveal
+      - slug: imgui-search-box
+        title: Add a search box with ranked results to an ImGui panel
+        note: InputTextWithHint on ImInputString returns true only on edit
+  - id: mods/ksa-deltavmap/features/stock-console-widget-panels
+    title: Panel rows built on the game's ConsoleWidgets kit
+    category: ui
+    submod: null
+    summary: The route, view, transfer-window and interstellar panels draw toggles, segmented presets, logarithmic slider rows, readouts and toned status lines with KSA.ConsoleWidgets and KSA.ConsoleStyle, copying the private TransferPlanner.DrawSliderFloatRow pattern; the window does not enable UseConsoleChrome, so ConsoleStyle.PushWidgetStyle is not applied.
+    novelty: medium
+    techniques: [imgui-window, console-widgets, stock-ui-reuse]
+    lifecycle: [frame:draw-ui]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: [KSA.ConsoleWidgets, KSA.ConsoleStyle, KSA.ImGuiWindow, KSA.TransferPlanner]
+    key_paths: [DeltaVMap/Render/ConsoleUi.cs, DeltaVMap/Render/InterstellarSection.cs, DeltaVMap/Render/RoutePanelRenderer.cs, DeltaVMap/Render/TransferWindowRenderer.cs]
+    howto_topics:
+      - slug: match-stock-console-ui-style
+        title: Make a mod window look like the game's console windows
+        note: ConsoleWidgets rows plus ConsoleStyle.PushWidgetStyle, or UseConsoleChrome on an ImGuiWindow subclass
+      - slug: logarithmic-slider-row
+        title: Add a logarithmic slider row for values spanning several decades
+        note: BeginRow, hidden "##id", SetNextItemWidth(-1), SliderFloat with Logarithmic, EndRow
+  - id: mods/ksa-deltavmap/features/transfer-windows-and-phase-clock
+    title: Transfer windows list and live polar phase clock
+    category: flight-and-orbits
+    submod: null
+    summary: Computes lead angle, live phase, countdown, synodic period and ejection angle for the root's siblings with the branches of OrbitalTransfers.AlignmentTime, and draws a resizable list and a log-scaled polar phase clock whose hover highlights the map node.
+    novelty: high
+    techniques: [imgui-drawlist, imgui-window, closed-form-orbital-math]
+    lifecycle: [frame:draw-ui]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: [KSA.Orbit, KSA.MathEx, KSA.OrbitalTransfers, KSA.Universe, KSA.IOrbiter, KSA.ConsoleStyle]
+    key_paths: [DeltaVMap/Dv/TransferWindow.cs, DeltaVMap/Model/TransferWindows.cs, DeltaVMap/Model/TransferWindowInfo.cs, DeltaVMap/Render/TransferWindowRenderer.cs, DeltaVMap/Render/MapWindow.cs]
+    howto_topics:
+      - slug: compute-transfer-windows
+        title: Compute phase angles, synodic periods and time to the next transfer window
+        note: mirror OrbitalTransfers.AlignmentTime branches; Orbit.GetPhaseAngle for live phase
+      - slug: ejection-angle-closed-form
+        title: Compute the ejection angle for an interplanetary burn
+        note: PI - acos(-1/e), e = 1 + r v_inf^2 / mu
+      - slug: resizable-imgui-overlay-panels
+        title: Resizable floating panels with invisible-button drag handles
+  - id: mods/ksa-deltavmap/features/map-mode-transfer-overlay
+    title: Transfer-window markers drawn into the game's 3D map mode
+    category: flight-and-orbits
+    submod: null
+    summary: In map mode it projects future body positions, the phase angle and an ejection gizmo from parent CCE coordinates to screen with viewport.GetCamera().EclToScreen and draws them on ImGuiHelper.GetOverlayDrawList (the main viewport's background list), mirroring the stock alignment marker.
+    novelty: high
+    techniques: [imgui-drawlist, world-to-screen-projection]
+    lifecycle: [frame:draw-ui, render:imgui]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: [KSA.Camera, KSA.IViewport, KSA.CameraMode, KSA.ImGuiHelper, KSA.Orbit, KSA.IOrbiter, KSA.IPosition, KSA.Universe, KSA.TransferPlanner]
+    key_paths: [DeltaVMap/Render/TransferWindowMapOverlay.cs, DeltaVMap/Render/MapWindow.cs]
+    howto_topics:
+      - slug: draw-overlay-in-map-view
+        title: Draw markers and lines in the 3D map view
+        note: GetPositionEclFromCce + Camera.EclToScreen + viewport.Position on the overlay draw list; NaN behind camera
+      - slug: project-world-direction-to-screen
+        title: Project a world-space direction to a fixed-length screen arrow
+        note: project a probe point along the ray and normalize the screen delta
+  - id: mods/ksa-deltavmap/features/stock-transfer-planner-bridge
+    title: Open the stock Transfer Planner preselected on an interstellar plan
+    category: patching
+    submod: null
+    summary: Binds TransferPlanner's private static fields and SetTransferInfo once with AccessTools FieldRef and delegates, replays the exact writes the stock combos make, and degrades to just opening the window when a key is missing.
+    novelty: high
+    techniques: [reflection, accesstools-fieldref]
+    lifecycle: [frame:draw-ui]
+    hooks: ["starmap StarMapAfterGui", "reflection KSA.TransferPlanner._transferType", "reflection KSA.TransferPlanner._sourceBody", "reflection KSA.TransferPlanner._destinationBody", "reflection KSA.TransferPlanner._selectedEntry", "reflection KSA.TransferPlanner._selectedTimeUnit", "reflection KSA.TransferPlanner._timeUnits", "reflection KSA.TransferPlanner._transferCalculated", "reflection KSA.TransferPlanner._transferBeingCalculated", "reflection KSA.TransferPlanner._interstellarDepartureFailed", "reflection KSA.TransferPlanner.cts", "reflection KSA.TransferPlanner.SetTransferInfo"]
+    game_types: [KSA.TransferPlanner, KSA.TransferType, KSA.TransferObject, KSA.TimeObject, KSA.OrbitalTransfers, KSA.Universe, KSA.IIndependentRoot, KSA.Vehicle]
+    key_paths: [DeltaVMap/Core/StockPlannerBridge.cs, DeltaVMap/Render/InterstellarSection.cs, DeltaVMap.HarnessTests/StockPlannerKeysTest.cs]
+    howto_topics:
+      - slug: drive-stock-ui-state-via-reflection
+        title: Preselect state in a stock game window through private fields
+        note: AccessTools.StaticFieldRefAccess, replay stock's write order, collect missing keys, degrade gracefully
+      - slug: open-stock-transfer-planner
+        title: Open the stock Transfer Planner from a mod
+        note: TransferPlanner.ShowPlanWindow is public; plan type lookup by key
+  - id: mods/ksa-deltavmap/features/headless-harness-tests
+    title: Headless harness tests that run against the real game simulation
+    category: testing-and-tooling
+    submod: null
+    summary: A test-only StarMap mod with ModDependencies on HeadlessHarness and DeltaVMap carries IHarnessTest classes that run on the live game and demand equality with stock private routines (PlanInterstellarFuel, MassAboard, TankSpace) and stock's staged delta-v.
+    novelty: high
+    techniques: [headless-harness, reflection, inter-mod-api, starmap-mod-dependencies]
+    lifecycle: []
+    hooks: ["reflection KSA.TransferPlanner.PlanInterstellarFuel", "reflection KSA.TransferPlanner.InterstellarFuelInputs", "reflection KSA.TransferPlanner.MassAboard", "reflection KSA.TransferPlanner.TankSpace"]
+    game_types: [KSA.TransferPlanner, KSA.SequencePerformanceList, KSA.PartTree, KSA.InterstellarBurnPlan, KSA.InterstellarDrive, KSA.Universe, KSA.CelestialSystem, KSA.Program]
+    key_paths: [DeltaVMap.HarnessTests/mod.toml, DeltaVMap.HarnessTests/DeltaVMap.HarnessTests.csproj, DeltaVMap.HarnessTests/TestMod.cs, DeltaVMap.HarnessTests/MultiStarGraphTest.cs, DeltaVMap.HarnessTests/StagedDvTest.cs, DeltaVMap.HarnessTests/InterstellarFuelTest.cs, DeltaVMap.HarnessTests/StockPlannerKeysTest.cs, DeltaVMap.HarnessTests/SceneDumpTest.cs]
+    howto_topics:
+      - slug: headless-game-tests
+        title: Test a mod against the real game headlessly
+        note: separate StarMap test mod depending on HeadlessHarness; IHarnessTest discovery
+      - slug: lock-reimplementation-to-stock
+        title: Lock a re-implemented game formula to the stock private routine
+        note: call the private method via reflection with identical inputs and compare
+  - id: mods/ksa-deltavmap/features/offline-layout-and-math-tests
+    title: Offline test executable that links the mod's game-free kernels without KSA.dll
+    category: testing-and-tooling
+    submod: null
+    summary: A console exe compiles the layout engine and pure math kernels straight from the mod's sources via Compile Include (no KSA.dll), asserts overlap invariants and formulas against synthetic trees and stock reference values, writes SVG dumps and exits non-zero on failure.
+    novelty: medium
+    techniques: [offline-unit-tests, source-linking, svg-dump]
+    lifecycle: []
+    hooks: []
+    game_types: []
+    key_paths: [DeltaVMap.Tests/DeltaVMap.Tests.csproj, DeltaVMap.Tests/Program.cs, DeltaVMap/Layout/SyntheticTree.cs, DeltaVMap/Layout/OverlapCheck.cs, DeltaVMap/Layout/SceneChecks.cs, DeltaVMap/Layout/LayoutDumpFormat.cs]
+    howto_topics:
+      - slug: unit-test-mod-logic-without-game
+        title: Unit-test mod logic without loading the game assemblies
+        note: keep kernels game-type-free; link source files into a test exe
+      - slug: svg-debug-dumps
+        title: Dump layouts or geometry to SVG for visual debugging
+  - id: mods/ksa-deltavmap/features/in-game-validation-dumps-and-perf
+    title: Debug-build validation dumps, perf scopes and once-only logging
+    category: testing-and-tooling
+    submod: null
+    summary: DEBUG builds run a one-shot delta-v, visual-tree and layout dump from the AfterGui hook on the first loaded system, time hot paths with readonly ref struct perf scopes, and dedupe per-frame errors with keyed WarnOnce/ErrorOnce.
+    novelty: low
+    techniques: [starmap-lifecycle, conditional-compilation, svg-dump, log-dedupe]
+    lifecycle: [frame:draw-ui]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: [KSA.Universe, KSA.CelestialSystem, KSA.Celestial, Brutal.Logging.DefaultCategory]
+    key_paths: [DeltaVMap/Mod.cs, DeltaVMap/Core/DebugConfig.cs, DeltaVMap/Core/PerfTracker.cs, DeltaVMap/Core/LogHelper.cs, DeltaVMap/Dv/DvValidationDump.cs, DeltaVMap/Model/VisualTreeDump.cs, DeltaVMap/Layout/LayoutDump.cs]
+    howto_topics:
+      - slug: log-once-per-key
+        title: Log a recurring per-frame failure only once
+        note: HashSet-keyed WarnOnce/ErrorOnce via Brutal.Logging.DefaultCategory.Log
+      - slug: lightweight-perf-scopes
+        title: Time hot paths with zero-cost-when-off scopes
+        note: readonly ref struct with Dispose, compiled only under DEBUG
+  - id: mods/ksa-deltavmap/features/mod-deploy-targets-and-release
+    title: Shared MSBuild deploy targets, release zip and SpaceDock publishing
+    category: getting-started
+    submod: null
+    summary: An importable ModDeploy.targets deploys into the mods folder with a single-attempt copy that names a running game holding the DLL, generates a StarMap launch profile for fresh worktrees and stamps the deploying checkout; a Release target zips the mod and a workflow publishes to SpaceDock.
+    novelty: medium
+    techniques: [msbuild-targets, github-actions, toml-config]
+    lifecycle: []
+    hooks: []
+    game_types: []
+    key_paths: [build/ModDeploy.targets, DeltaVMap/DeltaVMap.csproj, DeltaVMap/mod.toml, .github/workflows/spacedock-publish.yml]
+    howto_topics:
+      - slug: build-and-deploy-starmap-mod
+        title: Build and auto-deploy a StarMap mod into the game's mods folder
+        note: Private=false game refs, copy DLL and mod.toml, guard against a locked DLL
+      - slug: publish-mod-to-spacedock
+        title: Publish a mod release to SpaceDock from GitHub Actions
+        note: tested game version read from a constant in Mod.cs

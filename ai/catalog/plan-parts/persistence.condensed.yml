@@ -1,0 +1,966 @@
+category: persistence
+description: Where a mod keeps its files, how it reads and writes settings (ini, json, toml), and how it ties its
+  own data to KSA's native saves - detecting loads and saves, sidecars, scene records, stable ids, window layouts
+  and user data folders.
+topics:
+- slug: choose-where-a-mod-stores-its-files
+  title: Find where KSA keeps user data and choose where a mod stores its config and data files
+  summary: Every per-user path in the game derives from Constants.DocumentsFolderPath (settings.toml, saves, Vehicles,
+    HUDLayouts, mods, manifest), and StarMap can redirect the whole tree per launch. Decide between a file beside
+    the mod DLL, a folder under the KSA documents folder, a data folder separate from the install folder, or a path
+    derived from KSA's Logs folder, and know what each choice means for mod updates, shipped default configs, instance
+    paths and uninstalling.
+  game_types:
+  - KSA.Constants
+  - KSA.Mod
+  - KSA.ModLibrary
+  - KSA.GameSettings
+  - KSA.GameSaves
+  - KSA.VehicleSaves
+  - KSA.LayoutSaves
+  engine_pointers:
+  - current/decomp/KSA/Constants.cs DocumentsFolderPath, LogsFolderPath
+  - current/decomp/KSA/Mod.cs DirectoryPath
+  - current/decomp/KSA/Constants.cs DocumentsFolderPath
+  - current/decomp/KSA/GameSettings.cs SettingsFilePath
+  - current/decomp/KSA/GameSaves.cs SaveFolderPath
+  - current/decomp/KSA/VehicleSaves.cs and LayoutSaves.cs SaveFolderPath
+  lifecycle:
+  - startup:immediate-load
+  - startup:all-mods-loaded
+  - startup:starmap-before-main
+  approaches:
+  - n: 1
+    title: Beside the mod DLL, resolved from the loaded assembly location
+    mod: ohmystars
+    features:
+    - mods/ohmystars/features/mod-root-and-packaging
+    - mods/compendium/features/settings-ini-persistence
+    - mods/ksa-measuretools/features/color-palettes-persistence
+    - mods/ohmystars/features/ini-settings-persistence
+    - mods/ksa-aircrafthud/features/ini-settings-and-settings-window
+    technique: toml-config
+    note: 'Assembly.Location (or GetExecutingAssembly) gives the mod folder inside StarMap''s per-mod load context.
+      Simple and portable, but a redeploy replaces the file unless the build is careful; the three mods differ in
+      when they resolve the path (immediate load vs all-mods-loaded). Sub-step (folded from ship-default-config-and-keep-user-edits,
+      give it its own section): when the shipped settings file is also the live one, the csproj copies the source
+      ini to the output on each build, so published files carry the defaults and an update replaces user changes
+      unless the mod seeds a separate copy.'
+  - n: 2
+    title: A mod-named subfolder under Constants.DocumentsFolderPath
+    mod: ksa-public-telemetry
+    features:
+    - mods/ksa-public-telemetry/features/json-config-in-documents
+    - mods/purrtty/features/toml-themes-and-settings
+    - mods/realatmospheres/features/modmenu-page-and-toml-settings
+    - mods/kitten-engineer-redux/features/json-settings-autosave
+    technique: json-config
+    note: Survives mod updates and honours StarMap instance paths because the game constant is used. Compare the
+      folder naming (KSATelemetryOverlay, .purrTTY, RealAtmospheres, KittenEngineerReduxData) and the one mod that
+      bypasses the constant with Environment.SpecialFolder.MyDocuments.
+  - n: 3
+    title: A data folder under Documents/mods/<mod> kept apart from the install folder
+    mod: gatos
+    features:
+    - mods/gatos/features/toml-config-seeded-template
+    - mods/gatos/features/qcow2-overlay-guest-disks
+    technique: toml-config
+    note: 'Install folder holds only shipped, read-only artifacts; config, disks and logs go to a separate user-writable
+      data folder (GatOsPaths) so updates never touch user data. Sub-step (folded from ship-default-config-and-keep-user-edits,
+      give it its own section): a commented template in the install folder is copied to the live file only if missing
+      (gatos.default.toml to gatos.toml), so edits made to the template before first launch carry over and updates
+      never replace the live file.'
+  - n: 4
+    title: Derive the folder from KSA's own Logs folder with a temp fallback
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/course-grid-and-save-file
+    - mods/ksastructures/features/mod-log-file
+    technique: json-config
+    note: Course files go to a KSAGolf/Courses folder beside the folder the mod log lives in; if no KSA folder is
+      found the temp directory is used. KSAStructures probes the Documents and XDG locations for its log the same
+      way.
+  - n: 5
+    title: Know the folder map and let StarMap redirect it with an instance path
+    mod: starmap
+    features:
+    - mods/starmap/features/instance-path-override
+    technique: harmony-prefix
+    note: 'Sub-step (folded from where-ksa-stores-user-data, give it its own section): Table of every path derived
+      from the constant, the order StarMap looks for the override (command line argument, then environment variable),
+      and why the patch must run before the manifest is read. Also the general recipe for patching a static property
+      getter with AccessTools.PropertyGetter and a prefix that sets __result and returns false.'
+  related:
+  - persist-mod-settings-toml
+  - persist-mod-settings-as-json
+  - persist-mod-settings-ini
+  - find-your-mod-folder-at-runtime
+  - write-a-per-mod-log-file
+  - separate-game-instances
+  - ksa-mod-folders-and-manifest
+  dedupe_with:
+  - getting-started/find-your-mod-folder-at-runtime
+  - getting-started/separate-game-instances
+  - getting-started/ksa-mod-folders-and-manifest
+  - getting-started/write-a-per-mod-log-file
+  merged_from:
+  - where-ksa-stores-user-data
+  - ship-default-config-and-keep-user-edits
+  borrowed_from:
+  - mods/ksastructures/features/mod-log-file
+- slug: persist-mod-settings-ini
+  title: Persist mod settings in a hand-rolled ini file
+  summary: Keep a flat key=value settings file without any library - invariant-culture numbers and colors, defaults
+    for missing keys, and a choice of when to write (every change, a Save button, or a dirty flag flushed on close
+    and unload).
+  game_types:
+  - KSA.Mod
+  - Brutal.ImGuiApi.ImGui
+  lifecycle:
+  - startup:immediate-load
+  - startup:all-mods-loaded
+  - frame:draw-ui
+  - event:starmap-unload
+  approaches:
+  - n: 1
+    title: Flat settings.ini rewritten on every widget change
+    mod: ohmystars
+    features:
+    - mods/ohmystars/features/ini-settings-persistence
+    technique: toml-config
+    note: Case-insensitive keys, sections ignored on read, TryParse with default constants, file created from defaults
+      when missing; every widget change branch calls SaveSettings.
+  - n: 2
+    title: Load first at StarMapImmediateLoad, rewrite on change
+    mod: compendium
+    features:
+    - mods/compendium/features/settings-ini-persistence
+    technique: toml-config
+    note: Loaded before anything else so later initialisation sees the saved options; clamps colors to 0..1 and
+      keeps the default for each malformed value.
+  - n: 3
+    title: Eleven-key hud.ini saved by an explicit button
+    mod: ksa-aircrafthud
+    features:
+    - mods/ksa-aircrafthud/features/ini-settings-and-settings-window
+    technique: imgui-window
+    note: Switch on key, enums via Enum.TryParse, colors as r,g,b,a floats, derived values (font sizes, line widths)
+      recomputed after load. Only the button writes.
+  - n: 4
+    title: Sectioned palette file written when a dirty flag is set, on close and on unload
+    mod: ksa-measuretools
+    features:
+    - mods/ksa-measuretools/features/color-palettes-persistence
+    technique: starmap-lifecycle
+    note: One [Name] section per palette, unknown keys and malformed values skipped, migration of the older flat
+      format, save at window close and StarMapUnload.
+  related:
+  - persist-mod-settings-as-json
+  - persist-mod-settings-toml
+  - write-and-load-config-files-safely
+  - persist-imgui-window-state
+  - build-a-settings-window
+  dedupe_with:
+  - ui/build-a-settings-window
+  borrowed_from:
+  - mods/ksa-aircrafthud/features/ini-settings-and-settings-window
+- slug: persist-mod-settings-as-json
+  title: Persist mod settings as JSON with System.Text.Json
+  summary: Serialise a settings object to a JSON file in the KSA documents folder, load it before the UI is built,
+    and write it only when something changed, without a save button.
+  game_types:
+  - KSA.Constants
+  engine_pointers:
+  - current/decomp/KSA/Constants.cs DocumentsFolderPath
+  lifecycle:
+  - startup:all-mods-loaded
+  - frame:draw-ui
+  - event:starmap-unload
+  approaches:
+  - n: 1
+    title: Autosave tick that re-serialises a snapshot every two seconds and writes only on change
+    mod: kitten-engineer-redux
+    features:
+    - mods/kitten-engineer-redux/features/json-settings-autosave
+    technique: json-config
+    note: Static fields captured into a DTO; the serialised string is compared with the last written one so a clean
+      load never writes. Sections constructed after the load (editor panel) still get their saved open state by
+      applying it on registration.
+  - n: 2
+    title: Settings object plus override-only colors and tuning, debounced dirty-flag save
+    mod: ksa-public-telemetry
+    features:
+    - mods/ksa-public-telemetry/features/json-config-in-documents
+    - mods/ksa-public-telemetry/features/live-tuning-and-palette-reflection
+    technique: json-config
+    note: A wrapper with settings, colors and tuning sections where colors and tuning store only values that differ
+      from defaults; enum names as strings, comments and trailing commas accepted; final save at StarMapUnload.
+  related:
+  - persist-mod-settings-toml
+  - persist-mod-settings-ini
+  - write-and-load-config-files-safely
+  - choose-where-a-mod-stores-its-files
+  - persist-imgui-window-state
+  dedupe_with:
+  - ui/build-a-settings-window
+  borrowed_from: []
+- slug: persist-mod-settings-toml
+  title: Persist mod settings as TOML
+  summary: Store settings in a TOML file a player can read and edit, either through the Tomlyn serializer or DOM,
+    or with a few dozen lines of hand parsing when the mod must not carry dependencies.
+  game_types:
+  - KSA.Constants
+  engine_pointers:
+  - current/decomp/KSA/Constants.cs DocumentsFolderPath
+  - current/decomp/KSA/GameSettings.cs SettingsFilePath (the game's own TOML settings file for comparison)
+  lifecycle:
+  - startup:all-mods-loaded
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: Tomlyn TomlSerializer onto one flat POCO with snake_case names
+    mod: gatos
+    features:
+    - mods/gatos/features/toml-config-seeded-template
+    technique: toml-config
+    note: Missing keys keep property defaults, unknown keys are ignored, a Sections table drives a commented, grouped
+      output and a catch-all emits any key the table forgot. Saved on Task.Run.
+  - n: 2
+    title: Structured POCO with a do-not-touch table, legacy migration and a single shared instance
+    mod: purrtty
+    features:
+    - mods/purrtty/features/toml-themes-and-settings
+    technique: toml-config
+    note: Settings and UI state split into two tables, an old flat file migrated on load, atomic writes, and the
+      gotcha of one loaded copy so a second writer cannot save stale values.
+  - n: 3
+    title: Hand-parsed settings.toml with no TOML library
+    mod: realatmospheres
+    features:
+    - mods/realatmospheres/features/modmenu-page-and-toml-settings
+    technique: toml-config
+    note: One setting under Documents/RealAtmospheres, read once, written on change, defaults for anything missing;
+      suits a reflection-only mod without references.
+  related:
+  - persist-mod-settings-as-json
+  - persist-mod-settings-ini
+  - store-named-presets-in-toml-with-tomlyn
+  - write-and-load-config-files-safely
+  - choose-where-a-mod-stores-its-files
+  - build-a-settings-window
+  dedupe_with:
+  - physics/store-named-presets-in-toml-with-tomlyn
+  - ui/build-a-settings-window
+  borrowed_from:
+  - mods/realatmospheres/features/modmenu-page-and-toml-settings
+- slug: write-and-load-config-files-safely
+  title: Write config files atomically and load hand-edited ones without losing them
+  summary: Avoid truncated or constantly rewritten files by writing to a temp file and moving it over the target,
+    saving only when the content changed, debouncing bursts of edits, keeping file I/O off the render path and flushing
+    on unload; and make loading tolerant - clamp or default bad values, drop only the field that breaks deserialisation,
+    migrate older layouts and never overwrite a file you could not parse.
+  lifecycle:
+  - frame:draw-ui
+  - event:starmap-unload
+  - thread:background
+  - startup:all-mods-loaded
+  approaches:
+  - n: 1
+    title: Dirty flag, debounce and atomic replace on write; JsonObject retry on load
+    mod: ksa-public-telemetry
+    features:
+    - mods/ksa-public-telemetry/features/json-config-in-documents
+    technique: json-config
+    note: 'Write side: MarkDirty from the UI, Flush(dt) from the draw loop after one second of quiet, temp file
+      and File.Move overwrite, final SaveNow at StarMapUnload. Load side (folded from load-config-without-losing-user-edits,
+      give it its own section): parse to a JsonObject, remove the fragile field and retry on JsonException; a list
+      of fragile fields tried in order, colors and tuning sections parsed independently, then sanitising (clamps,
+      array trimming, unknown enum values replaced).'
+  - n: 2
+    title: Compare the serialised snapshot with the last write
+    mod: kitten-engineer-redux
+    features:
+    - mods/kitten-engineer-redux/features/json-settings-autosave
+    technique: json-config
+    note: A fixed two second Stopwatch interval; identical JSON is skipped, so no dirty flag has to be threaded
+      through the UI.
+  - n: 3
+    title: Save from Task.Run with an atomic helper; clamp and log on load, leave an unparseable file alone
+    mod: gatos
+    features:
+    - mods/gatos/features/toml-config-seeded-template
+    technique: background-thread
+    note: 'Write side: AtomicFile helper plus PersistConfig on a worker so the render thread never does file I/O;
+      contrast with the main-thread saves of the other approaches. Load side (folded from load-config-without-losing-user-edits,
+      give it its own section): Normalize() clamps every numeric knob into a bootable range and warns; on a parse
+      error or unknown schema value the file is left alone so a typo cannot destroy the player''s config.'
+  - n: 4
+    title: Flush on close and unload; skip junk keys and migrate the previous format on load
+    mod: ksa-measuretools
+    features:
+    - mods/ksa-measuretools/features/color-palettes-persistence
+    - mods/purrtty/features/toml-themes-and-settings
+    technique: starmap-lifecycle
+    note: 'Write side: dirty flag set by editors, open flags compared every frame, written when the window closes
+      and again at StarMapUnload. Load side (folded from load-config-without-losing-user-edits, give it its own
+      section): unknown keys and malformed values skipped; the old flat color format and purrTTY''s legacy flat
+      settings file are converted into the current structure.'
+  related:
+  - persist-mod-settings-as-json
+  - persist-mod-settings-toml
+  - persist-mod-settings-ini
+  - persist-user-created-presets-and-content
+  merged_from:
+  - write-config-files-atomically
+  - load-config-without-losing-user-edits
+  borrowed_from: []
+- slug: persist-user-created-presets-and-content
+  title: Persist user-created palettes, presets and content files
+  summary: 'Store what the player creates rather than what the mod configures: editable color schemes and themes
+    (including the byte-to-float round trip ImGui color pickers need and name-clash rules between bundled and user
+    files), effect presets exported to XML, user-built layouts as versioned JSON anchored to a body, and imported
+    PNG, GLB or sound files copied into a catalog folder and referenced by name so a saved scene can reproduce them.'
+  game_types:
+  - Brutal.ImGuiApi.ImGui
+  - KSA.SerializedId
+  - KSA.IKeyed
+  - KSA.ModLibrary
+  - KSA.Celestial
+  - KSA.Universe
+  - KSA.CelestialSystem
+  engine_pointers:
+  - current/decomp/KSA/ModLibrary.cs (asset registration and Get<T>)
+  - current/decomp/KSA/Celestial.cs GetDirCcfFromLatLon (convention for latitude and longitude)
+  lifecycle:
+  - startup:all-mods-loaded
+  - frame:draw-ui
+  - event:starmap-unload
+  - startup:asset-load
+  approaches:
+  - n: 1
+    title: Named palettes in a sectioned ini, byte4 colors with ColorEdit4 round trip
+    mod: ksa-measuretools
+    features:
+    - mods/ksa-measuretools/features/color-palettes-persistence
+    technique: imgui-window
+    note: Four shipped palettes plus user palettes, active index, derived alpha shades from the pending color, Restore
+      default palettes that re-adds by name.
+  - n: 2
+    title: Bundled and user theme TOML files in alacritty format, user wins on name clash
+    mod: purrtty
+    features:
+    - mods/purrtty/features/toml-themes-and-settings
+    technique: toml-config
+    note: Theme catalog merges a code-built default, the bundled folder and the user folder; 16 colors expand to
+      a 256-color palette; custom colors persist only when saved as a named theme.
+  - n: 3
+    title: Override-only color table in the main config
+    mod: ksa-public-telemetry
+    features:
+    - mods/ksa-public-telemetry/features/json-config-in-documents
+    - mods/ksa-public-telemetry/features/live-tuning-and-palette-reflection
+    technique: json-config
+    note: 'Only colors that differ from the compiled defaults are stored, as #RRGGBBAA keyed by field name, so changed
+      defaults reach players who never customised.'
+  - n: 4
+    title: KxAsset profile type, XmlSerializer export trimmed with DefaultValue and ShouldSerialize
+    mod: mpfx
+    features:
+    - mods/mpfx/features/xml-effect-profiles
+    technique: xml-asset
+    note: Registration in OnDataLoad, why in-game profiles are never written back automatically, ShouldSerialize
+      methods and DefaultValue attributes to keep exports short, and copying the result to the clipboard from an
+      ImGui window.
+  - n: 5
+    title: Snake_case JSON course file, append-only piece ids, drift warning on load
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/course-grid-and-save-file
+    technique: json-config
+    note: Lat/lon from the body-fixed up vector with the same convention as Celestial.GetDirCcfFromLatLon, heading
+      of the grid axis, floor height above the ground so terrain changes between builds do not strand the course;
+      unknown piece ids dropped and named rather than thrown; the immutable grid model, port-on-edge design and
+      undo stacks are only mentioned, not taught.
+  - n: 6
+    title: SharedFileLibrary with import caps, (n) suffixes and a shared ImGui browser
+    mod: unscience
+    features:
+    - mods/unscience/features/lib-shared-file-library
+    technique: save-sidecar
+    note: Catalog folders under the .unscience data folder, FullPath rejecting separators, Import choosing stem
+      (n).ext and copying with overwrite false, GLB selection ids that mix catalog files with built-in meshes. The
+      ImGui browser itself is covered by build-a-filesystem-file-picker.
+  related:
+  - pick-colors-in-imgui
+  - persist-mod-settings-as-json
+  - persist-mod-settings-toml
+  - build-a-settings-window
+  - store-named-presets-in-toml-with-tomlyn
+  - build-a-filesystem-file-picker
+  - save-mod-state-with-the-scene
+  - choose-where-a-mod-stores-its-files
+  - write-and-load-config-files-safely
+  - place-a-static-object-landmark-on-a-planet
+  - anchor-a-placed-model-to-the-ground
+  dedupe_with:
+  - physics/store-named-presets-in-toml-with-tomlyn
+  - ui/pick-colors-in-imgui
+  - ui/build-a-filesystem-file-picker
+  merged_from:
+  - persist-named-color-palettes
+  - ship-presets-as-xml-assets-and-export-them
+  - import-user-files-into-a-mod-catalog
+  - save-user-built-layouts-as-versioned-json-files
+  borrowed_from:
+  - mods/unscience/features/lib-shared-file-library
+- slug: persist-imgui-window-state
+  title: Persist ImGui window state and layouts
+  summary: imgui.ini keeps position and size only for windows that do not set NoSavedSettings, and never remembers
+    the open flag. Use a plain ImGui.Begin so the game's ini restores geometry and save the open flag in your own
+    file; persist only your own window sections with SaveIniSettingsToMemory and LoadIniSettingsFromMemory; or let
+    the player capture every live window or in-world panel as a named layout and apply it on request.
+  game_types:
+  - KSA.ImGuiWindow
+  - KSA.ConsoleStyle
+  - Brutal.ImGuiApi.ImGui
+  - KSA.Vehicle
+  - KSA.LayoutSaves
+  engine_pointers:
+  - current/decomp/KSA/ImGuiWindow.cs (NoSavedSettings in OnDrawUi)
+  - current/decomp/KSA/LayoutSaves.cs (the game's own HUD layout files, for comparison)
+  lifecycle:
+  - startup:all-mods-loaded
+  - frame:draw-ui
+  - event:starmap-unload
+  approaches:
+  - n: 1
+    title: Plain ImGui.Begin so imgui.ini restores geometry, and compare the open flag every frame
+    mod: ohmystars
+    features:
+    - mods/ohmystars/features/ini-settings-persistence
+    - mods/compendium/features/settings-ini-persistence
+    technique: imgui-window
+    note: 'The game''s ConsoleStyle.BeginWindow forces NoSavedSettings, so the mod calls ImGui.Begin directly; window
+      size is set with ImGuiCond.FirstUseEver. Second half, give it its own section: The flag changes from the ModMenu
+      entry and from the window close button, so a per-frame comparison catches both; OhMyStars does the same for
+      two windows and persists the legend sub-view as its parent tab.'
+  - n: 2
+    title: Filtered ImGui ini section saved on a timer and at unload
+    mod: unscience
+    features:
+    - mods/unscience/features/unscience-supermod-host
+    technique: imgui-window
+    note: window.ini holds only the [Window][Unscience Toolbox] section; the ImGui context must already exist when
+      the file is loaded at AllModsLoaded; header open-state and a layout auto-save toggle are stored beside it.
+  - n: 3
+    title: One TOML file per layout, hand-emitted and applied only on request
+    mod: purrtty
+    features:
+    - mods/purrtty/features/saved-terminal-layouts
+    technique: toml-config
+    note: Layout data model, atomic write, skip-on-name-collision apply, tracked set for Tear down, startup command
+      history, and the note that in-world anchors resolve best-effort across restarts because only Vehicle.Id is
+      stable.
+  related:
+  - give-mod-windows-stable-ids-and-persisted-placement
+  - persist-mod-settings-ini
+  - subclass-the-stock-imguiwindow
+  - identify-vessels-and-parts-across-saves
+  - persist-mod-settings-toml
+  dedupe_with:
+  - ui/give-mod-windows-stable-ids-and-persisted-placement
+  merged_from:
+  - persist-imgui-window-layout
+  - save-and-restore-named-window-layouts
+  borrowed_from: []
+- slug: create-a-native-save-from-code
+  title: Create a native KSA save from mod code, including a timed autosave
+  summary: Call the same two game methods the console save command uses (SaveName.TryAccept then UncompressedSave.Make)
+    so every other mod's save hooks and sidecars run as for a manual save, refuse while the editor is open, and
+    drive an autosave from a real-time timer independent of warp and pause.
+  game_types:
+  - KSA.GameSaves
+  - KSA.UncompressedSave
+  - KSA.GameSave
+  - KSA.SaveName
+  - KSA.Program
+  engine_pointers:
+  - current/decomp/KSA/GameSaves.cs MakeUncompressedSave
+  - current/decomp/KSA/UncompressedSave.cs Make, Write
+  - current/decomp/KSA/SaveName.cs TryAccept, MAX_LENGTH
+  - current/decomp/KSA/Program.cs IsEditorOpen
+  lifecycle:
+  - frame:draw-ui
+  - event:save
+  approaches:
+  - n: 1
+    title: GameSaveProvider.TryMakeSave driven by a Stopwatch-fed controller with injected delegates
+    mod: unscience
+    features:
+    - mods/unscience/features/save-yourself-timed-autosave
+    technique: starmap-lifecycle
+    note: CanSaveNow mirrors RefusedInEditor without its alert; prefix length and alphabet rules so TryAccept never
+      alters the name; the controller takes two delegates so it runs in KSA-free tests; the hidden-HUD replay keeps
+      the timer running.
+  related:
+  - load-a-save-from-code
+  - save-mod-state-with-the-scene
+  - save-mod-state-with-the-game-save
+  - draw-ui-while-the-hud-is-hidden
+  borrowed_from: []
+- slug: load-a-save-from-code
+  title: Load a named save from mod code
+  summary: GameSaves.LoadSaveGame is the console load command's entry point; call it from your own frame hook, wait
+    until a craft is flown again, and expect the load to replace every vehicle while the scene stays alive.
+  game_types:
+  - KSA.GameSaves
+  - KSA.GameSave
+  - KSA.UncompressedSave
+  - KSA.Universe
+  engine_pointers:
+  - current/decomp/KSA/GameSaves.cs LoadSaveGame
+  - current/decomp/KSA/UncompressedSave.cs Load
+  - current/decomp/KSA/Universe.cs DeserializeSave
+  lifecycle:
+  - frame:after-on-frame
+  - event:load
+  approaches:
+  - n: 1
+    title: A file-bridge load command that waits for a controlled craft
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/file-command-bridge
+    - mods/ksastructures/features/dev-file-bridge-and-mcp
+    - mods/ksacars/features/file-drop-command-bridge
+    technique: starmap-lifecycle
+    note: Called from the frame postfix; completion is detected by waiting until Program.ControlledVehicle is set.
+      Same pattern in three bridges.
+  - n: 2
+    title: A scenario runner that loads a save a few seconds after start
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/unattended-scenario-runner
+    technique: starmap-lifecycle
+    note: Request file read at load, save loaded three seconds later, then the scenario spawns targets and flies;
+      a developer-only harness.
+  related:
+  - create-a-native-save-from-code
+  - detect-save-load
+  dedupe_with:
+  - external-io/load-a-save-from-code
+  - external-io/run-an-unattended-scenario-and-report-pass-or-fail
+  - testing-and-tooling/drive-a-running-game-through-a-file-bridge
+  borrowed_from:
+  - mods/ksagolf/features/file-command-bridge
+  - mods/ksarmory/features/unattended-scenario-runner
+- slug: detect-save-load
+  title: Detect a save load or quickload and reset mod state safely
+  summary: StarMap has no load hook and the flight scene is not recreated on a load, so a mod that holds Vehicle,
+    body or camera references has to notice the load itself. Postfix Program.OnGameLoaded and act in the next frame
+    step, watch UncompressedSave.Load, infer a reload from the universe clock, or avoid detection by rebuilding
+    state from the live world. Then drop what DeserializeSave made stale (vehicles, cameras, the universe clock,
+    body indices) from a safe point, telling a discard from a clear that writes settings.
+  game_types:
+  - KSA.Program
+  - KSA.Universe
+  - KSA.UncompressedSave
+  - KSA.GameSaves
+  - KSA.CelestialSystem
+  - KSA.Vehicle
+  - KSA.Part
+  engine_pointers:
+  - current/decomp/KSA/Program.cs OnGameLoaded
+  - current/decomp/KSA/UncompressedSave.cs Load
+  - current/decomp/KSA/Universe.cs DeserializeSave
+  - current/decomp/KSA/GameSaves.cs LoadSaveGame
+  - current/decomp/KSA/CelestialSystem.cs All
+  - current/decomp/KSA/Program.cs VehiclesInFrame
+  lifecycle:
+  - startup:all-mods-loaded
+  - event:load
+  - frame:draw-ui
+  - frame:after-on-frame
+  approaches:
+  - n: 1
+    title: Postfix Program.OnGameLoaded, latch a flag, consume it in the next frame step and forget the world
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/detect-save-load-ongameloaded
+    - mods/ksagolf/features/save-load-detection
+    technique: harmony-postfix
+    note: 'The postfix only sets a flag inside a try; ConsumeReload clears it so exactly one caller acts. Walks
+      through what the engine does in DeserializeSave and why the flight scene stays alive. KSAGolf shows the same
+      latch for a craft mover, course builder and putting session. Sub-step (folded from reset-mod-state-on-load,
+      give it its own section): ForgetTheWorld table of everything dropped (systems, effects, roster, cameras, step
+      tracking) and why Discard is used instead of Clear, which would write settings that now belong to the save
+      being opened; KSAGolf releases the craft mover, course builder and putting session and resets StepGate so
+      the next consumed step takes the new clock whatever its timestamp.'
+  - n: 2
+    title: Same latch with the target pinned at compile time
+    mod: ksastructures
+    features:
+    - mods/ksastructures/features/save-load-detection
+    technique: harmony-postfix
+    note: A never-called PinTheSignature method references Program.OnGameLoaded so a signature change in a later
+      build becomes a build error instead of a silently dead patch; degrade-not-break when the target is missing.
+  - n: 3
+    title: Observe UncompressedSave.Load, compare the UniverseData reference and reset a list of save-lifetime caches
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/save-scoped-sidecar-registries
+    - mods/ohmystars/features/save-scoped-settings-sidecar
+    technique: harmony-prefix
+    note: 'A prefix captures the current UniverseData and the postfix compares it, because stock Load returns normally
+      when the editor refuses the load or the file is unreadable. Also gives the loaded save id (__instance.Id).
+      Sub-step (folded from reset-mod-state-on-load, give it its own section): SaveScopedState.ResetAll names each
+      cache holding Vehicle, Burn or FlightPlan references or body indices, with the reason: vehicles are rebuilt,
+      a disposed vehicle''s plan stays intact, and swap-removal makes kept indices resolve to another body.'
+  - n: 4
+    title: Postfix Universe.DeserializeSave when the CelestialSystem object survives
+    mod: ksa-measuretools
+    features:
+    - mods/ksa-measuretools/features/live-body-relative-anchors
+    technique: harmony-postfix
+    note: DeserializeSave keeps the same CelestialSystem object, so a latch on the CurrentSystem reference cannot
+      see a load; the postfix clears anchors held against the old world.
+  - n: 5
+    title: Infer a reload from universe time running backwards
+    mod: ksa-public-telemetry
+    features:
+    - mods/ksa-public-telemetry/features/mission-clock-and-liftoff-detection
+    technique: starmap-lifecycle
+    note: 'No hook at all: a known mission whose universe time drops by more than a tolerance resets its clock,
+      covering quickload and revert; liftoff epochs are persisted in config.json so T+ survives a reload.'
+  - n: 6
+    title: 'Do not detect at all: rebuild a derived registry from the live world each frame'
+    mod: ksacars
+    features:
+    - mods/ksacars/features/frame-step-latch-and-car-registry
+    technique: starmap-lifecycle
+    note: Buggies.Sync finds each vehicle with a part whose Id matches, resolves its subparts once, restores the
+      headlamp setting from the part's saved light switch and drops entries whose vehicle is disposed; a load needs
+      no special handling. Contrast with detect-save-load for mods that hold state the world cannot reproduce.
+  related:
+  - save-mod-state-with-the-scene
+  - save-mod-state-with-the-game-save
+  - cache-derived-data-per-loaded-celestial-system
+  - load-a-save-from-code
+  - mutate-vehicles-at-a-physics-safe-point
+  - track-and-classify-craft
+  - draw-ui-while-the-hud-is-hidden
+  dedupe_with:
+  - celestials/cache-derived-data-per-loaded-celestial-system
+  merged_from:
+  - reset-mod-state-on-load
+  - rebuild-mod-state-from-the-loaded-world
+  borrowed_from:
+  - mods/ksa-measuretools/features/live-body-relative-anchors
+  - mods/ksa-public-telemetry/features/mission-clock-and-liftoff-detection
+  - mods/ksacars/features/frame-step-latch-and-car-registry
+- slug: save-mod-state-with-the-game-save
+  title: Store per-save mod data next to a KSA save and notice when the player saves
+  summary: UniverseData is a fixed XML class with no room for a mod, so per-save data goes in a sidecar. Choose
+    the location and the key - inside the save folder keyed by craft name, or in the mod folder keyed by save id
+    and vehicle id - detect that the game wrote a save (patch UncompressedSave.Write or Make, or poll universe.xml)
+    and write after the game's own write, because KSA 5554 wipes and recreates the save folder on every save.
+  game_types:
+  - KSA.GameSaves
+  - KSA.GameSave
+  - KSA.UncompressedSave
+  - KSA.SaveDirectory
+  - KSA.UniverseData
+  - KSA.Vehicle
+  engine_pointers:
+  - current/decomp/KSA/UncompressedSave.cs Write, Load, Make
+  - current/decomp/KSA/SaveDirectory.cs TryReplace
+  - current/decomp/KSA/GameSaves.cs SaveFolderPath, Selected
+  - current/decomp/KSA/UncompressedSave.cs Make, Write
+  - current/decomp/KSA/GameSaves.cs MakeUncompressedSave
+  lifecycle:
+  - startup:all-mods-loaded
+  - event:save
+  - event:load
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: JSON file inside the save folder, written when universe.xml changes
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/per-craft-settings-json-sidecar
+    technique: save-sidecar
+    note: 'saves/<id>/KSArmory/systems.json keyed by craft name, flat DTO with defaults so older files load new
+      fields, a loose file adopted by the first save when none is open, refusing to create a save folder that does
+      not exist, and no write on load because the file belongs to the save being opened. Sub-step (folded from detect-game-save,
+      give it its own section): with no Harmony patch, poll the universe.xml last-write time every step; the first
+      sighting only records the stamp, later changes trigger the sidecar write. Trade-off is a one-step delay and
+      reliance on the file system clock; explain why writing on every change instead would defeat reload.'
+  - n: 2
+    title: Generic per-save store keyed by save id, written on UncompressedSave.Make
+    mod: ohmystars
+    features:
+    - mods/ohmystars/features/save-scoped-settings-sidecar
+    - mods/ksa-advancedflightcomputer/features/save-scoped-sidecar-registries
+    technique: save-sidecar
+    note: 'SaveLoadObserver tracks the current save id; a generic SaveScopedSettingsStore reads every save folder''s
+      file and writes atomically; honest note that the settings type is empty in this version, so the article is
+      about the pattern. Sub-step (folded from detect-game-save, give it its own section): postfix UncompressedSave.Make
+      and take __result?.Id with the typed name as a fallback, or postfix Write only when it returned true (the
+      AFC variant in the next approach).'
+  - n: 3
+    title: TOML in the mod folder keyed by (save id, vehicle id), rekeyed on save-as
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/save-scoped-sidecar-registries
+    technique: save-sidecar
+    note: 'Keeps the stock save format untouched so uninstalling loses nothing; unsaved changes are dropped like
+      the game drops unsaved burns; the init-time load fixes first-save overwrites of other saves'' entries; hand-written
+      TOML with round-trip doubles. Sub-step (folded from detect-game-save, give it its own section): AFC patches
+      UncompressedSave.Write and acts only on success, rekeying entries from the old save id to the written one.'
+  related:
+  - save-mod-state-with-the-scene
+  - detect-save-load
+  - identify-vessels-and-parts-across-saves
+  - write-and-load-config-files-safely
+  - add-per-instance-attachment-nodes-that-survive-saves
+  - restore-kitten-customizations-after-a-load
+  - create-a-native-save-from-code
+  dedupe_with:
+  - kittens/restore-kitten-customizations-after-a-load
+  merged_from:
+  - detect-game-save
+  borrowed_from: []
+- slug: save-mod-state-with-the-scene
+  title: Save a whole mod's scene state as versioned sidecar records, with reset and replay on load
+  summary: 'For many features with native objects to rebuild, capture each feature as a versioned JSON record at
+    save time, validate every record before the world is touched on load, reset old ownership in reverse order,
+    replay restores in order after KSA rebuilds the world, and retain records that cannot be restored. The third
+    approach is the mechanism underneath: patch GameSave.Populate, UncompressedSave.Write and Load, and Universe.DeserializeSave
+    and LoadSystem to publish capture, write, reset and restore callbacks, validate incoming data before anything
+    is destroyed, and replay world replacement at the PrepareFrame handoff.'
+  game_types:
+  - KSA.GameSave
+  - KSA.UncompressedSave
+  - KSA.Universe
+  - KSA.UniverseData
+  - KSA.GameSaves
+  - KSA.JobSystems
+  - KSA.Program
+  engine_pointers:
+  - current/decomp/KSA/GameSave.cs Populate
+  - current/decomp/KSA/UncompressedSave.cs Write, Load
+  - current/decomp/KSA/Universe.cs DeserializeSave
+  - current/decomp/KSA/Universe.cs DeserializeSave, LoadSystem
+  - current/decomp/KSA/Program.cs PrepareFrame, OnGameLoaded
+  lifecycle:
+  - startup:all-mods-loaded
+  - event:save
+  - event:load
+  - frame:prepare
+  - frame:draw-ui
+  - frame:input
+  approaches:
+  - n: 1
+    title: ISaveParticipant records through a game-independent coordinator
+    mod: unscience
+    features:
+    - mods/unscience/features/lib-scene-save-coordinator
+    - mods/unscience/features/camera-controller-override-keyframe-sequences
+    - mods/unscience/features/kitten-animations-locomotion-tuning
+    technique: save-sidecar
+    note: Participant contract (SaveId, SaveVersion, RestoreOrder, CaptureState, ResetState, PrepareRestore), coordinator
+      state machine, retention of unknown or newer records so older builds round-trip them, the unscience.json document
+      with size limits and a universe.xml SHA-256 binding, and the SaveJson options for Brutal vector types.
+  - n: 2
+    title: Host wiring - pair each capture with its write by object identity
+    mod: unscience
+    features:
+    - mods/unscience/features/unscience-scene-save-sidecar
+    technique: save-sidecar
+    note: Populate postfix stores the document in a ConditionalWeakTable keyed by the GameSave, the Write postfix
+      publishes it only when the native write succeeded, a write without a capture is reported rather than filled
+      with fresh state, and a missing sidecar means reset everything, restore nothing.
+  - n: 3
+    title: Eight static callbacks over five patched methods, loads replayed at the frame handoff
+    mod: unscience
+    features:
+    - mods/unscience/features/lib-native-save-hooks
+    technique: harmony-prefix
+    note: Exact-signature binding with rollback on failure, the deferral prefix that re-queues the same native call,
+      worker joins before reset, preflight validation of incoming UniverseData, finalizers that turn silent native
+      read failures into errors, and per-callback try/catch isolation. Includes the call-chain table from console,
+      windows and multiplayer.
+  related:
+  - identify-vessels-and-parts-across-saves
+  - detect-save-load
+  - save-mod-state-with-the-game-save
+  - keep-clutter-removals-across-swaps-and-saves
+  - save-authored-camera-sequences-with-the-scene
+  - restore-kitten-customizations-after-a-load
+  - mutate-vehicles-at-a-physics-safe-point
+  - create-a-native-save-from-code
+  dedupe_with:
+  - camera/save-authored-camera-sequences-with-the-scene
+  merged_from:
+  - hook-native-save-and-load
+  - save-sidecar-state-per-scene
+  - save-mod-state-with-native-saves
+  borrowed_from: []
+- slug: identify-vessels-and-parts-across-saves
+  title: Identify vessels and parts stably across saves
+  summary: Part.InstanceId comes from a running counter reset on load and Part.Id falls back to the template id,
+    while Vehicle.Id is a display name that can be renamed, duplicated or recycled. Choose a key, follow renames
+    and disposals so a recycled id cannot inherit another craft's data, and when a specific part must survive, store
+    a structural address (vehicle id, tree and sub-part index paths, template id, SHA-256 topology signature) and
+    resolve it to null rather than guess.
+  game_types:
+  - KSA.Part
+  - KSA.PartInstance
+  - KSA.Vehicle
+  - KSA.Universe
+  - KSA.PartTree
+  - KSA.PartTemplate
+  - KSA.CelestialSystem
+  engine_pointers:
+  - current/decomp/KSA/Part.cs InstanceId
+  - current/decomp/KSA/Universe.cs GetNextRunningId, DeserializeSave
+  - current/decomp/KSA/Vehicle.cs SetName, Dispose(bool)
+  - current/decomp/KSA/Part.cs InstanceId, TreeChildren, SubParts
+  - current/decomp/KSA/Universe.cs DeserializeSave
+  lifecycle:
+  - event:save
+  - event:load
+  - event:vehicle-destroyed
+  - frame:prepare
+  approaches:
+  - n: 1
+    title: Key on Vehicle.Id and follow SetName and Dispose with postfixes
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/save-scoped-sidecar-registries
+    technique: harmony-postfix
+    note: Prefix and postfix on Vehicle.SetName move entries only when the rename succeeded (__result); Dispose(bool)
+      is hooked rather than Dispose() because EVA boarding calls the bool overload directly.
+  - n: 2
+    title: 'Key on the craft display name with a #n suffix for duplicates'
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/per-craft-settings-json-sidecar
+    technique: save-sidecar
+    note: Craft built from one blueprint share a name and therefore an entry; the roster warns when the second one
+      is crewed. Shows the limit of name keys.
+  - n: 3
+    title: Why a window layout can only anchor on Vehicle.Id
+    mod: purrtty
+    features:
+    - mods/purrtty/features/saved-terminal-layouts
+    technique: toml-config
+    note: Part and sub-part ids resolve to the first match after a restart, so in-world anchors are best effort;
+      use as the counter-example that leads into reference-a-part-stably-across-saves.
+  - n: 4
+    title: SavedPartReference with paths and a topology hash, resolved in the restore scope
+    mod: unscience
+    features:
+    - mods/unscience/features/lib-save-part-identity
+    technique: save-sidecar
+    note: Capture and resolve scopes that hash each vehicle once per transaction, the exact conditions under which
+      Resolve returns null, the ambiguous-id rule, and the stated policy that references never fall back to the
+      controlled vehicle or a similar part.
+  related:
+  - persist-vessel-references-across-save-and-load
+  - save-mod-state-with-the-game-save
+  - anchor-to-parts-across-vehicle-changes
+  - save-mod-state-with-the-scene
+  dedupe_with:
+  - vehicles-and-parts/anchor-to-parts-across-vehicle-changes
+  - physics/persist-vessel-references-across-save-and-load
+  merged_from:
+  - understand-which-ids-survive-a-save
+  - reference-a-part-stably-across-saves
+  borrowed_from: []
+- slug: repair-saves-and-craft-files-at-startup
+  title: Repair existing saves and craft files from mod code at startup
+  summary: When a shipped part change would crash old saves, scan the player's saves and craft library at StarMapAllModsLoaded,
+    before any load is possible, and rewrite only the offending lines with a backup and a cheap reject, with an
+    offline twin for authors. The same pattern migrates any save-embedded data.
+  game_types:
+  - KSA.PartTree
+  - KSA.PartInstance
+  - KSA.PartTemplate
+  - KSA.VehicleSaveData
+  - KSA.VehicleSaves
+  - KSA.GameSaves
+  - KSA.SaveDirectory
+  engine_pointers:
+  - current/decomp/KSA/PartTree.cs Deserialize (SubPartRefs paired by index)
+  - current/decomp/KSA/GameSaves.cs SaveFolderPath
+  - current/decomp/KSA/VehicleSaves.cs SaveFolderPath
+  lifecycle:
+  - startup:all-mods-loaded
+  approaches:
+  - n: 1
+    title: Line-level text repair of universe.xml and vehicle.xml with a .bak, plus a Python twin
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/startup-save-repair
+    technique: regex-xml-surgery
+    note: Pure, unit-tested SaveRepair.Repair, subpart matching by canonicalised names, refusal when stateful entries
+      would be dropped, BOM preservation, and the tools/repair-saves.py report-only default. This feature is also
+      approach 2 of evolve-a-shipped-part-without-breaking-saves in the vehicles plan; keep the mechanism here and
+      the authoring rule there.
+  related:
+  - evolve-a-shipped-part-without-breaking-saves
+  - choose-where-a-mod-stores-its-files
+  - validate-part-xml-before-loading
+  dedupe_with:
+  - vehicles-and-parts/evolve-a-shipped-part-without-breaking-saves
+  - vehicles-and-parts/validate-part-xml-before-loading
+  borrowed_from: []
+- slug: keep-mod-vehicles-out-of-saves
+  title: Keep mod-only vehicles out of save files
+  summary: Filter your own craft out of the serialised universe so a save made with the mod loaded still opens without
+    it.
+  game_types:
+  - KSA.Universe
+  - KSA.CelestialSystemData
+  engine_pointers:
+  - current/decomp/KSA/Universe.cs SerializeSystems
+  lifecycle:
+  - event:save
+  approaches:
+  - n: 1
+    title: Postfix Universe.SerializeSystems and filter CelestialSystemData.Vehicles
+    mod: ksastructures
+    features:
+    - mods/ksastructures/features/office-furniture-craft
+    technique: save-filter
+    note: Identify your craft by part Id, drop them from the serialised list only.
+  related:
+  - track-and-classify-craft
+  - spawn-a-vehicle-at-runtime
+  - save-mod-state-with-the-game-save
+  - identify-vessels-and-parts-across-saves
+  dedupe_with:
+  - vehicles-and-parts/keep-mod-vehicles-out-of-saves
+  borrowed_from: []
+- slug: keep-big-user-data-in-copy-on-write-overlays
+  title: Keep guest disk images in copy-on-write overlays over an immutable base
+  summary: A mod that ships a disk image should never write into its install folder. Copy a versioned base once
+    into the data folder, create a qcow2 overlay per profile with qemu-img and a relative backing path, pin the
+    boot to the overlay's guest version, grow but never shrink, and guard with a PID lock.
+  lifecycle:
+  - thread:background
+  approaches:
+  - n: 1
+    title: qemu-img overlay per profile, version-pinned boots, grow-only resize, lock file
+    mod: gatos
+    features:
+    - mods/gatos/features/qcow2-overlay-guest-disks
+    technique: background-thread
+    note: EnsureBaseInstalled copies base-v<N>.qcow2 once, never overwriting; CreateOverlay runs in the disks folder
+      so the backing reference stays a bare relative name; qemu-img commit is never used; orphaned overlays are
+      moved aside; DiskLock reclaims stale locks.
+  related:
+  - choose-where-a-mod-stores-its-files
+  dedupe_with:
+  - external-io/run-a-virtual-machine-alongside-the-game
+  borrowed_from: []

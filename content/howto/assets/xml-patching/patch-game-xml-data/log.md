@@ -1,0 +1,5 @@
+# Patch Core or another mod's XML data without copying files history
+
+## 2026-10-10
+* **Update**: Independent review of the topic against the decompiled build 2026.10.10.5554 and the pinned mod checkouts. Corrected the point at which gauge enum names are resolved (`GaugeButtonFlightComputer.OnDataLoad` during `LoadAll`, not at deserialization), added the editor-tag and random-heightmap bypass to the unpatchable-files gotcha, and hedged the claim that a path selecting nothing is reported (the XPathPatch executor is not checked out). Link text of cross references now names the target article, unresolved topic placeholders became links and truncated snippets are marked with an elision.
+* **Creation**: Added [Patch Core or another mod's XML data without copying files](overview.md), [Patch Core or another mod's XML with a patches array in mod.toml](patch-game-xml-data-1.md), [Ship XML patches that apply only when KittenExtensions is installed](patch-game-xml-data-2.md). Two approaches: the patches key and combined GameData document, and an optional KittenExtensions dependency. Verified against the decompiled game build 2026.10.10.5554 and the pinned mod checkouts.

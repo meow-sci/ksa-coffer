@@ -1,0 +1,231 @@
+batch: physics-2
+game_loop_reference: getting-started/game-loop-and-lifecycle
+category: physics
+category_description: Forces, drag and aero, wheels and suspension, colliders, Bepu, custom motion, terrain contact and physics-safe
+  mutation of simulated state, including patches inside the worker-thread vehicle solver.
+groups:
+  aero-and-ground: 'The environment a craft flies and drives in: aerodynamic force models, atmosphere and ocean overrides,
+    terrain height overrides, ground sampling and wheel suspension.'
+topics:
+- slug: replace-the-stock-aerodynamic-force-model
+  title: Replace the stock aerodynamic force model and measure the active one
+  kind: howto
+  group: aero-and-ground
+  batch: physics-2
+  summary: Swap KSA's box drag for your own lift and drag model that applies a body-axis force through the centre of mass
+    on every vehicle inside the solver, including how to compute Mach number and the speed of sound from the game atmosphere
+    on the worker thread and on the main thread. Also covers measuring what the game (or an aero mod) actually does by calling
+    the force model on a copy of a vehicle state at chosen airspeeds and fitting Cd and CL over Mach and angle of attack.
+  game_types:
+  - KSA.PhysicsStates
+  - KSA.PhysicsEnvironment
+  - KSA.VehicleProperties
+  - KSA.BoundingBoxCdA
+  - KSA.PhysicalAtmosphereReference
+  - KSA.ReadOnlyPhysicsStates
+  - KSA.Vehicle
+  engine_pointers:
+  - current/decomp/KSA/PhysicsStates.cs ComputeDerivatives, ComputeDrag
+  - current/decomp/KSA/VehicleProperties.cs RecomputeAerodynamicProperties
+  - current/decomp/KSA/PhysicsEnvironment.cs
+  - current/decomp/KSA/PhysicalAtmosphereReference.cs
+  - current/decomp/KSA/PhysicsStates.cs ComputeDerivatives (static, ten parameters)
+  lifecycle:
+  - physics:vehicle-solver
+  - startup:all-mods-loaded
+  - frame:draw-ui
+  - frame:dispatch-solvers
+  approaches:
+  - n: 1
+    title: Call-site transpiler on ComputeDerivatives writing the Disturbances accumulator
+    mod: ksaero
+    features:
+    - mods/ksaero/features/body-of-revolution-aerodynamics
+    - mods/ksaero/features/computedrag-call-site-transpiler
+    - mods/ksaero/features/stock-drag-delegate-fallback
+    - mods/ksaero/features/mach-from-game-atmosphere
+    technique: harmony-transpiler
+    note: 'Swap the operand of the one ComputeDrag call whose arguments load AtmosphericDensity for a same-signature method
+      that adds a force to Disturbances; explains why patching the callee fails (AggressiveInlining), the byref-parameter
+      resolution and the stock-delegate fallback. Sub-step (give it a section on Mach and speed of sound): sqrt(1.4 p / rho)
+      from PhysicsEnvironment inside the solver. Use the environment already filled for the vehicle; constant per body (about
+      340 m/s on Earth).'
+  - n: 2
+    title: Speed of sound from the atmosphere reference for a measurement tool
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/drag-table-measurement
+    - mods/ksa-advancedflightcomputer/features/aerodynamic-glide-impact-steering
+    technique: custom-physics
+    note: 'Sub-step (give it a section on Mach and speed of sound): Speed of sound from the atmosphere reference for a measurement
+      tool. Main-thread variant used to bin drag samples by Mach. Also (merged from physics/measure-drag-and-lift-of-the-active-aero-model
+      approach 1, "Static ComputeDerivatives on copied state with dt 0 and no thrusters"): Copy the physics structs, set the
+      airspeed per sample, read the returned force; automatically includes any transpiled model such as KSAero. Feeds glide
+      steering through the measured lift curve.'
+  related:
+  - write-worker-thread-safe-solver-patches
+  - swap-one-call-inside-a-game-method-with-a-transpiler
+  - apply-drag-and-gravity-to-a-mod-simulated-body
+  merged_from:
+  - compute-mach-number-from-the-game-atmosphere
+  - measure-drag-and-lift-of-the-active-aero-model
+- slug: override-atmosphere-and-ocean-in-the-physics-environment
+  title: Override a body's atmosphere profile or ocean in the physics environment
+  kind: howto
+  group: aero-and-ground
+  batch: physics-2
+  summary: Make a planet's air follow a measured or generated density and pressure profile for drag and engines, or zero the
+    ocean in a region so a basement or dry dock can sit below the waterline, by redirecting the atmosphere functions and PhysicsEnvironment
+    values the solver reads.
+  game_types:
+  - KSA.PhysicalAtmosphereReference
+  - KSA.AstronomicalTemplate
+  - KSA.PhysicsEnvironment
+  - KSA.Rendering.Water.Rendering.OceanRenderer
+  engine_pointers:
+  - current/decomp/KSA/PhysicalAtmosphereReference.cs GetAtmosphericDensityAtAltitude
+  - current/decomp/KSA/PhysicsEnvironment.cs RecomputePositionalValues
+  lifecycle:
+  - startup:asset-load
+  - physics:vehicle-solver
+  - startup:all-mods-loaded
+  - render:ocean
+  approaches:
+  - n: 1
+    title: Prefix the density and pressure functions and move the private boundary height
+    mod: realatmospheres
+    features:
+    - mods/realatmospheres/features/measured-flight-atmospheres
+    technique: harmony-prefix
+    note: Generate a table per reference in an OnDataLoad postfix, store it in a ConditionalWeakTable, set the private _height
+      and serve allocation-free lookups to worker threads.
+  - n: 2
+    title: Postfix PhysicsEnvironment.RecomputePositionalValues on the worker
+    mod: ksastructures
+    features:
+    - mods/ksastructures/features/dry-volume-below-sea-level
+    technique: harmony-postfix
+    note: 'Sub-step (give it a section on removing the ocean): Postfix PhysicsEnvironment.RecomputePositionalValues on the
+      worker. Zero OceanRadius, Volume and SurfaceArea inside a radial column, except for craft that already float; volatile
+      data swap for the region.'
+  related:
+  - write-worker-thread-safe-solver-patches
+  - apply-drag-and-gravity-to-a-mod-simulated-body
+  - replace-the-stock-aerodynamic-force-model
+  - query-terrain-height-and-line-of-sight
+  merged_from:
+  - replace-a-bodys-atmosphere-density-profile
+  - remove-the-ocean-from-a-region-of-a-body
+- slug: override-terrain-height-for-roofs-and-platforms
+  title: Override the terrain height cameras and wheels see
+  kind: howto
+  group: aero-and-ground
+  batch: physics-2
+  summary: Make wheel and camera code treat a roof, ramp or floor as the ground without touching collision, by postfixing
+    the Cce overload and leaving the Ccf one that physics reads.
+  game_types:
+  - KSA.Celestial
+  - KSA.Vehicle
+  engine_pointers:
+  - current/decomp/KSA/Celestial.cs GetTerrainHeightFromDirCce
+  lifecycle:
+  - frame:dispatch-solvers
+  - frame:viewports
+  - frame:celestials
+  approaches:
+  - n: 1
+    title: Postfix GetTerrainHeightFromDirCce keyed on who is asking
+    mod: ksastructures
+    features:
+    - mods/ksastructures/features/terrain-height-roof-override
+    technique: harmony-postfix
+    note: Answer roof, slab, spiral level or floor depending on whether the asker is the vehicle being prepared (thread-static
+      set in PrepareWorker) or a camera.
+  related:
+  - query-terrain-height-and-line-of-sight
+  - place-a-vessel-on-a-surface-at-latitude-and-longitude
+  - write-worker-thread-safe-solver-patches
+- slug: sample-the-ground-under-each-wheel
+  title: Sample terrain and pad surfaces under each wheel
+  kind: howto
+  group: aero-and-ground
+  batch: physics-2
+  summary: 'Give wheel or ground-contact code the true surface under a point: the accurate terrain height from the worker
+    window plus the launch-pad and static-object surfaces the height field omits, found by copying convex colliders or rebuilding
+    them from template data and ray testing.'
+  game_types:
+  - KSA.LocationReference
+  - KSA.LandmarkReference
+  - KSA.StaticObject
+  - KSA.ConstraintSim
+  - KSA.BodyTemplate
+  engine_pointers:
+  - current/decomp/KSA/StaticObject.cs
+  - current/decomp/KSA/ConstraintSim.cs UpdateStaticObjectCollider, UnlockShapes
+  lifecycle:
+  - frame:dispatch-solvers
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: 'GetTerrainHeightFromDirCce with accurate: true in the PrepareWorker prefix'
+    mod: ksacars
+    features:
+    - mods/ksacars/features/terrain-contact-under-wheels
+    technique: harmony-prefix
+    note: 'Per-wheel ground sampling from the PrepareWorker window: Per-wheel ground sampling; accurate toggles bicubic and
+      procedural modifiers.'
+  - n: 2
+    title: Copy convex children under the shapes lock in an ExecuteNextVehicleSolvers prefix
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/launch-site-surface-raycast
+    technique: main-thread-sync-point
+    note: BodyTemplate.Locations, IsLaunchPad, GetStaticObject and GetAxesCcf; IConvexShape.RayTest needs no registry once
+      copied; private _models and MeshReference.PositionsCompare for drawn triangles.
+  - n: 3
+    title: Rebuild box and cylinder colliders from template data and drop a ray per wheel
+    mod: ksacars
+    features:
+    - mods/ksacars/features/launch-pad-surface-contact
+    technique: harmony-prefix
+    note: Pose colliders like ConstraintSim.UpdateStaticObjectCollider (up, east, north axes, GroundOffset, 300 m range) without
+      taking the registry lock.
+  related:
+  - query-terrain-height-and-line-of-sight
+  - mutate-the-shared-bepu-shape-registry
+  - add-static-colliders-to-physics-bubbles
+  merged_from:
+  - raycast-the-surface-of-launch-pads
+- slug: simulate-wheels-and-suspension-without-a-wheel-module
+  title: Simulate wheels, suspension and tyres without a wheel module
+  kind: howto
+  group: aero-and-ground
+  batch: physics-2
+  summary: Hold a craft above the ground on per-wheel springs that sample terrain, with load-sized spring-dampers, anti-roll
+    bars, roll damping and bump stops, plus a stable friction-circle tyre that cancels side slip first, drives in the remaining
+    circle and limits steering lock by speed and grip.
+  game_types:
+  - KSA.Vehicle
+  - KSA.Celestial
+  - KSA.PhysicsStates
+  engine_pointers:
+  - current/decomp/KSA/Vehicle.cs PrepareWorker
+  - current/decomp/KSA/Celestial.cs GetTerrainHeightFromDirCce
+  lifecycle:
+  - frame:dispatch-solvers
+  approaches:
+  - n: 1
+    title: Raycast-style suspension impulses in the PrepareWorker prefix
+    mod: ksacars
+    features:
+    - mods/ksacars/features/wheel-suspension-tyre-model
+    - mods/ksacars/features/terrain-contact-under-wheels
+    technique: custom-physics
+    note: 'Spring sized from each wheel''s static weight share, per-step impulses rather than forces, ground from the height
+      field plus pad colliders. Sub-step (give it a section on the tyre and steering): Side slip first, drive in the remaining
+      circle. Share-of-slip cancellation per step stays stable at any warp; steering lock shrinks with speed.'
+  related:
+  - query-terrain-height-and-line-of-sight
+  - inject-forces-and-impulses-at-the-physics-safe-point
+  merged_from:
+  - add-a-friction-circle-tyre-and-grip-limited-steering

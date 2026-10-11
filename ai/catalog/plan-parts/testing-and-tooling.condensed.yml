@@ -1,0 +1,1100 @@
+# Condensed plan part for testing-and-tooling (47 -> 22 topics). Folded slugs are listed in merged_from.
+category: testing-and-tooling
+description: Testing and tooling for KSA mods - game-free unit tests, in-game HeadlessHarness suites, developer file bridges and MCP servers, screenshots and visual checks, offline shader and asset checks, API-surface tracking and upgrade workflows, perf scopes and diagnostics.
+topics:
+- slug: unit-test-mod-logic-without-game
+  title: Unit-test mod logic without launching the game
+  summary: 'Choose where the game boundary sits (a folder, an assembly, a shared source file or a compile-gated half) so the maths, models, parsers and state machines compile with no KSA assembly, then build a test project that runs on any machine and in CI: link the game-free sources, assert physical invariants and edge cases, make clocks and threads deterministic, gate slow or platform-specific tests behind an opt-in switch, and wire it to dotnet test or a console exit code.'
+  game_types:
+  - Brutal.Numerics.double3
+  - KSA.Vehicle
+  - KSA.Universe
+  engine_pointers:
+  - Brutal.Core.Numerics (the only game assembly most pure code needs)
+  - current/decomp/KSA/Universe.cs GetLastSimStep (the typical adapter-side seam)
+  - Brutal.Core.Numerics double3 (the only game assembly the pure side may need)
+  - current/decomp/KSA/Universe.cs GetElapsedSeconds
+  lifecycle:
+  - thread:background
+  - event:headless-test-run
+  approaches:
+  - n: 1
+    title: xUnit project linking a game-free Sim folder wholesale
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/headless-sim-tests
+    - mods/ksacars/features/headless-sim-tests
+    - mods/ksarmory/features/sim-boundary-headless-tests
+    - mods/ksastructures/features/headless-tests-and-ci
+    technique: msbuild
+    note: 'The csproj uses Compile Include of ../src/Mod/Sim/**/*.cs and references no KSA assembly. About 290 tests in KSAGolf. tools/test.sh wraps it for the pre-push hook and CI. Merged from split-game-adapters-from-pure-logic (Sim/ and Ksa/ folders in one project, with the boundary enforced by the test project): All KSA-free logic lives under Sim/ and everything that names a KSA type under Ksa/. Even parsing of bridge commands is a Sim type. The test project links Sim/** and references only the numerics assemblies, so a stray KSA type is a compile error. Say what belongs on each side (frame bookkeeping, physics, parsing vs reflection, ImGui, patches).'
+  - n: 2
+    title: Console test executable with invariant checks and non-zero exit
+    mod: ksaero
+    features:
+    - mods/ksaero/features/headless-model-tests
+    - mods/ksa-deltavmap/features/offline-layout-and-math-tests
+    technique: msbuild
+    note: 'A plain Exe that source-links the model and asserts axisymmetry, force decomposition, monotonic drag, continuity and overlap invariants against synthetic trees and stock reference values. No test framework dependency; exit code is the verdict. Merged from split-game-adapters-from-pure-logic (Share individual pure files with Compile Include and Compile Remove): AeroModel.cs and DeltaVMap''s layout engine and math kernels are game-type-free by convention and compiled into both the mod and a test exe. The mod removes files from its own build when a harness test links them. Cheapest option for a small mod.'
+  - n: 3
+    title: Console checks against Python reference fixtures
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/game-free-guidance-checks
+    - mods/ksa-advancedflightcomputer/features/solver-problem-json-replay
+    technique: console-checks
+    note: 'Solver outputs compared with JAX and CVXPY reference fixtures from a CI script, so numerics are checked against an independent implementation rather than against themselves. Merged from split-game-adapters-from-pure-logic (Separate game-free assemblies joined by ProjectReference, with the game-facing adapter beside them): Numerics and solver code in their own csprojs with no game references; single game-facing files are linked into small test executables; the serialized problem type lives on the game-free side so the mod and the offline console share it.'
+  - n: 4
+    title: NUnit suites with property tests and silent-on-success rules
+    mod: purrtty
+    features:
+    - mods/purrtty/features/headless-test-suites
+    technique: nunit
+    note: 'Four NUnit projects, FsCheck properties, game types kept out of tested layers, reference assemblies used only where cheap, and a no-fixed-sleep and silent-on-success convention. Merged from make-time-gated-code-deterministic-in-tests (Sentinel flush and bounded polling instead of sleeps): A sentinel written through the pipe proves everything before it was processed; waits are bounded polls, never fixed sleeps. Merged from gate-slow-or-platform-specific-tests (OS-gated real-PTY tests next to portable ones): Real PTY tests run per operating system in the three-OS CI matrix; everything else is portable.'
+  - n: 5
+    title: Compile-gated Game/ half joined by partial methods
+    mod: gatos
+    features:
+    - mods/gatos/features/compile-gated-game-seam
+    - mods/gatos/features/build-deploy-and-ci
+    technique: msbuild
+    note: 'Folded from split-game-adapters-from-pure-logic (sub-step: give the boundary choice its own section). Borrowed from getting-started. The whole Game/ folder drops out of compilation when KSA.dll is absent, so CI builds and tests everything else with no game files. Merged from gate-slow-or-platform-specific-tests (Assert.Ignore unless an environment variable is set): TestEnv gates real-VM tests on GATOS_IT=1; CI turns it on under KVM.'
+  related:
+  - run-mod-simulation-in-a-headless-rig
+  - headless-test-harness-for-game-mods
+  - run-repo-checks-from-a-pre-push-hook-and-ci
+  - isolate-game-api-access-behind-providers
+  - build-a-mod-without-game-references
+  - keep-physics-maths-free-of-game-types
+  - choose-a-clock-under-time-warp
+  - build-in-ci-without-the-game-installed
+  borrowed_from:
+  - mods/gatos/features/compile-gated-game-seam
+  merged_from:
+  - split-game-adapters-from-pure-logic
+  - make-time-gated-code-deterministic-in-tests
+  - gate-slow-or-platform-specific-tests
+  dedupe_with:
+  - getting-started/isolate-game-api-access-behind-providers
+  - getting-started/build-a-mod-without-game-references
+  - physics/keep-physics-maths-free-of-game-types
+- slug: run-mod-simulation-in-a-headless-rig
+  title: Run the mod's whole simulation in a headless rig behind a sim boundary
+  summary: Drive vehicles, rounds or balls through the mod's own step function in a plain test, using a rig that supplies mass, inertia and a terrain stand-in (sim-boundary headless tests), so handling, gunnery and putting are regression-tested without the game; vary the step size and skip frames to expose phase and epoch errors a constant dt hides.
+  game_types:
+  - Brutal.Numerics.double3
+  - KSA.SimStep
+  - KSA.Universe
+  engine_pointers:
+  - current/decomp/KSA/Universe.cs GetLastSimStep (the real step the rig imitates)
+  - current/decomp/KSA/Universe.cs GetLastSimStep
+  - GetElapsedSeconds
+  lifecycle:
+  - frame:after-on-frame
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: Rigid-body rig using the engine's mass and inertia
+    mod: ksacars
+    features:
+    - mods/ksacars/features/headless-sim-tests
+    technique: headless-tests
+    note: BuggyDriveTests flies the car model on a rig whose mass and inertia match what the engine reports, then asserts speed, steering and suspension behaviour.
+  - n: 2
+    title: One driver seam shared by the game and the tests
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/sim-boundary-headless-tests
+    - mods/ksarmory/features/mod-simulated-rounds
+    - mods/ksarmory/features/consume-applied-sim-step
+    technique: sim-boundary
+    note: 'Whole engagements flown headlessly; the same RoundDriver steps rounds in game and in tests, so a test failure is a game failure. Studies are also checked for documented numbers. Merged from test-frame-timing-and-epoch-logic (Offset-phase tests for epoch handling in an engagement): OffsetPhaseTests shows why constant-dt tests cannot expose a one-frame epoch offset; vary the step so a phase error changes the answer.'
+  - n: 3
+    title: Ball and contact physics with an epoch bookkeeping layer
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/headless-sim-tests
+    - mods/ksagolf/features/swept-hull-contact
+    - mods/ksagolf/features/dual-hook-frame-stepping
+    technique: headless-tests
+    note: 'Differences-only contact maths so no large coordinates or game types are needed; SkippedFrameTests prove behaviour across missed frames. Merged from test-frame-timing-and-epoch-logic (Step-size invariance and missed-frame tests): Invariance tests across dt, skipped frames and the latch that consumes each step once. SkippedFrameTests is the model.'
+  related:
+  - unit-test-mod-logic-without-game
+  - keep-physics-maths-free-of-game-types
+  - simulate-projectiles-and-balls-outside-the-vehicle-system
+  - step-mod-simulation-on-sim-time
+  - advance-mod-physics-on-simulated-time
+  - sample-world-state-at-a-consistent-epoch
+  borrowed_from:
+  - mods/ksarmory/features/mod-simulated-rounds
+  - mods/ksarmory/features/consume-applied-sim-step
+  - mods/ksagolf/features/dual-hook-frame-stepping
+  merged_from:
+  - test-frame-timing-and-epoch-logic
+  dedupe_with:
+  - physics/advance-mod-physics-on-simulated-time
+  - physics/sample-world-state-at-a-consistent-epoch
+  - physics/simulate-projectiles-and-balls-outside-the-vehicle-system
+- slug: headless-test-harness-for-game-mods
+  title: Test a mod against the real game with HeadlessHarness
+  summary: Ship tests as a second StarMap mod that depends on HeadlessHarness and the mod under test, so the real simulation (universe, vehicles, part trees, planners) runs without a GPU; swap the clock for simulation time in the test base class, and use the game's own private routines by reflection as the oracle for stock formulas the mod re-implements.
+  game_types:
+  - KSA.Universe
+  - KSA.Vehicle
+  - KSA.CelestialSystem
+  - KSA.FlightComputer
+  - KSA.Program
+  - KSA.TransferPlanner
+  - KSA.SequencePerformanceList
+  - KSA.PartTree
+  engine_pointers:
+  - current/decomp/KSA/Program.cs PrepareFrame (the order the harness SimDriver must imitate)
+  - current/decomp/KSA/Universe.cs CurrentSystem
+  - GetElapsedSeconds
+  - HeadlessHarness is an external mod; its API is only described by the consumer mods
+  - current/decomp/KSA/TransferPlanner.cs PlanInterstellarFuel
+  - MassAboard
+  - TankSpace
+  - current/decomp/KSA/PartTree.cs
+  - current/decomp/KSA/Universe.cs GetElapsedSeconds
+  lifecycle:
+  - event:headless-test-run
+  - thread:background
+  approaches:
+  - n: 1
+    title: Consumer mod with its own mod.toml, InternalsVisibleTo and a test base class
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/headless-harness-test-mod
+    - mods/ksa-advancedflightcomputer/features/validated-reflection-handles
+    technique: headless-harness
+    note: '72 named tests. mod.toml depends on HeadlessHarness and the mod under test; empty [StarMapMod]; AfcTest.Run does not catch so MissingMemberException and TypeLoadException classify as API drift; fixtures spawn throwaway vehicles from saves and despawn in finally; KSA_HEADLESS_TESTS filters by exact Name. Merged from test-against-the-games-own-routines (A reflection-targets test that resolves every handle against the running build): ReflectionTargetsTest is the drift detector; README rule - the oracle is the game''s own propagation, never a re-derivation of the maths under test. Merged from make-time-gated-code-deterministic-in-tests (Swap the guidance clock for simulation time in the test base class): AfcTest.Run points GuidanceClock.Source at Universe.GetElapsedSeconds because the harness steps far faster than real time, and resets it in finally.'
+  - n: 2
+    title: Small suite of oracle tests plus a scene dump
+    mod: ksa-deltavmap
+    features:
+    - mods/ksa-deltavmap/features/headless-harness-tests
+    technique: headless-harness
+    note: 'Smaller worked example with HintPath to a sibling HeadlessHarness checkout, Private=false, linked SceneChecks.cs and a scripts/run-headless.ps1 launcher; IHarnessTest classes for multi-star graph, staged delta-v, interstellar fuel and stock planner keys. Merged from test-against-the-games-own-routines (Reflected stock planner calls compared with the mod''s re-implementation): InterstellarFuelTest, StagedDvTest and StockPlannerKeysTest call the private stock routines and the mod''s copies with the same inputs; the test fails the day either side drifts.'
+  related:
+  - test-harmony-patches-without-the-game
+  - unit-test-mod-logic-without-game
+  - run-unattended-scenarios-and-report-a-verdict
+  - declare-a-mod-dependency
+  - spawn-a-vehicle-at-runtime
+  - upgrade-a-mod-to-a-new-ksa-build
+  - estimate-stage-delta-v-yourself
+  - choose-a-clock-under-time-warp
+  - run-mod-simulation-in-a-headless-rig
+  borrowed_from:
+  - mods/ksa-advancedflightcomputer/features/validated-reflection-handles
+  merged_from:
+  - test-against-the-games-own-routines
+  - make-time-gated-code-deterministic-in-tests
+- slug: test-harmony-patches-without-the-game
+  title: Test Harmony patches without running the game
+  summary: Apply the real production patch code to stand-in KSA types in a console test, run a patch-apply check over a new game build offline, or install a test-scoped Harmony owner inside a headless run.
+  game_types:
+  - KSA.Program
+  - KSA.Part
+  - KSA.Universe
+  - KSA.SimStep
+  - KSA.UncompressedSave
+  engine_pointers:
+  - current/decomp/KSA/Program.cs PrepareFrame
+  - HarmonyLib.PatchProcessor.GetOriginalInstructions
+  - HarmonyLib.Harmony.CreateClassProcessor
+  lifecycle:
+  - frame:prepare
+  - event:save
+  - event:load
+  - event:headless-test-run
+  approaches:
+  - n: 1
+    title: Stand-in KSA types in the test, production patches linked in
+    mod: unscience
+    features:
+    - mods/unscience/features/unscience-managed-test-harnesses
+    technique: harmony-prefix
+    note: Eighteen console projects declare namespace KSA stand-ins that mirror member names, mark patched methods NoInlining, and apply the real transpilers and prefixes to a copy of PrepareFrame. Checks timing, save and patch logic with no game start.
+  - n: 2
+    title: Throwaway console app that runs CreateClassProcessor on every patch class
+    mod: purrtty
+    features:
+    - mods/purrtty/features/ksa-upgrade-coupling-review-skill
+    technique: harmony-prefix
+    note: Loads the built mod DLL and the new game DLLs offline; register an AssemblyLoadContext Resolving probe before JIT-compiling methods that mention game types; patch the PE machine field in a scratch KSA.dll copy for arm64 hosts.
+  - n: 3
+    title: IL-level transpiler tests and test-scoped Harmony owners inside a headless run
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/headless-harness-test-mod
+    technique: harmony-transpiler
+    note: ManeuverTranspilerTest runs transpilers over PatchProcessor.GetOriginalInstructions of the current game method; tests that need a feature's hooks apply them under an IDisposable scope with its own Harmony id and remove them afterwards.
+  related:
+  - headless-test-harness-for-game-mods
+  - apply-harmony-patches-independently
+  - upgrade-a-mod-to-a-new-ksa-build
+  - track-the-game-api-your-mod-uses
+  borrowed_from: []
+  dedupe_with:
+  - patching/test-patches-without-the-game
+- slug: test-a-solver-or-controller-offline
+  title: 'Test a solver or controller offline: closed loop, purity and replay'
+  summary: Build a console harness that solves, integrates the dynamics with injected thrust and gimbal dispersions and re-solves, check determinism, input sensitivity and no cross-talk before threading a solve, and replay the exact problem the live game fed the solver from a versioned SI JSON dump with full tracing.
+  game_types:
+  - KSA.Vehicle
+  - KSA.Universe
+  - KSA.IParentBody
+  engine_pointers:
+  - current/decomp/KSA/Vehicle.cs PrepareWorker (the dump site)
+  lifecycle:
+  - thread:background
+  - frame:dispatch-solvers
+  approaches:
+  - n: 1
+    title: RK4 plant with injected dispersions driven by console flags
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/closed-loop-mpc-harness
+    technique: console-checks
+    note: 'McpHarness in tests/AdvancedFlightComputer.Guidance.Tests, invoked from build/ci/test-guidance.ps1; metrics are plan jump, path ratio and solve cost. Merged from verify-a-solve-is-pure-before-threading (Determinism, input-sensitivity and no-cross-talk checks in the harness): Same input twice gives the same plan; changed input changes it; two solver instances run concurrently without affecting each other. These gated the worker-thread move.'
+  - n: 2
+    title: Problem file written before the solve, re-solved by a test-console flag
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/solver-problem-json-replay
+    technique: json-config
+    note: 'Folded from replay-a-live-game-problem-offline (sub-step: give it its own section (dump and replay a live problem)). AscentProblemFile in a game-free assembly; a nullable field reads back as not set in older files, with round-trip tests keeping old files readable.'
+  related:
+  - unit-test-mod-logic-without-game
+  - run-an-expensive-solve-without-stalling-the-frame
+  - fuel-optimal-powered-landing
+  borrowed_from: []
+  merged_from:
+  - closed-loop-simulator-for-guidance
+  - verify-a-solve-is-pure-before-threading
+  - replay-a-live-game-problem-offline
+- slug: dump-and-record-diagnostics-from-a-running-game
+  title: Dump and record diagnostics from a running game without flooding the frame or the log
+  summary: 'Get validation data out of the live game cheaply: a one-shot latched dump once the universe exists, SVG and text dumps of layouts and geometry built by pure code shared with offline tests, batched CSV telemetry, and log lines emitted only when a bucketed state signature changes.'
+  game_types:
+  - KSA.Universe
+  - KSA.CelestialSystem
+  - KSA.Celestial
+  - Brutal.Logging.DefaultCategory
+  - KSA.Vehicle
+  - Brutal.Logging.LogCategory
+  engine_pointers:
+  - current/decomp/KSA/Universe.cs CurrentSystem
+  - Brutal.Logging DefaultCategory
+  - current/decomp/KSA/Vehicle.cs PrepareWorker
+  lifecycle:
+  - frame:draw-ui
+  - frame:dispatch-solvers
+  approaches:
+  - n: 1
+    title: Latched dumps from StarMapAfterGui behind a DebugConfig flag
+    mod: ksa-deltavmap
+    features:
+    - mods/ksa-deltavmap/features/in-game-validation-dumps-and-perf
+    - mods/ksa-deltavmap/features/offline-layout-and-math-tests
+    technique: starmap-lifecycle
+    note: 'Return early unless the flag is set, the latch is clear and Universe.CurrentSystem is non-null; run inside try/catch that logs once so the render path never unwinds. Output capped per tree and written to a configurable directory with log-only fallback. Merged from dump-layouts-and-geometry-to-svg (Pure LayoutDumpFormat shared by offline tests, harness tests and the in-game dump): Synthetic 100+ node tree and a real system laid out and dumped with no text measurer, so the character-count estimate matches between environments; OverlapCheck gives pass-fail verdicts.'
+  - n: 2
+    title: Single-owner CSV sink with batched flush and rate-limited plan snapshots
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/guidance-flight-telemetry-csv
+    technique: logging
+    note: 'Folded from record-diagnostics-without-flooding-the-frame-or-the-log (sub-step: give it its own section (CSV and change-only logging)). Static, single-owner sink that never throws or waits on disk; per-step CSV, plan snapshot JSON, event log, one owner vehicle. Merged from record-diagnostics-without-flooding-the-frame-or-the-log (Vehicle-prefixed log lines keyed on a bucketed signature): Five percent buckets decide when a stage state is new enough to log, instead of logging every refresh.'
+  related:
+  - drive-a-running-game-through-a-file-bridge
+  - measure-and-budget-mod-performance
+  - log-each-problem-once
+  - unit-test-mod-logic-without-game
+  - lay-out-a-tree-or-graph-diagram
+  - keep-a-large-diagram-usable
+  - write-a-per-mod-log-file
+  - test-a-solver-or-controller-offline
+  - keep-per-frame-imgui-text-allocation-free
+  borrowed_from: []
+  merged_from:
+  - dump-state-from-a-running-game-once
+  - dump-layouts-and-geometry-to-svg
+  - record-diagnostics-without-flooding-the-frame-or-the-log
+  dedupe_with:
+  - external-io/record-telemetry-to-csv
+  - getting-started/log-each-problem-once
+- slug: measure-and-budget-mod-performance
+  title: Time hot paths and GPU passes, and throttle expensive work
+  summary: Wrap hot code in zero-cost-when-off scopes with periodic average, minimum and worst-frame reports, read the named GPU profiler regions of a mod pass with a pinned camera so runs are comparable, and throttle per-frame computations on wall-clock intervals, state versions and identity-keyed caches so cost does not scale with FPS or time warp.
+  game_types:
+  - KSA.GpuProfiler
+  - KSA.Profiler
+  - KSA.FixedController
+  - KSA.Program
+  - KSA.Vehicle
+  engine_pointers:
+  - System.Diagnostics.Stopwatch.GetTimestamp
+  - Brutal.Logging DefaultCategory
+  - current/decomp/KSA/GpuProfiler.cs Frames
+  - LastCompleteFrameIndex
+  - IsActive
+  - current/decomp/KSA/Profiler.cs Gpu
+  - current/decomp/KSA/Vehicle.cs FlightPlan
+  - System.Runtime.CompilerServices.ConditionalWeakTable
+  lifecycle:
+  - frame:draw-ui
+  - frame:after-on-frame
+  - frame:render
+  approaches:
+  - n: 1
+    title: DEBUG-only readonly ref struct scope with a periodic report
+    mod: ksa-deltavmap
+    features:
+    - mods/ksa-deltavmap/features/in-game-validation-dumps-and-perf
+    - mods/ksa-measuretools/features/resilient-patching-and-diagnostics
+    - mods/ksa-advancedflightcomputer/features/warn-once-logging-and-diagnostics
+    technique: logging
+    note: PerfTracker.Scope stamps GetTimestamp only if the debug flag is on (otherwise -1); Dispose records ticks; every 5 s the tracker logs avg, min, max and call count per key and clears.
+  - n: 2
+    title: Always-on single-writer counters shown in a status window
+    mod: gatos
+    features:
+    - mods/gatos/features/logging-and-perfstats
+    technique: imgui-window
+    note: Borrowed from getting-started. Volatile single-writer counters with allocation counts, readable live without a debug build.
+  - n: 3
+    title: Nested budget spans with rate-limited overrun warnings
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/starmap-entry-and-fault-containment
+    technique: logging
+    note: Top-level totals, worst frame and an OverrunLog that limits spam.
+  - n: 4
+    title: CloudPassCost reads complete GPU frames while CloudWatch pins the view
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/raymarched-mushroom-cloud
+    technique: reflection
+    note: 'Folded from measure-gpu-cost-of-a-mod-pass (sub-step: give it its own section (GPU cost with a pinned camera)). Borrowed from shaders or rendering. Sample the newest complete profiler frame on the next step; the same pinned pose is used by the dev bridge camera and by the drop scenario''s linger phase.'
+  - n: 5
+    title: 45 ms wall-clock throttle plus a state-version check for hover picks
+    mod: ksa-measuretools
+    features:
+    - mods/ksa-measuretools/features/overlay-drawlist-rendering
+    technique: imgui-drawlist
+    note: 'Folded from throttle-expensive-ui-computation (sub-step: give it its own section (throttle rather than measure)). A frame-count throttle would scale with the refresh rate; a wall-clock interval does not; the cached pick is reused until the state version changes.'
+  - n: 6
+    title: Per-vehicle ConditionalWeakTable cache with real and sim time limits
+    mod: compendium
+    features:
+    - mods/compendium/features/root-closest-approach-search
+    technique: throttled-cache
+    note: 'Folded from throttle-expensive-ui-computation (sub-step: give it its own section (throttle rather than measure)). Cache invalidated when time moves backwards or advances 60 s, when the cached approach time has passed, or after one real second.'
+  - n: 7
+    title: Wall-clock interval for a sight solve so time warp cannot defeat it
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/guided-bomb-tail-kit-and-sight
+    technique: rate-limited-solve
+    note: 'Folded from throttle-expensive-ui-computation (sub-step: give it its own section (throttle rather than measure)). Caches keyed by object identity plus real and sim time limits.'
+  related:
+  - profile-mod-frame-cost
+  - log-each-problem-once
+  - warm-up-hot-code-at-load
+  - hold-a-composed-camera-shot-for-screenshots
+  - run-unattended-scenarios-and-report-a-verdict
+  - run-an-expensive-solve-without-stalling-the-frame
+  - keep-per-frame-imgui-text-allocation-free
+  - pick-objects-under-the-cursor
+  - find-closest-approach-along-the-flight-plan
+  borrowed_from:
+  - mods/gatos/features/logging-and-perfstats
+  - mods/ksarmory/features/raymarched-mushroom-cloud
+  - mods/ksa-measuretools/features/overlay-drawlist-rendering
+  - mods/compendium/features/root-closest-approach-search
+  - mods/ksarmory/features/guided-bomb-tail-kit-and-sight
+  merged_from:
+  - lightweight-perf-scopes
+  - measure-gpu-cost-of-a-mod-pass
+  - throttle-expensive-ui-computation
+  dedupe_with:
+  - getting-started/profile-mod-frame-cost
+- slug: drive-a-running-game-through-a-file-bridge
+  title: Drive a running game from scripts through a developer command bridge
+  summary: Poll a per-mod folder for JSON command files from the frame postfix, run one command at a time and answer atomically, so a shell script, a test runner or an agent can pause, step an exact number of simulated seconds, load a save and wait for a flown craft, spawn and script gameplay inputs; keep the bridge and other developer-only features out of player installs with a marker file, a manifest key or a build flag.
+  game_types:
+  - KSA.Universe
+  - KSA.SimSpeed
+  - KSA.GameSaves
+  - KSA.Vehicle
+  - KSA.Program
+  - KSA.Constants
+  - KSA.SimStep
+  - KSA.KittenEva
+  - KSA.ModManifest
+  - KSA.ModEntry
+  engine_pointers:
+  - current/decomp/KSA/Universe.cs SetSimulationSpeed
+  - GetLastSimStep
+  - current/decomp/KSA/GameSaves.cs LoadSaveGame
+  - current/decomp/KSA/Constants.cs DocumentsFolderPath
+  - current/decomp/KSA/Universe.cs GetLastSimStep
+  - SetSimulationSpeed
+  - current/decomp/KSA/GameSaves.cs LoadSaveGame (line 283)
+  - MakeUncompressedSave
+  - current/decomp/KSA/Program.cs input processing (frame:input)
+  - current/decomp/KSA/ModManifest.cs Save (rewrites only id and enabled)
+  lifecycle:
+  - startup:all-mods-loaded
+  - frame:after-on-frame
+  - startup:game-loaded
+  - frame:input
+  approaches:
+  - n: 1
+    title: in/ and out/ folders, .part rename, polled at 0.1 s from StarMapAfterOnFrame, closures for long commands
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/file-command-bridge
+    - mods/ksacars/features/file-drop-command-bridge
+    - mods/ksarmory/features/file-command-bridge-and-mcp
+    - mods/ksastructures/features/dev-file-bridge-and-mcp
+    - mods/ksarmory/features/unattended-scenario-runner
+    - mods/ksagolf/features/putting-session
+    - mods/ksarmory/features/build-deploy-package-release
+    - mods/ksarmory/features/own-log-file-and-developer-switch
+    technique: starmap-lifecycle
+    note: 'No port or firewall, works across WSL to Windows. A per-mod subfolder so sibling mods never answer each other; id and cmd keys; KSA-free BridgeCommand.TryParse unit-tested; immediate commands reply the same frame, long ones install a Func(dtPlayer, dtSim) returning a reply; a sequence of files is a script. Gate it with the developer marker. Merged from step-the-simulation-an-exact-number-of-seconds (Bridge step command that sums GetLastSimStep().DeltaTime): Pause is simulation speed 0 via SetSimulationSpeed(new SimSpeed(x)); there is no 0.1x floor in the engine, only in the UI. Merged from load-a-save-from-code (Load command with a wait-for-world closure): KSArmory''s scenario runner loads a named save three seconds after start; the bridges poll until a craft is flown before replying. Merged from script-gameplay-through-a-command-bridge (golf and course bridge commands drive the putting session): Borrowed from kittens. Commands drop, pickup, address and a swing array of mouse
+      dx per frame with wait_s; the replies feed assertions. Merged from gate-developer-only-features (An empty developer file beside the DLL, written by the deploy script and never packaged): Build.Developer is true when the file exists; the package script refuses to include it, so a release can never enable the bridge.'
+  - n: 2
+    title: A custom key on the mod's manifest.toml entry
+    mod: kittenextensions
+    features:
+    - mods/kittenextensions/features/patch-debug-stepper
+    technique: toml-config
+    note: 'Folded from gate-developer-only-features (sub-step of the bridge: give it its own section (keep the bridge out of player installs)). Read the extra key from the player''s manifest.toml; note that the game''s ModManifest.Save rewrites only id and enabled, so extra keys are dropped when the game saves.'
+  - n: 3
+    title: DEBUG compile flag plus a DebugConfig runtime switch
+    mod: ksa-deltavmap
+    features:
+    - mods/ksa-deltavmap/features/in-game-validation-dumps-and-perf
+    technique: msbuild
+    note: 'Folded from gate-developer-only-features (sub-step of the bridge: give it its own section (keep the bridge out of player installs)). Whole dump and perf code is'
+  related:
+  - expose-a-running-game-to-an-ai-agent-with-mcp
+  - take-screenshots-from-code
+  - hot-reload-mod-shaders
+  - run-unattended-scenarios-and-report-a-verdict
+  - spawn-a-vehicle-at-runtime
+  - step-mod-simulation-on-sim-time
+  - advance-mod-physics-on-simulated-time
+  - set-simulation-speed-from-a-mod
+  - swing-a-tool-with-the-mouse-as-a-kitten
+  - package-a-mod-release-zip
+  - mod-toml-reference
+  - ksa-mod-folders-and-manifest
+  - debug-xml-patches
+  borrowed_from:
+  - mods/ksagolf/features/putting-session
+  - mods/ksarmory/features/own-log-file-and-developer-switch
+  merged_from:
+  - step-the-simulation-an-exact-number-of-seconds
+  - load-a-save-from-code
+  - script-gameplay-through-a-command-bridge
+  - gate-developer-only-features
+  dedupe_with:
+  - external-io/script-gameplay-through-a-command-bridge
+  - external-io/step-the-simulation-an-exact-number-of-seconds
+  - external-io/load-a-save-from-code
+  - persistence/load-a-save-from-code
+  - external-io/gate-developer-only-features-behind-a-marker-file
+- slug: expose-a-running-game-to-an-ai-agent-with-mcp
+  title: Expose a running game to an AI agent through MCP
+  summary: Give an agent tools to launch or reuse the game, pause, step, move the camera, screenshot and read replies, either by wrapping the file bridge in a stdlib Python MCP server or by hosting an MCP endpoint inside the game process.
+  game_types:
+  - KSA.Program
+  - KSA.Universe
+  engine_pointers:
+  - ModelContextProtocol.Core C# SDK (in-process approach)
+  - .mcp.json registration
+  lifecycle:
+  - startup:all-mods-loaded
+  - frame:after-on-frame
+  - thread:background
+  approaches:
+  - n: 1
+    title: Stdlib Python JSON-RPC over stdio wrapping the file bridge
+    mod: ksacars
+    features:
+    - mods/ksacars/features/ksa-mcp-server
+    - mods/ksagolf/features/file-command-bridge
+    - mods/ksastructures/features/dev-file-bridge-and-mcp
+    - mods/ksarmory/features/file-command-bridge-and-mcp
+    technique: mcp-server
+    note: server.py with initialize, tools/list and tools/call; doubles as a CLI; finds the user directory via a helper script; launches the game only if none runs and never closes one it did not launch; converts Windows paths to WSL; registered in .mcp.json as server ksa.
+  - n: 2
+    title: In-process stateless Streamable HTTP endpoint on the official C# SDK
+    mod: gatos
+    features:
+    - mods/gatos/features/mcp-server-for-agents
+    technique: mcp-server
+    note: Borrowed from external-io. A TcpListener adapter with host and origin checks, 24 MiB cap and 3 minute timeout; resources and tools over simulation snapshots; no bearer token, so keep it on loopback.
+  related:
+  - drive-a-running-game-through-a-file-bridge
+  - visual-regression-for-mods
+  - hot-reload-mod-shaders
+  borrowed_from:
+  - mods/gatos/features/mcp-server-for-agents
+  dedupe_with:
+  - external-io/let-ai-agents-control-the-game-over-mcp
+  - external-io/design-an-agent-facing-game-api
+- slug: take-screenshots-from-code
+  title: Take clean game screenshots from mod code
+  summary: Ask KSA's own ScreenshotCapture for a frame with a UI-free warm-up, collect the file and write a manifest of time, speed, field of view and the subject's screen position.
+  game_types:
+  - KSA.ScreenshotCapture
+  - KSA.Program
+  - KSA.Camera
+  - KSA.Constants
+  engine_pointers:
+  - current/decomp/KSA/ScreenshotCapture.cs Request(int scale
+  - string flags)
+  - current/decomp/KSA/Program.cs _screenshotCapture (private)
+  - Constants.DocumentsFolderPath exports/screenshots
+  lifecycle:
+  - frame:after-on-frame
+  - frame:post-render
+  approaches:
+  - n: 1
+    title: Reflect the private Program._screenshotCapture once and call the public Request with warm=N
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/visual-testing-captures
+    - mods/ksastructures/features/dev-file-bridge-and-mcp
+    - mods/ksarmory/features/file-command-bridge-and-mcp
+    - mods/ksacars/features/file-drop-command-bridge
+    technique: reflection
+    note: warm=24 hides the UI during warm-up; move the newest ksa_*.png out of the exports folder; do not start a capture from inside the UI pass - set a flag and start it on the next update; account for Renderer.ExtentOverride on scaled captures; manifest holds craft_screen from camera.EgoToClipDouble.
+  related:
+  - visual-regression-for-mods
+  - capture-rendered-frames
+  - hold-a-composed-camera-shot-for-screenshots
+  - project-world-positions-to-screen
+  - drive-a-running-game-through-a-file-bridge
+  borrowed_from: []
+  dedupe_with:
+  - external-io/take-screenshots-from-code
+  - rendering/capture-rendered-frames
+  - camera/hold-a-composed-camera-shot-for-screenshots
+- slug: visual-regression-for-mods
+  title: Visual regression testing for a KSA mod
+  summary: Capture pairs or series of frames at the same simulated instant, then diff variants, build contact sheets and GIFs, and compute a temporal standard-deviation map to separate real change from render noise.
+  game_types:
+  - KSA.ScreenshotCapture
+  - KSA.Camera
+  engine_pointers:
+  - current/decomp/KSA/ScreenshotCapture.cs
+  lifecycle:
+  - frame:after-on-frame
+  - frame:post-render
+  - thread:background
+  approaches:
+  - n: 1
+    title: Same-instant variant diffs and noise maps with a vis.py toolbox
+    mod: ksagolf
+    features:
+    - mods/ksagolf/features/visual-testing-captures
+    technique: image-diff
+    note: Series spaced in simulated seconds or frames; the variants composite pauses, sets a field, captures, restores and diffs. tools/vis/vis.py crops around the craft using the manifest's screen position.
+  - n: 2
+    title: Contact sheets, GIFs and temporal-noise maps returned inline through the MCP server
+    mod: ksacars
+    features:
+    - mods/ksacars/features/ksa-mcp-server
+    - mods/ksastructures/features/dev-file-bridge-and-mcp
+    - mods/ksarmory/features/file-command-bridge-and-mcp
+    technique: mcp-server
+    note: Multi-frame captures become a contact sheet and GIF; images return base64 as JPEG; KSArmory pairs it with a verify-in-game skill and docs/VISUAL-TESTING.md.
+  related:
+  - take-screenshots-from-code
+  - expose-a-running-game-to-an-ai-agent-with-mcp
+  - hold-a-composed-camera-shot-for-screenshots
+  - run-unattended-scenarios-and-report-a-verdict
+  borrowed_from: []
+  dedupe_with:
+  - camera/hold-a-composed-camera-shot-for-screenshots
+- slug: run-unattended-scenarios-and-report-a-verdict
+  title: Fly scripted scenarios unattended, report PASS or FAIL and A/B test variants
+  summary: A developer-only state machine reads a request file at launch, loads a save, spawns targets, flies an engagement or drop, and writes tagged lines that a shell harness turns into an exit code, with budgets and restored settings; the same runner can fly interleaved variant batches and judge noisy results with a rank test.
+  game_types:
+  - KSA.GameSaves
+  - KSA.Popup
+  - KSA.Program
+  - KSA.Universe
+  engine_pointers:
+  - current/decomp/KSA/Popup.cs Popups (private static list)
+  - current/decomp/KSA/GameSaves.cs LoadSaveGame
+  lifecycle:
+  - startup:all-mods-loaded
+  - frame:draw-ui
+  - frame:after-on-frame
+  approaches:
+  - n: 1
+    title: Request file taken once, state machine, wall-clock and sim-time budgets, tagged SCENARIO lines
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/unattended-scenario-runner
+    technique: starmap-lifecycle
+    note: A file rather than an environment variable because the game is a Windows process launched from WSL. Take-once delete; Config and log threshold snapshotted and restored; open KSA popups closed each frame via the private Popup.Popups list by reflection because an open popup holds the craft's throttle; TIMEOUT describes where it was stuck.
+  - n: 2
+    title: Overnight shot batch with seeded interleaving and Wilcoxon rank-sum verdicts
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/shot-night-statistics
+    technique: statistics
+    note: 'Folded from ab-test-mod-behaviour-in-flight (sub-step: give it its own section (statistics on noisy in-game results)). shot-batch.sh builds each arm up front, interleaves, copies each shot''s log out, takes a lock, supports resume and plan-only; shot-report.py uses exact permutation null and Hodges-Lehmann effect on the mean miss on a log scale. Merged from ab-test-mod-behaviour-in-flight (Within-run variant split by craft or tube): Per-craft settings applied by field name through ShotArms, so both arms experience the same conditions in one flight.'
+  related:
+  - drive-a-running-game-through-a-file-bridge
+  - headless-test-harness-for-game-mods
+  - visual-regression-for-mods
+  - measure-and-budget-mod-performance
+  borrowed_from: []
+  merged_from:
+  - ab-test-mod-behaviour-in-flight
+  dedupe_with:
+  - external-io/run-an-unattended-scenario-and-report-pass-or-fail
+- slug: live-tweak-constants-in-game
+  title: Tweak layout and animation constants live in the running game
+  summary: Reflect public static fields into ImGui sliders, persist only the values that differ from the defaults, and dump the result as C# source to paste back into the code.
+  game_types:
+  - Brutal.ImGuiApi.ImGui
+  engine_pointers:
+  - Brutal.ImGuiApi ImGui.SetClipboardText
+  lifecycle:
+  - startup:all-mods-loaded
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: Reflection over Tuning fields, override-only persistence and Copy as source
+    mod: ksa-public-telemetry
+    features:
+    - mods/ksa-public-telemetry/features/live-tuning-and-palette-reflection
+    technique: reflection
+    note: About 50 static float and int fields plus uint colour fields; sliders take the field by ref; defaults are snapshotted at type initialisation; unknown names ignored on load.
+  related:
+  - build-a-settings-window
+  - build-a-developer-panel
+  - tune-kitten-locomotion-and-animation-parameters
+  - edit-exhaust-and-cloud-templates-live
+  - tune-compute-shader-constants-live-with-specialization-constants
+  borrowed_from: []
+  dedupe_with:
+  - ui/build-a-developer-panel
+  - kittens/tune-kitten-locomotion-and-animation-parameters
+  - rendering/edit-exhaust-and-cloud-templates-live
+  - shaders/tune-compute-shader-constants-live-with-specialization-constants
+- slug: debug-xml-patches
+  title: Debug and audit XML patches
+  summary: Find out which mod changed a given XML value and why a patch did not apply - by stepping through the patch actions in an ImGui debugger, or by reading a per-session log of every mutation.
+  game_types:
+  - KSA.ModLibrary
+  - KSA.Constants
+  - KSA.Popup
+  - KSA.Program
+  - KSA.ModManifest
+  - KSA.ModEntry
+  engine_pointers:
+  - current/decomp/KSA/ModLibrary.cs PrepareAll
+  - current/decomp/KSA/ModManifest.cs Save
+  - current/decomp/KSA/Constants.cs LogsFolderPath
+  lifecycle:
+  - startup:starmap-before-main
+  - startup:asset-load
+  approaches:
+  - n: 1
+    title: Step debugger enabled by a debug key in manifest.toml
+    mod: kittenextensions
+    features:
+    - mods/kittenextensions/features/patch-debug-stepper
+    technique: harmony-prefix
+    note: Blocks startup in an ImGui popup with Run All, Step, Step Over and Step Out, an action tree with target and source XPath results, an XPath tester and a live document tree; root.xml holds the unpatched document.
+  - n: 2
+    title: Per-session patch log subscribed to executor events
+    mod: kittenextensions
+    features:
+    - mods/kittenextensions/features/patch-session-log
+    technique: logging
+    note: KittenExtensions.log deleted at StarMapBeforeMain, one line per Set, Insert, InsertText or Remove with old and new values, searchable by target file and object; per-file summaries echoed to the game log.
+  related:
+  - drive-a-running-game-through-a-file-bridge
+  - change-stock-system-and-body-xml-without-editing-core
+  - write-a-per-mod-log-file
+  - check-and-generate-mod-assets-offline
+  borrowed_from: []
+  dedupe_with:
+  - assets/debug-xml-patches
+- slug: hot-reload-mod-shaders
+  title: Recompile a mod's shader while the game runs
+  summary: KSA's shader reloader only maps paths under Content, so a mod shader needs its own reload - invoke the internal FileReference.DoLoad on the ShaderReference by reflection, then release the pipelines that held the old module.
+  game_types:
+  - KSA.FileReference
+  - KSA.ShaderReference
+  - KSA.ModLibrary
+  - KSA.AssetReloader.ShaderReloader
+  engine_pointers:
+  - current/decomp/KSA/FileReference.cs DoLoad (internal virtual)
+  - current/decomp/KSA.AssetReloader/ShaderReloader.cs
+  - current/decomp/KSA/ShaderReference.cs
+  lifecycle:
+  - frame:after-on-frame
+  approaches:
+  - n: 1
+    title: Bridge command that calls DoLoad and drops cached pipelines
+    mod: ksastructures
+    features:
+    - mods/ksastructures/features/dev-file-bridge-and-mcp
+    - mods/ksastructures/features/core-shader-library-include
+    technique: reflection
+    note: Reports the module handle and file SHA-1 before and after; a missing file makes DoLoad destroy the old module and keep nothing, so check existence first; a bad compile throws in the current build.
+  - n: 2
+    title: ModLibrary.TryGet per shader id, VkHandle comparison and CloudPass.Release
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/file-command-bridge-and-mcp
+    - mods/ksarmory/features/core-shader-library-include
+    technique: reflection
+    note: Exposed through the MCP server so an agent edits GLSL and reads the result in a capture.
+  related:
+  - compile-mod-shaders-offline
+  - reload-a-mod-shader-in-a-running-game
+  - drive-a-running-game-through-a-file-bridge
+  - expose-a-running-game-to-an-ai-agent-with-mcp
+  - include-the-game-shader-library-in-mod-glsl
+  - make-the-game-rebuild-shaders-and-luts-after-a-change
+  borrowed_from: []
+  dedupe_with:
+  - shaders/reload-a-mod-shader-in-a-running-game
+- slug: compile-mod-shaders-offline
+  title: Compile mod GLSL against the game's shader library without launching the game
+  summary: Run glslangValidator with the install's shader folder on the include path, so a typo or missing include fails in a pre-push hook or CI rather than at game load, and skip with a notice when the game is absent.
+  game_types: []
+  engine_pointers:
+  - current/Content/Core/Shaders (the include path)
+  - GL_GOOGLE_include_directive
+  lifecycle: []
+  approaches:
+  - n: 1
+    title: check-shaders.sh in the pre-push hook and CI
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/repo-static-checks
+    - mods/ksarmory/features/core-shader-library-include
+    technique: glsl-shader
+    note: glslangValidator with the Core include path; skip-with-notice when no install exists.
+  - n: 2
+    title: Shader check beside asset and mesh validation
+    mod: ksastructures
+    features:
+    - mods/ksastructures/features/asset-and-mesh-validation-tools
+    - mods/ksastructures/features/core-shader-library-include
+    technique: glsl-shader
+    note: The same script with -I on the install's shader folder as part of the validation suite.
+  related:
+  - hot-reload-mod-shaders
+  - check-mod-shaders-offline-with-glslang
+  - run-repo-checks-from-a-pre-push-hook-and-ci
+  - keep-glsl-constants-in-sync-with-csharp
+  - check-and-generate-mod-assets-offline
+  borrowed_from: []
+  dedupe_with:
+  - shaders/check-mod-shaders-offline-with-glslang
+- slug: check-and-generate-mod-assets-offline
+  title: Validate and generate mod assets and data offline, without the game
+  summary: Catch the failures the game hides silently by checking part and asset XML ids, GLB mesh names and paths, z-fighting faces and bad UVs with scripts before launch, and keep measured or computed tables (C#, XML values, GLSL tables) in one offline generator, including fitting shader parameters with an offline port of the renderer.
+  game_types:
+  - KSA.ModLibrary
+  - KSA.PhysicalAtmosphereReference
+  - KSA.AtmosphereRenderer
+  engine_pointers:
+  - current/decomp/KSA/ModLibrary.cs
+  - current/Content/Core (shared atlases and ids)
+  - current/decomp/KSA/PhysicalAtmosphereReference.cs
+  - current/Content/Core/Shaders (atmosphere shaders)
+  - current/decomp/KSA/AtmosphereRenderer.cs
+  lifecycle:
+  - startup:asset-load
+  approaches:
+  - n: 1
+    title: validate-parts.py with check-xml.sh
+    mod: ksastructures
+    features:
+    - mods/ksastructures/features/asset-and-mesh-validation-tools
+    technique: asset-validation
+    note: 'Duplicate ids and collisions, mesh names inside GLB atlases, exact-case paths, shared textures, mod.toml assets and ids referenced in C#. Merged from check-glb-meshes-for-z-fighting-offline (checkmesh.py and meshinfo.py): Coplanar bucket test and degenerate UV detection.'
+  - n: 2
+    title: Id and path validation against Core in an art pipeline
+    mod: ksacars
+    features:
+    - mods/ksacars/features/art-and-audio-pipeline-tooling
+    - mods/ksagolf/features/glb-authoring-and-mesh-checks
+    technique: asset-validation
+    note: 'Borrowed from assets. Also GLB bounds from accessor min/max and atlas dilation. Merged from check-glb-meshes-for-z-fighting-offline (Mesh checkers bundled with a GLB authoring contract): Borrowed from assets. Zero UV-area faces, coplanar z-fighting, unmaterialed primitives and bad asset references.'
+  - n: 3
+    title: make_flight_atmospheres.py emitting AtmosphereTables.Generated.cs
+    mod: realatmospheres
+    features:
+    - mods/realatmospheres/features/measured-atmosphere-generator
+    technique: code-generation
+    note: 'Folded from generate-mod-data-as-csharp (sub-step: give it its own section (one generator, many outputs)). Per-body profiles, KSA''s boundary rule, decimation that mirrors runtime interpolation; one source of truth for C#, XML and GLSL. Merged from fit-parameters-with-an-offline-port-of-the-renderer (atmosphere_model.py, mie.py and fit_titan_colour.py): Calibrated on a screenshot; used to fit a Titan colour and Mie parameters.'
+  related:
+  - validate-part-xml-before-loading
+  - run-repo-checks-from-a-pre-push-hook-and-ci
+  - define-a-part-with-game-data
+  - generate-measured-atmosphere-tables-offline
+  - ship-lookup-data-inside-glsl-source
+  - keep-glsl-constants-in-sync-with-csharp
+  - tune-atmosphere-scattering-in-system-xml
+  - take-screenshots-from-code
+  - add-per-pixel-detail-over-the-atmosphere-luts
+  borrowed_from:
+  - mods/ksacars/features/art-and-audio-pipeline-tooling
+  - mods/ksagolf/features/glb-authoring-and-mesh-checks
+  merged_from:
+  - validate-asset-xml-offline
+  - check-glb-meshes-for-z-fighting-offline
+  - generate-mod-data-as-csharp
+  - fit-parameters-with-an-offline-port-of-the-renderer
+  dedupe_with:
+  - assets/validate-asset-xml-references
+  - assets/find-z-fighting-and-degenerate-uvs-in-glb
+  - assets/read-glb-mesh-names-and-bounds
+  - vehicles-and-parts/validate-part-xml-before-loading
+  - celestials/generate-measured-atmosphere-tables-offline
+  - shaders/keep-glsl-constants-in-sync-with-csharp
+- slug: decompile-the-game-for-reference
+  title: Keep a searchable decompiled copy of the game next to your mod
+  summary: Decompile the game's assemblies with ilspycmd into a gitignored folder stamped with the game version, so you, your tools and your AI assistant can grep real engine code, and diff two builds when the game updates.
+  game_types: []
+  engine_pointers:
+  - current/decomp (the ksa-game-assemblies mirror layout)
+  - version.json
+  lifecycle: []
+  approaches:
+  - n: 1
+    title: Refresh-Decompiled.ps1 with a VERSION stamp and assistant instructions
+    mod: compendium
+    features:
+    - mods/compendium/features/decompiled-source-refresh
+    technique: decompiling
+    note: ilspycmd -p per selected assembly into a gitignored folder; VERSION.txt stamp; .github/copilot-instructions.md tells assistants to search it.
+  - n: 2
+    title: Pinned ilspycmd decompile-assemblies.sh for diffing builds
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/api-surface-tracking
+    - mods/ksacars/features/api-surface-pinning-and-diff
+    - mods/ksagolf/features/api-surface-and-assembly-lock
+    technique: decompiling
+    note: A pinned ilspycmd version so both builds decompile identically, then ksa-api-diff.sh restricts the diff to the files and members the mod's surface touches.
+  related:
+  - track-the-game-api-your-mod-uses
+  - upgrade-a-mod-to-a-new-ksa-build
+  - pin-the-game-build-with-a-hashed-lock
+  borrowed_from: []
+- slug: track-the-game-api-your-mod-uses
+  title: List exactly which game APIs your mod binds to, and pin Harmony targets at compile time
+  summary: Read the TypeRef and MemberRef tables of your built DLL into a committed document that CI checks, and turn reflected Harmony targets into compile-time dependencies with never-called pin methods so a signature change is a compile error and appears in the API surface.
+  game_types:
+  - KSA.Vehicle
+  - KSA.Program
+  - KSA.SunbloomRenderer
+  - KSA.PartModelRenderer
+  engine_pointers:
+  - System.Reflection.Metadata PEReader
+  - MetadataReader
+  - ISignatureTypeProvider
+  - current/decomp/KSA/Vehicle.cs PrepareWorker
+  - current/decomp/KSA/Program.cs OnGameLoaded
+  lifecycle:
+  - startup:all-mods-loaded
+  approaches:
+  - n: 1
+    title: tools/apisurface extractor and docs/KSA-API-SURFACE.md checked in CI
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/api-surface-tracking
+    - mods/ksacars/features/api-surface-pinning-and-diff
+    - mods/ksagolf/features/api-surface-and-assembly-lock
+    technique: metadata-analysis
+    note: 'Only assemblies named KSA, Brutal, Bepu or StarMap are kept; always rebuild first so a stale DLL cannot report a false match; --check mode in CI. nameof and reflection by string are invisible to it - see pin-harmony-targets-at-compile-time. Merged from pin-harmony-targets-at-compile-time (Private PinTheSignature method per hook class): Works only for accessible members; a patch on a private method such as Program.OnFrameCelestials cannot be pinned and is resolved by name with a logged fallback.'
+  related:
+  - decompile-the-game-for-reference
+  - upgrade-a-mod-to-a-new-ksa-build
+  - pin-the-game-build-with-a-hashed-lock
+  - test-harmony-patches-without-the-game
+  - apply-harmony-patches-independently
+  borrowed_from: []
+  merged_from:
+  - pin-harmony-targets-at-compile-time
+  dedupe_with:
+  - external-io/record-and-check-the-api-other-mods-bind-to
+- slug: pin-the-game-build-with-a-hashed-lock
+  title: Pin the KSA build with a hashed assemblies lock and notice new builds
+  summary: Commit SHA-256 digests of the referenced game DLLs plus the build number so local builds, a private CI mirror and the running game agree on one KSA build, stamp that build into the mod for a runtime comparison, and poll the version endpoint from a scheduled job to learn of a new build before players do.
+  game_types:
+  - KSA.Vehicle
+  - KSA.VersionInfo
+  engine_pointers:
+  - current/decomp/KSA/VersionInfo.cs Current.VersionString
+  - current/decomp/KSA/VersionInfo.cs MASTER_URL
+  - Master.VersionString
+  lifecycle:
+  - startup:immediate-load
+  approaches:
+  - n: 1
+    title: ksa-assemblies.lock, check-assemblies.sh and AssemblyMetadata from the lock
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/ksa-assemblies-lock
+    - mods/ksagolf/features/api-surface-and-assembly-lock
+    - mods/ksacars/features/api-surface-pinning-and-diff
+    - mods/ksastructures/features/headless-tests-and-ci
+    technique: msbuild
+    note: 'The lock holds only names and digests, safe in a public repo; check-assemblies.sh derives the list from the csproj references and has --update and --game modes; Directory.Build.props resolves KsaDllDir first-match-wins with an explicit error; CI checks out the private mirror with a read-only deploy key and skips with a notice on forks. Merged from detect-a-new-ksa-build-automatically (check-ksa-version.sh in a daily ksa-version.yml workflow): The script asks the same master server the game does and compares with the lock; the failing run is the notification.'
+  related:
+  - reference-game-assemblies-from-a-mod-project
+  - build-in-ci-without-the-game-installed
+  - check-the-game-version
+  - upgrade-a-mod-to-a-new-ksa-build
+  borrowed_from: []
+  merged_from:
+  - detect-a-new-ksa-build-automatically
+  dedupe_with:
+  - getting-started/reference-game-assemblies-from-a-mod-project
+  - getting-started/check-the-game-version
+- slug: upgrade-a-mod-to-a-new-ksa-build
+  title: Upgrade a mod to a new KSA build and degrade gracefully when the API drifts
+  summary: A repeatable procedure (refresh the pinned binaries and decompiled corpus, diff only what the mod touches, classify each coupling by how it fails, fix, record the new build and fly it), plus runtime design that resolves game members once and latches a single feature as degraded instead of crashing.
+  game_types:
+  - KSA.Program
+  - KSA.GameSettings
+  - KSA.ImGuiBackendVulkanImpl
+  - KSA.Vehicle
+  engine_pointers:
+  - current/version.json (changelog commits can have gaps; the decomp diff is the full record)
+  - current/decomp
+  - current/dll
+  lifecycle:
+  - event:game-update
+  - startup:all-mods-loaded
+  - frame:viewports
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: Lock, decompile both builds, diff narrowed to the API surface, then update the lock
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/ksa-assemblies-lock
+    - mods/ksarmory/features/api-surface-tracking
+    - mods/ksacars/features/api-surface-pinning-and-diff
+    - mods/ksagolf/features/api-surface-and-assembly-lock
+    technique: decompiling
+    note: Four commands - sync-import.sh, sync-assemblies.sh, check-assemblies.sh --update, commit; packaged as an upgrade-ksa agent skill that also diffs Core XML and pushes the private mirror first.
+  - n: 2
+    title: Coupling-catalog review skill that classifies how each coupling fails
+    mod: purrtty
+    features:
+    - mods/purrtty/features/ksa-upgrade-coupling-review-skill
+    technique: agent-skill
+    note: Direct member reference fails at compile, Harmony targets at load, reflection silently, behaviour silently wrong; asset ids at runtime; severity per touchpoint; the baseline is the last validated build, not the previous folder.
+  - n: 3
+    title: KsaAnchor-annotated bindings, scope catalog and changelog scan
+    mod: gatos
+    features:
+    - mods/gatos/features/ksa-anchor-churn-tracking
+    technique: annotation
+    note: 'Every KSA binding carries member, source file, verified date, game version and risk, so a compile break lands on an annotated site and grep finds every reflection target; the playbook is also an agent skill. Merged from degrade-one-feature-on-api-drift (Per-accessor health latches published in the snapshot): KsaHealth.Fault logs once and marks the accessor degraded; later commands return EOPNOTSUPP; a later success clears it; the list is published as /sim/status/accessors.'
+  - n: 4
+    title: A validated reflection-handle class that lets each feature refuse to load
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/validated-reflection-handles
+    technique: reflection
+    note: 'Folded from degrade-one-feature-on-api-drift (sub-step: give it its own section (design for drift)). Borrowed from patching. One class resolves every private member, tagged by feature; a missing handle disables only the features that need it.'
+  related:
+  - track-the-game-api-your-mod-uses
+  - decompile-the-game-for-reference
+  - pin-the-game-build-with-a-hashed-lock
+  - test-harmony-patches-without-the-game
+  - headless-test-harness-for-game-mods
+  - apply-harmony-patches-independently
+  - contain-exceptions-in-starmap-hooks
+  - check-the-game-version
+  borrowed_from:
+  - mods/ksa-advancedflightcomputer/features/validated-reflection-handles
+  merged_from:
+  - degrade-one-feature-on-api-drift
+  dedupe_with:
+  - patching/detect-game-update-breakage-in-patches
+  - patching/validate-game-reflection-targets-at-load
+  - patching/refuse-a-patch-and-roll-back-when-the-game-changes
+  - getting-started/check-the-game-version
+- slug: run-repo-checks-from-a-pre-push-hook-and-ci
+  title: Run one check script from the pre-push hook and from CI
+  summary: Gather boundary checks and other textual guards, tests, API-surface and lock checks, shader compiles, asset validators and CI smoke checks of bundled native libraries and guest images into one check-all script that both a git hook and the CI workflow call, skipping game-dependent steps with a notice when no install is present.
+  game_types: []
+  engine_pointers: []
+  lifecycle:
+  - thread:background
+  approaches:
+  - n: 1
+    title: About twenty textual and offline checks with skip-with-notice
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/repo-static-checks
+    - mods/ksarmory/features/sim-boundary-headless-tests
+    technique: git-hooks
+    note: 'tools/check-all.sh, .githooks/pre-push; checks include Sim boundary, network egress, planet-agnostic code, XML, settings reachability, shader compile, documented numbers and tracked artefacts. Merged from enforce-code-rules-with-textual-guards (Network egress check): check-network.sh proves the only egress is the player''s Send button, which also justifies choosing a file bridge over a socket. Merged from enforce-code-rules-with-textual-guards (Documented-numbers, tunable-reachability and planet-agnostic checks): check-tunables.py, check-bodies.sh and check-studies.py keep docs, settings UI and code in step.'
+  - n: 2
+    title: check-all.sh plus a test script and a CI that builds against a private assemblies repo
+    mod: ksastructures
+    features:
+    - mods/ksastructures/features/headless-tests-and-ci
+    - mods/ksacars/features/headless-sim-tests
+    - mods/ksagolf/features/headless-sim-tests
+    - mods/ksarmory/features/sim-boundary-headless-tests
+    technique: git-hooks
+    note: 'The same script runs in .githooks/pre-push and ci.yml; forks without the private-repo secret still run the game-free parts. Merged from enforce-code-rules-with-textual-guards (check-boundary.sh over the Sim folder): Textual check that complements the compile-time boundary from the test project''s missing reference.'
+  - n: 3
+    title: cargo and zig cc builds plus a C layout probe in CI
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/native-solver-build-and-abi-check
+    technique: github-actions
+    note: 'Folded from build-and-abi-check-native-libraries (sub-step: give it its own section (native ABI checks in CI)). build-clarabel.ps1 and an SCS build; build/NativeChecks/Program.cs against native-layout.c; per-platform runs.'
+  - n: 4
+    title: build-image.sh, respawned sshd and agent supervisors, fetch-guest.sh and a guest-image workflow
+    mod: gatos
+    features:
+    - mods/gatos/features/alpine-guest-image
+    technique: ci-pipeline
+    note: 'Folded from ship-a-linux-guest-image-with-a-mod (sub-step: give it its own section (guest image smoke boot in CI)). Direct-kernel boot artifacts plus a manifest; static committed SSH keys for a local-only guest; inittab respawn lines supervise sshd, the guest agent and mounts.'
+  related:
+  - unit-test-mod-logic-without-game
+  - build-in-ci-without-the-game-installed
+  - compile-mod-shaders-offline
+  - check-and-generate-mod-assets-offline
+  - ship-native-libraries-with-a-mod
+  - package-a-mod-release-zip
+  - publish-a-release-from-ci
+  borrowed_from: []
+  merged_from:
+  - enforce-code-rules-with-textual-guards
+  - build-and-abi-check-native-libraries
+  - ship-a-linux-guest-image-with-a-mod
+  dedupe_with:
+  - getting-started/build-in-ci-without-the-game-installed
+  - getting-started/ship-native-libraries-with-a-mod
+  - external-io/run-a-virtual-machine-alongside-the-game

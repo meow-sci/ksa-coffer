@@ -1,0 +1,5 @@
+# Write a fullscreen post-processing fragment shader for KSA history
+
+## 2026-10-10
+* **Creation**: Added [Write a fullscreen post-processing fragment shader for KSA](overview.md) (4 approaches): [Write a post-processing fragment shader: the minimal identity-for-neutral pass (MPFX contract)](write-a-post-processing-fragment-shader-1.md), [Write a post-processing fragment shader: extra textures and the port from subpasses to dynamic rendering](write-a-post-processing-fragment-shader-2.md), [Write a post-processing fragment shader: how a pass is built from RenderTechnique and RenderTarget](write-a-post-processing-fragment-shader-3.md), [Write a post-processing fragment shader: a ShaderReference subclass that builds its own descriptor set](write-a-post-processing-fragment-shader-4.md). Written from the pinned mod checkouts and verified against the decompiled game build 2026.10.10.5554.
+* **Update**: Independent review (claude-code/sonnet-5.5): article 3 lifecycle table now records that the first call of the transpiled replacement method schedules a renderer rebuild (`Program.ScheduleRendererRebuild`, checked against `Patches.cs` and the decomp).

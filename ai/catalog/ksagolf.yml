@@ -1,0 +1,954 @@
+mod: ksagolf
+repo: KSAGolf
+ref: f3e6ab72b5b963f615cb4ed41f7765a7bce42688
+summary: >-
+  KSAGolf (LaurensDeV) is a golf mod foundation for Kitten Space Agency built on StarMap and
+  Harmony. Despite the README's 'nothing to play yet', the code implements putting (the flown kitten
+  carries a putter, drops a ball, steps up with G and swings with the mouse, optionally in first
+  person) and a top-down minigolf course builder whose pieces the ball banks off and a kitten stands
+  on. Around that it carries reusable foundation: one-step-per-frame stepping on KSA's applied sim
+  step from three hooks, a two-instant draw anchor against the 29.8 km/s ecliptic carrier, a
+  FixedController subclass swapped into the main viewport, kitten posing through IAnimProcessor and
+  props on cosmetic attachments, mesh draws in a ClearBuckets postfix, Bepu clutter statics and
+  launch-site collider copies, terrain queries, a file command bridge with an MCP server and
+  screenshot manifests, and a full KSA-update, test, package and release toolchain. Built against
+  KSA 2026.9.22.5482; much of the gameplay is unit-tested but unverified in game per the repo.
+features:
+  - id: mods/ksagolf/features/content-and-code-mod-layout
+    title: Content-plus-code mod layout
+    category: getting-started
+    submod: null
+    summary: >-
+      One folder and one mod.toml serve as both KSA content mod (assets list of XML, glb, png, wav)
+      and StarMap code mod; the csproj copies content beside the DLL, references game assemblies
+      with Private=false, and stamps the targeted KSA build from a lock file.
+    novelty: medium
+    techniques: [starmap-lifecycle, toml-config, xml-asset]
+    lifecycle: [startup:immediate-load, startup:asset-load, startup:all-mods-loaded]
+    hooks: ["starmap StarMapImmediateLoad", "starmap StarMapAllModsLoaded"]
+    game_types: [KSA.Mod, KSA.ModLibrary, KSA.AssetBundle, KSA.FileReference]
+    key_paths: [src/KSAGolf/mod.toml, src/KSAGolf/KSAGolf.csproj, Directory.Build.props, src/KSAGolf/Ksa/KSAGolfMod.cs]
+    howto_topics:
+      - slug: content-and-code-in-one-mod
+        title: Ship assets and code in one mod folder
+        note: mod.toml assets list plus [StarMap] EntryAssembly; paths resolve against the mod root
+      - slug: reference-game-assemblies-without-shipping-them
+        title: Reference KSA assemblies without redistributing them
+        note: Private=false plus a tiered KsaDllDir resolution in Directory.Build.props
+      - slug: register-mod-in-manifest
+        title: Register a mod in manifest.toml so KSA and StarMap load it
+        note: KSA looks in Content/<id> then <Documents>/My Games/Kitten Space Agency/mods/<id>
+  - id: mods/ksagolf/features/mod-log-file-with-rotation
+    title: Mod log file with rotation and a verbose toggle
+    category: getting-started
+    submod: null
+    summary: >-
+      A dependency-free per-mod logger that writes KSAGolf.log beside KSA's logs, keeps the previous
+      session as KSAGolf.prev.log, batches writes with a 100 ms flush timer, and lets the player
+      switch Debug on at runtime.
+    novelty: medium
+    techniques: [starmap-lifecycle, background-thread]
+    lifecycle: [startup:immediate-load, thread:background]
+    hooks: ["starmap StarMapImmediateLoad", "starmap StarMapUnload"]
+    game_types: [KSA.Vehicle, KSA.Constants]
+    key_paths: [src/KSAGolf/Ksa/Log.cs, src/KSAGolf/Ksa/Build.cs, src/KSAGolf/Ksa/Ui/Ui.cs]
+    howto_topics:
+      - slug: per-mod-log-file
+        title: Write a per-mod log file with previous-session rotation
+        note: copy to .prev.log then truncate on first use; flush on a timer and on warnings
+      - slug: runtime-verbose-logging-toggle
+        title: Add a runtime verbose-log toggle instead of a debug build
+        note: a static threshold set from an ImGui checkbox
+      - slug: log-built-for-vs-running-game-build
+        title: Log which KSA build a mod was built for and which is running
+        note: AssemblyMetadata stamped at build time vs typeof(KSA.Vehicle).Assembly version
+  - id: mods/ksagolf/features/prop-and-course-asset-xml
+    title: Prop and course asset XML
+    category: assets
+    submod: null
+    summary: >-
+      Declares the mod's meshes and looks as bare GltfFile and PbrMaterial assets (props in
+      centimetres, course pieces in metres sharing one atlas, see-through ghost tints) that code
+      pairs at runtime, with no Part, StaticObject or ClutterObject.
+    novelty: medium
+    techniques: [xml-asset, glb-model]
+    lifecycle: [startup:asset-load]
+    hooks: []
+    game_types: [KSA.AssetBundle, KSA.Gltf2Reference, KSA.PbrMaterialReference, KSA.TextureReference, KSA.FileReference, KSA.ModLibrary]
+    key_paths: [src/KSAGolf/KSAGolfProps.xml, src/KSAGolf/KSAGolfCourse.xml, src/KSAGolf/Sim/PieceCatalogue.cs, src/KSAGolf/Ksa/AttachmentMesh.cs]
+    howto_topics:
+      - slug: declare-gltf-and-pbr-material-assets
+        title: Declare a standalone glTF mesh and PBR material in asset XML
+        note: GltfFile/Source and PbrMaterial/Diffuse/Normal/AoRoughMetal; ids looked up by code
+      - slug: asset-xml-element-reference
+        title: Asset XML element names and the types they load
+        note: AssetBundle XmlElement table (GltfFile, PbrMaterial, Sound, Part, StaticObject, ClutterObject)
+      - slug: one-atlas-many-meshes-for-mod-geometry
+        title: Share one texture atlas and material across many mod meshes
+  - id: mods/ksagolf/features/glb-authoring-and-mesh-checks
+    title: GLB authoring pipeline and mesh checks
+    category: assets
+    submod: null
+    summary: >-
+      Blender-over-MCP authoring with a human geometry sign-off, an export contract measured against
+      Core's atlases, and headless Python checkers for zero-UV-area faces, coplanar z-fighting,
+      unmaterialed primitives, case-exact paths and undeclared asset XML.
+    novelty: high
+    techniques: [glb-model, xml-asset, blender-mcp, asset-validation]
+    lifecycle: []
+    hooks: []
+    game_types: [KSA.Gltf2Reference, KSA.PbrMaterialReference, KSA.MeshAtlasFileReference]
+    key_paths: [.claude/skills/ksa-blender/SKILL.md, tools/model/checkmesh.py, tools/validate-parts.py, tools/model/dilate-atlas.py, tools/meshinfo.py]
+    howto_topics:
+      - slug: export-glb-from-blender-for-ksa
+        title: Export a glb from Blender that KSA loads correctly
+        note: +Y up off, transforms applied, node name equals mesh name, materials exported
+      - slug: find-z-fighting-and-uv-speckle-offline
+        title: Find z-fighting and NaN-tangent speckle before loading the game
+        note: zero UV area and coplanar face detection over the glb buffers
+      - slug: validate-asset-xml-references
+        title: Validate asset XML ids and paths in CI
+        note: case-exact paths, declared files, duplicate ids
+      - slug: dilate-baked-texture-atlas
+        title: Dilate a baked texture atlas to stop mip bleed
+  - id: mods/ksagolf/features/world-positioned-sounds
+    title: World-positioned sounds
+    category: audio
+    submod: null
+    summary: >-
+      Ships wav files as Sound assets and plays them at an arbitrary world point with
+      GameAudio.PlaySound and a SpatialAudio built from a nearby vehicle plus an offset, so Doppler
+      and air pressure come from the engine.
+    novelty: medium
+    techniques: [fmod-audio, xml-asset]
+    lifecycle: [startup:asset-load, frame:draw-ui, frame:celestials, frame:after-on-frame]
+    hooks: ["starmap StarMapAfterGui", "harmony-prefix KSA.Program.OnFrameCelestials", "starmap StarMapAfterOnFrame"]
+    game_types: [KSA.SoundReference, KSA.SoundBehavior, KSA.SpatialSoundData, KSA.SpatialAudio, KSA.GameAudio, KSA.ChannelWrapper, KSA.ModLibrary]
+    key_paths: [src/KSAGolf/KSAGolfSounds.xml, src/KSAGolf/Ksa/GolfSounds.cs, src/KSAGolf/Sim/StrikeSound.cs]
+    howto_topics:
+      - slug: ship-custom-sounds
+        title: Ship custom sounds with a mod
+        note: Sound, SoundFile, SpatialSoundData, ChannelId, SimSpeed attributes
+      - slug: play-sound-at-world-position
+        title: Play a sound at a world position from code
+        note: SpatialAudio(Astronomical, offset) and GameAudio.PlaySound; silent above 10x warp
+      - slug: vary-sound-by-impact-speed
+        title: Choose sound and volume by impact speed
+  - id: mods/ksagolf/features/developer-panel-and-menu-bar
+    title: Developer panel and menu-bar entry
+    category: ui
+    submod: null
+    summary: >-
+      An ImGui panel opened from a menu in ImGui's own main menu bar opened in StarMapBeforeGui
+      (a separate bar, not KSA's "Menu Bar" window), from ModMenu via a copied attribute, or from
+      a floating reopen button, with wrapped tooltips and slow-motion buttons below KSA's 0.1x
+      floor.
+    novelty: medium
+    techniques: [imgui-window, imgui-menu, starmap-lifecycle, reflection]
+    lifecycle: [frame:draw-ui]
+    hooks: ["starmap StarMapBeforeGui", "starmap StarMapAfterGui"]
+    game_types: [Brutal.ImGuiApi.ImGui, KSA.Universe, KSA.SimSpeed, KSA.Program]
+    key_paths: [src/KSAGolf/Ksa/Ui/Ui.cs, src/KSAGolf/Ksa/Ui/ModMenuEntry.cs, src/KSAGolf/Ksa/KSAGolfMod.cs]
+    howto_topics:
+      - slug: add-menu-to-ksa-top-bar
+        title: Add a menu to the KSA top bar
+        note: postfix the empty Program.DrawProgramMenusHook, called inside KSA's own BeginMenuBar; BeginMainMenuBar (as KSAGolf does) opens a separate bar
+      - slug: modmenu-integration-without-dependency
+        title: Integrate with ModMenu without a dependency
+        note: copy ModMenuEntryAttribute; ModMenu matches by type name
+      - slug: imgui-wrapped-tooltips
+        title: Wrapped tooltips for ImGui controls
+      - slug: set-simulation-speed-from-a-mod
+        title: Set simulation speed (including slow motion) from a mod
+        note: Universe.SetSimulationSpeed(new SimSpeed(x)); no floor in the engine
+  - id: mods/ksagolf/features/minigolf-course-builder
+    title: Top-down minigolf course builder
+    category: ui
+    submod: null
+    summary: >-
+      B turns the main view straight down over a body-fixed grid laid at the kitten; a ray-plane
+      pick finds the cell under the cursor, a ghost piece snaps onto open ports, and place, move,
+      remove, undo, redo, save and load follow, with meshes and gizmo lines drawn per viewport and
+      input read through ImGui while a FixedController subclass swallows keys and clicks before the
+      kitten sees them.
+    novelty: high
+    techniques: [imgui-input, starmap-lifecycle, camera-controller-subclass, harmony-postfix, reflection, ray-plane-pick, headless-tests]
+    lifecycle: [frame:input, frame:viewports, frame:draw-ui, frame:render]
+    hooks: ["starmap StarMapAfterGui", "subclass KSA.FixedController (OnKey, OnMouseButton, OnScroll, IsMouseDrag overrides)", "reflection KSA.GameViewport.<FixedController>k__BackingField", "harmony-postfix KSA.SuperMeshRenderSystem.ClearBuckets"]
+    game_types: [KSA.Controller, KSA.FixedController, KSA.GameViewport, KSA.Program, KSA.Vehicle, KSA.KittenEva, KSA.Celestial, KSA.GizmosRenderer, KSA.SuperMeshRenderSystem, KSA.StaticMeshRenderable, KSA.ImGuiBackendGlfwImpl, Brutal.ImGuiApi.ImGui, Brutal.ImGuiApi.ImGuiIOPtr]
+    key_paths: [src/KSAGolf/Ksa/CourseBuilder.cs, src/KSAGolf/Sim/CourseBuild.cs, src/KSAGolf/Ksa/LevelHorizonController.cs, src/KSAGolf/Ksa/KSAGolfMod.cs, src/KSAGolf/Ksa/Ui/Ui.cs]
+    howto_topics:
+      - slug: top-down-build-mode-camera
+        title: Make a top-down build-mode camera
+        note: Fixed mode, IViewPose re-asked in the viewport pass, give the view back
+      - slug: swallow-game-input-while-a-tool-is-active
+        title: Stop the kitten moving while a mod tool has the keyboard
+        note: controller OnKey runs before the vehicle; IsMouseDrag blocks part windows
+      - slug: read-input-through-imgui
+        title: Read keys and mouse through ImGui in a StarMap hook
+        note: gate on WantTextInput and WantCaptureMouse; GUI hook only
+      - slug: ghost-placement-with-snapping
+        title: Place a ghost object that snaps to connection points
+        note: Fit colours; distinct orientations
+      - slug: cursor-to-plane-cell-pick
+        title: Pick the grid cell under the cursor
+        note: cursor ray into a local frame, ray-plane intersect
+      - slug: draw-gizmo-lines-in-world
+        title: Draw world-space lines with GizmosRenderer
+        note: Ego coordinates, main viewport only
+      - slug: draw-mod-meshes-per-viewport
+        title: Draw a mod's own meshes into every viewport
+        note: postfix on SuperMeshRenderSystem.ClearBuckets
+  - id: mods/ksagolf/features/cursor-picking-and-terrain-ray
+    title: Cursor picking and the terrain ray
+    category: ui
+    submod: null
+    summary: >-
+      The ImGui cursor becomes a world ray through the camera of the viewport it is over (viewport
+      offset, framebuffer scale, ScreenToEgoRay), walked from the eye to the first place it goes
+      under the terrain (clearance-stepped march plus bisection), and the craft nearest the cursor
+      on screen is picked with a per-item reach.
+    novelty: medium
+    techniques: [imgui-input, ray-march, closed-form-geometry, headless-tests]
+    lifecycle: [frame:draw-ui]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: [KSA.Camera, KSA.ViewportRegistry, KSA.IGameViewport, KSA.GameViewport, KSA.Program, KSA.Celestial, KSA.CelestialSystem, KSA.Universe, KSA.Ray, Brutal.ImGuiApi.ImGui]
+    key_paths: [src/KSAGolf/Sim/CursorAim.cs, src/KSAGolf/Sim/TerrainRay.cs, src/KSAGolf/Sim/Picking.cs, src/KSAGolf/Ksa/KsaWorld.cs, src/KSAGolf/Ksa/CraftMover.cs]
+    howto_topics:
+      - slug: cursor-to-world-ray
+        title: Turn the mouse cursor into a world ray
+        note: subtract the viewport position; scale to FramebufferSize; ScreenToEgoRay plus EgoToEcl
+      - slug: raycast-terrain-from-cursor
+        title: Find where the cursor meets the terrain
+        note: march from the eye; do not refine a sphere hit
+      - slug: pick-vessel-under-cursor
+        title: Pick the vessel under the cursor
+        note: screen-space nearest with an apparent-size reach
+      - slug: project-world-point-to-screen
+        title: Project a world point to screen coordinates
+        note: EclToScreen ignoreBehind plus viewport offset
+      - slug: debug-cursor-ray-round-trip
+        title: Debug a cursor ray by round-tripping it
+        note: project the hit back and measure the pixel error
+  - id: mods/ksagolf/features/dual-hook-frame-stepping
+    title: Dual-hook frame stepping on simulated time
+    category: patching
+    submod: null
+    summary: >-
+      Runs one simulation step per frame from whichever of StarMapAfterGui, a Harmony prefix on
+      private Program.OnFrameCelestials, or StarMapAfterOnFrame fires first, latched and always
+      released, integrating Universe.GetLastSimStep once with skipped frames closed by the clock
+      span.
+    novelty: high
+    techniques: [starmap-lifecycle, harmony-prefix, reflection]
+    lifecycle: [frame:draw-ui, frame:celestials, frame:after-on-frame]
+    hooks: ["starmap StarMapAfterGui", "harmony-prefix KSA.Program.OnFrameCelestials", "starmap StarMapAfterOnFrame", "starmap StarMapAllModsLoaded"]
+    game_types: [KSA.Program, KSA.Universe, KSA.SimStep, KSA.UniverseTime]
+    key_paths: [src/KSAGolf/Ksa/KSAGolfMod.cs, src/KSAGolf/Ksa/PreRenderHook.cs, src/KSAGolf/Sim/FrameLatch.cs, src/KSAGolf/Sim/StepGate.cs, src/KSAGolf/Sim/SimClock.cs, src/KSAGolf/Ksa/KsaWorld.cs]
+    howto_topics:
+      - slug: per-frame-update-that-survives-hidden-ui
+        title: Run per-frame mod logic that still runs when the HUD is hidden
+        note: StarMap GUI hooks sit inside if (DrawUI); prefix OnFrameCelestials or fall back to AfterOnFrame
+      - slug: integrate-on-simulation-time
+        title: Integrate mod simulations on KSA's applied sim step instead of player time
+        note: Universe.GetLastSimStep, consume once, close skipped frames with the NextTime span
+      - slug: degrading-harmony-patch-on-private-method
+        title: Patch a private method so a rename degrades instead of breaking
+      - slug: fault-limit-and-self-disable
+        title: Disable a mod after repeated per-frame faults
+  - id: mods/ksagolf/features/degrading-harmony-patches
+    title: Degrading Harmony patches with per-feature ids and signature pins
+    category: patching
+    submod: null
+    summary: >-
+      Six static patch classes, each under its own Harmony id, look their targets up defensively,
+      log once and stand down instead of throwing, are pinned into the API record by never-called
+      calls, and are removed by a ten-fault limit; StarMapUnload unpatching is a no-op because
+      StarMap's id-less UnpatchAll has already run.
+    novelty: medium
+    techniques: [harmony-prefix, harmony-postfix, reflection, starmap-lifecycle]
+    lifecycle: [startup:all-mods-loaded, frame:draw-ui, frame:after-on-frame]
+    hooks: ["starmap StarMapAllModsLoaded", "starmap StarMapAfterGui", "starmap StarMapAfterOnFrame", "starmap StarMapUnload"]
+    game_types: [KSA.Program, KSA.Universe, KSA.SuperMeshRenderSystem, KSA.ConstraintSim, KSA.KittenEva, KSA.KittenLocomotion]
+    key_paths: [src/KSAGolf/Ksa/WorldReloadHook.cs, src/KSAGolf/Ksa/PreRenderHook.cs, src/KSAGolf/Ksa/ViewDrawHook.cs, src/KSAGolf/Ksa/FirstPersonHook.cs, src/KSAGolf/Ksa/PadSurface.cs, src/KSAGolf/Ksa/CourseCollider.cs, src/KSAGolf/Ksa/KSAGolfMod.cs]
+    howto_topics:
+      - slug: optional-harmony-patches-that-degrade
+        title: Make every Harmony patch optional and self-reporting
+        note: own Harmony id per feature, AccessTools lookup with logged degrade, never-throwing bodies that null their delegate
+      - slug: remove-harmony-patches-at-runtime
+        title: Remove a mod's Harmony patches during play
+        note: UnpatchAll(ownId) from a main-thread hook; StarMapUnload runs only at exit after StarMap's id-less UnpatchAll
+      - slug: pin-patched-members-for-api-checks
+        title: Make a game signature change a build error for a patched method
+        note: a never-called method that really calls the target emits a MemberRef; nameof does not
+  - id: mods/ksagolf/features/save-load-detection
+    title: Save-load detection
+    category: persistence
+    submod: null
+    summary: >-
+      Postfixes Program.OnGameLoaded (called once right after Universe.DeserializeSave) to latch a
+      flag that the next simulation step consumes to drop all state from the replaced world.
+    novelty: medium
+    techniques: [harmony-postfix]
+    lifecycle: [event:save-loaded, frame:draw-ui, frame:celestials, frame:after-on-frame]
+    hooks: ["harmony-postfix KSA.Program.OnGameLoaded", "starmap StarMapAllModsLoaded"]
+    game_types: [KSA.Program, KSA.Universe, KSA.UncompressedSave, KSA.GameSaves]
+    key_paths: [src/KSAGolf/Ksa/WorldReloadHook.cs, src/KSAGolf/Ksa/KSAGolfMod.cs]
+    howto_topics:
+      - slug: detect-save-load
+        title: Detect that a save game was loaded
+        note: postfix Program.OnGameLoaded; StarMap has no load hook and the flight scene survives a load
+      - slug: reset-mod-state-on-load
+        title: Reset mod state safely after a save load
+        note: latch in the patch, act in the next frame step
+  - id: mods/ksagolf/features/course-grid-and-save-file
+    title: Course grid model and JSON save file
+    category: persistence
+    submod: null
+    summary: >-
+      An immutable, engine-free course model with ports as cell edges, an append-only catalogue with
+      non-rectangular footprints and mirror twins, fit judging, a playability check, open-port
+      snapping, undo/redo over whole courses and overlay lines; a versioned snake_case JSON file
+      anchors each course by body, lat/lon, heading and floor height above ground in <KSA user
+      dir>/KSAGolf/Courses.
+    novelty: medium
+    techniques: [json-config, immutable-model, headless-tests]
+    lifecycle: [frame:draw-ui]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: [KSA.Celestial, KSA.Universe, KSA.CelestialSystem]
+    key_paths: [src/KSAGolf/Sim/CourseGrid.cs, src/KSAGolf/Sim/PieceCatalogue.cs, src/KSAGolf/Sim/Course.cs, src/KSAGolf/Sim/CourseEdits.cs, src/KSAGolf/Sim/CourseFile.cs, src/KSAGolf/Sim/CourseLines.cs, src/KSAGolf/Ksa/CourseBuilder.cs]
+    howto_topics:
+      - slug: grid-with-edge-ports
+        title: Model connectable tiles with ports on cell edges
+        note: an edge says which way a lane leaves; a tile does not
+      - slug: append-only-ids-for-saved-data
+        title: Keep saved ids stable
+        note: unknown ids dropped and named, never thrown
+      - slug: immutable-model-undo-redo
+        title: Undo and redo with immutable snapshots
+        note: two stacks of whole models
+      - slug: versioned-json-mod-files
+        title: Save mod data as versioned JSON
+        note: refuse newer versions with a reason
+      - slug: anchor-objects-by-lat-lon-heading
+        title: Anchor a placed layout to a body
+        note: lat/lon/heading plus height above ground survives terrain changes; matches GetDirCcfFromLatLon
+      - slug: mod-user-data-folder
+        title: Find where to write mod files
+        note: beside KSA's Logs folder, with a temp fallback
+  - id: mods/ksagolf/features/frame-epoch-draw-anchor
+    title: Frame and epoch draw anchor
+    category: rendering
+    submod: null
+    summary: >-
+      Draws gizmo overlays next to a craft by pairing the craft's rendered Ego position
+      (Camera.GetPositionEgo) sampled this frame with Ecl offsets measured against the same-instant
+      platform sample, avoiding the 500 m-per-frame ecliptic error.
+    novelty: high
+    techniques: [gizmo-drawing, reference-frames]
+    lifecycle: [frame:draw-ui]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: [KSA.Camera, KSA.GizmosRenderer, KSA.Program, KSA.Vehicle, KSA.Universe]
+    key_paths: [src/KSAGolf/Sim/DrawAnchor.cs, src/KSAGolf/Ksa/KsaWorld.cs, tests/KSAGolf.Tests/DrawAnchorTests.cs]
+    howto_topics:
+      - slug: draw-world-space-gizmos
+        title: Draw world-space lines and spheres with GizmosRenderer
+        note: submit between GizmosRenderer.ResetInstances and the render (StarMapAfterGui)
+      - slug: ecl-vs-ego-reference-frames
+        title: Ecliptic vs camera-relative (Ego) positions and epochs
+        note: Camera.GetPositionEgo vs EclToEgo; 29.8 km/s carrier
+      - slug: draw-overlay-attached-to-vehicle
+        title: Draw an overlay that stays attached to a moving vehicle
+  - id: mods/ksagolf/features/mod-mesh-draw-hook
+    title: Drawing a mod's static mesh into every viewport
+    category: rendering
+    submod: null
+    summary: >-
+      Postfixes SuperMeshRenderSystem.ClearBuckets(IViewport) so the mod's StaticMeshRenderables
+      (ball, course pieces, see-through ghost, first-person club) are submitted after each
+      viewport's buckets are cleared, with transforms ego-relative to that viewport's camera.
+    novelty: high
+    techniques: [harmony-postfix, glb-model, runtime-mesh-draw, starmap-lifecycle]
+    lifecycle: [startup:all-mods-loaded, frame:render, render:scene-opaque, render:shadows, render:translucency]
+    hooks: ["starmap StarMapAllModsLoaded", "harmony-postfix KSA.SuperMeshRenderSystem.ClearBuckets"]
+    game_types: [KSA.SuperMeshRenderSystem, KSA.StaticMeshRenderable, KSA.Program, KSA.IViewport, KSA.Camera, KSA.Celestial, KSA.ShadowRenderable, KSA.Universe]
+    key_paths: [src/KSAGolf/Ksa/ViewDrawHook.cs, src/KSAGolf/Ksa/KSAGolfMod.cs, src/KSAGolf/Ksa/Golf.cs, src/KSAGolf/Ksa/CourseBuilder.cs]
+    howto_topics:
+      - slug: draw-mod-static-mesh-in-world
+        title: Draw a mod's own mesh in the world with the engine renderer
+        note: postfix ClearBuckets; earlier draws are discarded silently
+      - slug: per-viewport-ego-transforms
+        title: Compute a mesh transform for each viewport's camera
+        note: positionEcl minus viewport.GetCamera().PositionEcl
+      - slug: draw-body-fixed-object
+        title: Draw an object that lives in a planet's body-fixed frame
+        note: Ccf2Cce rotation and body position at draw time
+      - slug: ksa-render-order-and-buckets
+        title: KSA render order, buckets and the shadow pool
+        note: secondary views first, main view last; only main-view draws cast cascade shadows
+  - id: mods/ksagolf/features/first-person-kitten-view
+    title: First-person kitten view that keeps the shadow
+    category: camera
+    submod: null
+    summary: >-
+      For the main view only, collapses the kitten's skeleton onto the wrist (keeping the club paw)
+      and re-skins the whole kitten into the shadow pool via patches on KittenEva.UpdateRenderData
+      and AnimatedRenderable/StaticMeshRenderable.Draw; KittenLocomotion.StepGrounded patches hold
+      the walk facing on a world-relative mouse look and the eye is posed from the head bone.
+    novelty: high
+    techniques: [harmony-prefix, harmony-postfix, reflection, anim-processor, viewmodel, mouse-capture, headless-tests]
+    lifecycle: [startup:all-mods-loaded, physics:vehicle-solver, frame:input, frame:viewports, frame:draw-ui, frame:render]
+    hooks: ["harmony-prefix KSA.KittenLocomotion.StepGrounded", "harmony-postfix KSA.KittenLocomotion.StepGrounded", "harmony-prefix KSA.KittenEva.UpdateRenderData", "harmony-postfix KSA.KittenEva.UpdateRenderData", "harmony-prefix KSA.AnimatedRenderable.Draw", "harmony-postfix KSA.AnimatedRenderable.Draw", "harmony-prefix KSA.StaticMeshRenderable.Draw", "harmony-postfix KSA.StaticMeshRenderable.Draw", "reflection KSA.AnimatedRenderable.MaterialIndices", "reflection KSA.AnimatedRenderable.ShadowIgnoreIndicies", "reflection RenderCore.Animation.Skeleton.InverseBindPose", "engine-callback KSA.IAnimProcessor.UpdateSkeleton"]
+    game_types: [KSA.KittenEva, KSA.KittenRenderable, KSA.AnimatedRenderable, KSA.StaticMeshRenderable, KSA.SuperMeshRenderSystem, KSA.ShadowRenderable, KSA.InstanceData, KSA.CharacterAvatar, KSA.KittenLocomotion, KSA.CharacterControlInputs, KSA.LocomotionCommand, KSA.LocomotionFacts, KSA.LocomotionState, KSA.PhysicsBubble, RenderCore.Animation.Skeleton, KSA.IVASeat]
+    key_paths: [src/KSAGolf/Ksa/FirstPersonHook.cs, src/KSAGolf/Ksa/GolfPose.cs, src/KSAGolf/Ksa/Golf.cs, src/KSAGolf/Sim/HeadLook.cs]
+    howto_topics:
+      - slug: first-person-kitten-camera
+        title: First-person camera from a kitten's head
+        note: eye from the head bone, Fixed mode, mouse look
+      - slug: viewmodel-hide-body-in-one-view
+        title: Hide a character's body in one viewport only
+        note: per-view UpdateSkeleton plus a prefix on UpdateRenderData to know the view
+      - slug: keep-shadow-of-hidden-body
+        title: Keep the full shadow of a body hidden from the camera
+        note: swap the shadow-pool entries and re-skin into AllocateSkinningMatrices
+      - slug: override-kitten-walk-facing
+        title: Make a walking kitten face where the player looks
+        note: StepGrounded prefix and postfix on the worker thread; volatile handoff
+      - slug: hide-kitten-head-hidehead
+        title: Hide a kitten's head per view with KittenRenderable.HideHead
+        note: the engine's own IVA mechanism; simpler alternative
+      - slug: world-relative-mouse-look
+        title: World-relative mouse look for a character view
+        note: yaw from north, pitch clamp, captured mouse versus right-drag
+  - id: mods/ksagolf/features/level-horizon-camera-controller
+    title: Level-horizon camera controller swapped into the main viewport
+    category: camera
+    submod: null
+    summary: >-
+      Subclasses FixedController to supply a rate-limited explicit up vector (StableUp), re-asks the
+      borrower for the pose inside the viewport pass so the aim is in phase with this frame's
+      matrices, and takes orbit-drag, swing and builder input; installed by a checked reflection
+      write into GameViewport's get-only FixedController backing field with fallback and restored on
+      unload.
+    novelty: high
+    techniques: [reflection, controller-subclass, mouse-capture, starmap-lifecycle, headless-tests]
+    lifecycle: [frame:input, frame:viewports, frame:draw-ui]
+    hooks: ["reflection KSA.GameViewport.<FixedController>k__BackingField", "subclass KSA.FixedController.OnFrame", "subclass KSA.Controller.OnKey/OnMouseButton/OnCursorPos/OnScroll/IsMouseDrag/GetCursorMode", "starmap StarMapAfterGui", "starmap StarMapUnload"]
+    game_types: [KSA.FixedController, KSA.Controller, KSA.GameViewport, KSA.IGameViewport, KSA.Camera, KSA.OrbitView, KSA.Program, KSA.Vehicle, KSA.ImGuiBackendGlfwImpl, Brutal.GlfwApi.GlfwCursorMode]
+    key_paths: [src/KSAGolf/Ksa/LevelHorizonController.cs, src/KSAGolf/Ksa/KsaWorld.cs, src/KSAGolf/Sim/StableUp.cs, src/KSAGolf/Sim/IMouseDrag.cs]
+    howto_topics:
+      - slug: replace-viewport-camera-controller
+        title: Replace a viewport's camera controller
+        note: write the auto-property backing field, check that the write took, fall back
+      - slug: drive-main-camera-fixed-mode
+        title: Drive the main camera through Fixed mode safely
+        note: set CameraRotation before the mode; zero or along-axis forward divides by zero
+      - slug: camera-roll-up-vector-control
+        title: Control camera roll with an explicit up vector
+        note: carried, rate-limited up; no switching threshold
+      - slug: camera-pose-in-phase-with-frame
+        title: Aim a mod camera in phase with the frame being drawn
+        note: StarMap hooks run after OnFrameViewports, so re-pose inside the controller
+      - slug: camera-controller-input-capture
+        title: Take mouse and keyboard input through a camera controller
+        note: IsMouseDrag stops part windows opening; ImGui-captured releases are dropped
+      - slug: safe-fov-changes
+        title: Change the camera field of view safely
+        note: SetFieldOfView does not clamp; zoom keys clamp to 15-120 degrees
+  - id: mods/ksagolf/features/borrowed-chase-camera
+    title: Borrowing the main view and handing it back
+    category: camera
+    submod: null
+    summary: >-
+      KSA-free rules for borrowing the player's main view (ViewClaim ladder, mode and follow
+      halves), a KsaWorld hand-back that always returns the FOV and restores the follow only if
+      still the borrower's, ChaseView poses and blends, KSA-style ChaseOrbit, StableUp and
+      SmoothedStep; at this ref only the hand-back, StableUp and ChaseOrbit's constants are wired in
+      game.
+    novelty: medium
+    techniques: [headless-tests, camera-arbitration, controller-subclass]
+    lifecycle: [frame:draw-ui, frame:viewports, frame:input]
+    hooks: ["starmap StarMapAfterGui", "subclass KSA.FixedController.OnFrame (via IViewPose)"]
+    game_types: [KSA.Camera, KSA.IGameViewport, KSA.GameViewport, KSA.CameraMode, KSA.IFollowable, KSA.Vehicle, KSA.FixedController, KSA.Universe]
+    key_paths: [src/KSAGolf/Sim/ViewClaim.cs, src/KSAGolf/Sim/ChaseView.cs, src/KSAGolf/Sim/ChaseOrbit.cs, src/KSAGolf/Sim/StableUp.cs, src/KSAGolf/Sim/SmoothedStep.cs, src/KSAGolf/Ksa/KsaWorld.cs]
+    howto_topics:
+      - slug: borrow-and-return-main-camera
+        title: Borrow the player's camera and give it back
+        note: record mode, follow and FOV before the first write; restore the FOV first
+      - slug: camera-ownership-arbitration
+        title: Decide which mod system may drive the camera
+        note: StandDown, Yield, Hold, GiveBack, Take ladder
+      - slug: chase-camera-for-projectile
+        title: Chase camera behind a fast body
+        note: line to the target held near the flight path, carried lift, lean off the singular axis
+      - slug: orbit-drag-like-ksa
+        title: Orbit drag and wheel that match KSA's orbit camera
+        note: 0.003 rad/px, 2 px threshold, x1.1 per notch, ease back
+      - slug: smooth-cosmetic-easing-step
+        title: Even out frame pacing for cosmetic camera eases
+        note: exponential average of the sim step; paused step returns 0
+      - slug: camera-transition-blend
+        title: Blend a camera from the player's pose to a scripted one
+        note: smoothstep the eye, lerp the look at equal depth
+  - id: mods/ksagolf/features/kitten-pose-processor
+    title: Posing kitten bones through the pose-processor list
+    category: kittens
+    submod: null
+    summary: >-
+      Adds an IAnimProcessor to a live kitten's AnimatedRenderable.AnimProcessors, reached through
+      one reflection hop to KittenRenderable._characterAvatar, and turns, moves or stretches bones
+      on top of KSA's clip; the developer bridge's kitten_pose drives it.
+    novelty: high
+    techniques: [reflection, anim-processor, procedural-animation, starmap-lifecycle]
+    lifecycle: [frame:after-on-frame, frame:render]
+    hooks: ["starmap StarMapAfterOnFrame", "reflection KSA.KittenRenderable._characterAvatar", "engine-callback KSA.IAnimProcessor.UpdateLocalPose", "engine-callback KSA.IAnimProcessor.UpdateSkeleton"]
+    game_types: [KSA.KittenEva, KSA.KittenRenderable, KSA.CharacterAvatar, KSA.AnimatedRenderable, KSA.IAnimProcessor, RenderCore.Animation.Skeleton, RenderCore.TransformTRS, KSA.OrbitView, KSA.CatPostAnim, KSA.CatEyeAnim]
+    key_paths: [src/KSAGolf/Ksa/KittenPoseProbe.cs, src/KSAGolf/Ksa/Bridge.cs, docs/KITTEN-ARMS.md]
+    howto_topics:
+      - slug: pose-kitten-bones-with-anim-processor
+        title: Pose a kitten's bones with an IAnimProcessor
+        note: UpdateLocalPose edits the TRS span once per frame; UpdateSkeleton runs once per view
+      - slug: reach-kitten-character-avatar
+        title: Reach a kitten's CharacterAvatar
+        note: KittenEva.Renderable is public; _characterAvatar is private and needs reflection
+      - slug: kitten-skeleton-bone-lookup
+        title: Find kitten bones by name and read model-space transforms
+        note: Skeleton.BoneNames, NodeInfo, WorldTransforms
+      - slug: procedural-bone-animation-timing
+        title: Time-shaped procedural bone animation
+        note: swing, bounce and spin shapes, fade windows, simulated-time dt that stops while paused
+      - slug: kitten-animation-distance-culling
+        title: Kitten animation LOD and processor distance culling
+        note: 45 m times Priority, measured from the camera of the view being drawn
+  - id: mods/ksagolf/features/kitten-held-props
+    title: Mod meshes held by a kitten as cosmetic attachments
+    category: kittens
+    submod: null
+    summary: >-
+      Hangs a mod's own glTF and PbrMaterial on a kitten bone at runtime through
+      CharacterAvatar.Attachments.CosmeticAttachments, building the StaticMeshRenderable the way
+      CharacterAvatar builds Core's (material slots filled before construction, AssetName via
+      reflection), optionally see-through on the visor's GlassRenderer.
+    novelty: high
+    techniques: [reflection, glb-model, xml-asset, runtime-attachment, starmap-lifecycle]
+    lifecycle: [frame:after-on-frame, frame:draw-ui, frame:render]
+    hooks: ["starmap StarMapAfterOnFrame", "starmap StarMapAfterGui", "reflection KSA.KittenRenderable._characterAvatar", "reflection KSA.SuperMeshRenderSystem.GltfSystem/MaterialSystem GetOrLoad(Core.AssetName)", "reflection KSA.StaticMeshRenderable..ctor(IMeshRenderer, Core.AssetName, IMeshRenderer, bool)"]
+    game_types: [KSA.CharacterAvatar, KSA.KittenRenderable, KSA.StaticMeshRenderable, KSA.SuperMeshRenderSystem, KSA.LoadedAssetRef, KSA.GltfPbrAssetRef, KSA.GpuObjectAssetRef, KSA.AssetManager, KSA.CharacterRenderResources, KSA.AnimatedRenderable, Core.AssetName]
+    key_paths: [src/KSAGolf/Ksa/AttachmentMesh.cs, src/KSAGolf/Ksa/KittenPropProbe.cs, src/KSAGolf/Ksa/Golf.cs, src/KSAGolf/KSAGolfProps.xml]
+    howto_topics:
+      - slug: attach-prop-to-kitten-bone
+        title: Attach a prop to a kitten's hand at runtime
+        note: write CosmeticAttachment.Transform; the engine overwrites Mesh.Transform every frame
+      - slug: build-static-mesh-from-mod-gltf
+        title: Build a StaticMeshRenderable from a mod's GltfFile and PbrMaterial
+        note: fill GltfPbrAssetRef.Materials before construction
+      - slug: see-through-mesh-glass-technique
+        title: Draw a mod mesh see-through like the helmet visor
+        note: CharacterRenderResources.GlassRenderer, isOpaque false, CastShadows false
+      - slug: construct-engine-types-without-referencing-assembly
+        title: Use an engine type from an assembly you do not reference
+        note: take the type from LoadedAssetRef.Id and construct it with Activator
+      - slug: modify-struct-in-engine-list
+        title: Edit a struct stored in an engine List
+        note: read it, change it, write it back
+  - id: mods/ksagolf/features/putting-address-pose
+    title: Putting address pose drawn on the kitten skeleton
+    category: kittens
+    submod: null
+    summary: >-
+      Draws the kitten stepped up to the ball, leaning, both arms aimed at the grip, by applying a
+      stance matrix to the root bones inside a pose processor while the physics body stays put
+      (Teleport is unusable on a landed kitten); each view's UpdateSkeleton re-solves the putter
+      attachment against that view's wrist.
+    novelty: high
+    techniques: [anim-processor, procedural-animation, runtime-attachment, reflection, headless-tests]
+    lifecycle: [frame:draw-ui, frame:render]
+    hooks: ["starmap StarMapAfterGui", "engine-callback KSA.IAnimProcessor.UpdateLocalPose", "engine-callback KSA.IAnimProcessor.UpdateSkeleton", "reflection KSA.KittenRenderable._characterAvatar"]
+    game_types: [KSA.KittenEva, KSA.KittenRenderable, KSA.CharacterAvatar, KSA.AnimatedRenderable, KSA.IAnimProcessor, KSA.StaticMeshRenderable, KSA.Vehicle, RenderCore.Animation.Skeleton, RenderCore.TransformTRS, RenderCore.TransformNodeInfo]
+    key_paths: [src/KSAGolf/Ksa/GolfPose.cs, src/KSAGolf/Ksa/KittenFrame.cs, src/KSAGolf/Sim/Stance.cs, src/KSAGolf/Sim/PutterRig.cs, src/KSAGolf/Sim/Orient.cs]
+    howto_topics:
+      - slug: draw-kitten-displaced-without-moving-it
+        title: Draw a kitten moved or turned without moving its physics body
+        note: stance matrix applied to the root bones; avoids Vehicle.Teleport
+      - slug: kitten-model-space-to-world
+        title: Convert kitten model space to the ecliptic or a camera's ego frame
+        note: scale 0.01, quarter turns, less centre of mass, Body2Cce
+      - slug: aim-kitten-arm-at-target
+        title: Aim a kitten's arm at a point
+        note: one-bone shoulder rotation; two-bone IK is not implemented
+      - slug: place-attachment-in-model-space
+        title: Place an attachment at a model-space pose per view
+        note: attachment = placed * inverse(SocketTurn * wristWorld)
+      - slug: why-not-teleport-landed-kitten
+        title: Why Vehicle.Teleport breaks a landed kitten
+        note: it calls OverwriteFromLeaderAnalytic from the orbit
+  - id: mods/ksagolf/features/putting-session
+    title: Putting session with a mouse-swung club
+    category: kittens
+    submod: null
+    summary: >-
+      Golf.cs ties putting together - the flown kitten holds a putter, drops a ball, steps up with
+      G, swings with captured mouse movement through PuttingStroke (contact test, smoothed swing
+      rate, launch speed) and switches first person with V; the bridge golf command scripts it.
+    novelty: medium
+    techniques: [starmap-lifecycle, anim-processor, runtime-attachment, mouse-capture, controller-subclass, headless-tests]
+    lifecycle: [frame:input, frame:viewports, frame:draw-ui, frame:render, frame:after-on-frame]
+    hooks: ["starmap StarMapAfterGui", "starmap StarMapAfterOnFrame", "controller-override KSA.FixedController.OnCursorPos (LevelHorizonController)", "controller-override KSA.FixedController.OnFrame (LevelHorizonController asks IViewPose)", "harmony-postfix KSA.SuperMeshRenderSystem.ClearBuckets", "engine-callback KSA.IAnimProcessor.UpdateLocalPose/UpdateSkeleton"]
+    game_types: [KSA.KittenEva, KSA.Program, KSA.Celestial, KSA.CharacterAvatar, KSA.StaticMeshRenderable, KSA.Camera, KSA.FixedController, Brutal.ImGuiApi.ImGui, Brutal.GlfwApi.GlfwWindowAttribute]
+    key_paths: [src/KSAGolf/Ksa/Golf.cs, src/KSAGolf/Sim/PuttingStroke.cs, src/KSAGolf/Ksa/Bridge.cs, src/KSAGolf/Ksa/Ui/Ui.cs]
+    howto_topics:
+      - slug: mouse-driven-swing-mechanic
+        title: Mouse-driven swing with a strike test
+        note: accumulate dx during input polling, apply it in the step, smooth the rate over 60 ms
+      - slug: capture-mouse-for-gameplay
+        title: Capture and release the mouse for a gameplay mode
+        note: cursor mode Disabled, swallow clicks, release on Alt or an open window
+      - slug: hotkeys-via-imgui-keypressed
+        title: Read mod hotkeys with ImGui.IsKeyPressed
+        note: only from the GUI pass, so they stop working with the HUD hidden
+      - slug: player-time-vs-sim-time
+        title: Choose player time or simulated time per mechanic
+        note: the hand on player time, the ball on simulated time
+      - slug: script-gameplay-from-bridge
+        title: Script a gameplay mechanic for automated testing
+        note: feed synthetic mouse movement one entry per frame
+  - id: mods/ksagolf/features/golf-ball-physics
+    title: Golf ball physics in the body-fixed frame
+    category: physics
+    submod: null
+    summary: >-
+      A mod-simulated ball integrated in the celestial's rotating body-fixed (Ccf) frame,
+      sub-stepped at up to 1/240 s, with flight, bounce, rolling resistance, slope rest, kerb walls
+      and quadratic drag scaled by the engine's air or sea density relative to 1.225 kg/m3, run on
+      simulated time from the mod's once-per-frame main-thread step.
+    novelty: high
+    techniques: [custom-physics, starmap-lifecycle, harmony-prefix, sub-stepping, headless-tests]
+    lifecycle: [frame:draw-ui, frame:celestials, frame:after-on-frame]
+    hooks: ["starmap StarMapAfterGui", "harmony-prefix KSA.Program.OnFrameCelestials", "starmap StarMapAfterOnFrame"]
+    game_types: [KSA.Celestial, KSA.Astronomical, KSA.IParentBody, KSA.AtmosphereReference, KSA.PhysicalAtmosphereReference, KSA.Rendering.Water.Data.OceanReference, KSA.DistanceReference, KSA.Universe, KSA.SimStep, KSA.PhysicsEnvironment]
+    key_paths: [src/KSAGolf/Sim/GolfBall.cs, src/KSAGolf/Sim/Medium.cs, src/KSAGolf/Ksa/Golf.cs, src/KSAGolf/Ksa/KsaWorld.cs, src/KSAGolf/Sim/IGroundTest.cs]
+    howto_topics:
+      - slug: simulate-body-in-body-fixed-frame
+        title: Simulate a custom body in a planet's body-fixed frame
+        note: state has no epoch; convert to Ecl only to draw
+      - slug: read-atmosphere-and-ocean-density
+        title: Read air and water density at a point
+        note: GetAtmosphericDensityAtAltitude and OceanReference.Density; never gate on IsValid (100 km floor)
+      - slug: quadratic-drag-for-mod-bodies
+        title: Apply quadratic drag scaled by local density
+        note: one reference air for every body; 0 for airless, 1 for unreadable
+      - slug: integrate-on-simulation-time
+        title: Integrate mod physics on simulated time
+        note: span between GetLastSimStep boundaries; paused gives 0
+      - slug: roll-a-ball-on-terrain
+        title: Roll and bounce a sphere on the terrain height field
+        note: finite-difference normal, rest slope, kerb-as-wall
+      - slug: gravitational-parameter-of-a-body
+        title: Get a body's gravitational parameter
+        note: IParentBody.Mu is a default interface member and needs a cast
+      - slug: treat-sea-as-ground
+        title: Treat the waterline as ground for mod bodies
+        note: the height field returns the seabed
+  - id: mods/ksagolf/features/swept-hull-contact
+    title: Swept contact against a craft's real hull
+    category: physics
+    submod: null
+    summary: >-
+      An analytic closest-approach sweep against a vehicle's bounding sphere as the broad phase,
+      then a per-triangle Part.RayCastEgo cast in a mover-centred frame (GetMatrixAsmb2Ego with a
+      caller-chosen origin) as the narrow phase; a hull test that cannot answer leaves the sphere's
+      verdict standing. Not wired into the ball at this commit.
+    novelty: medium
+    techniques: [custom-physics, continuous-collision, ray-cast, headless-tests]
+    lifecycle: []
+    hooks: []
+    game_types: [KSA.Vehicle, KSA.Part, KSA.PartTree, KSA.Ray, KSA.MeshViewModule]
+    key_paths: [src/KSAGolf/Sim/ContactSweep.cs, src/KSAGolf/Sim/IHullTest.cs, src/KSAGolf/Ksa/HullTest.cs]
+    howto_topics:
+      - slug: prevent-tunnelling-of-fast-bodies
+        title: Stop fast small bodies stepping through targets
+        note: closest approach over the step, not end-point distance
+      - slug: raycast-against-vessel-mesh
+        title: Ray-cast against a vessel's actual mesh
+        note: Part.RayCastEgo plus GetMatrixAsmb2Ego(origin) with no camera
+      - slug: broad-and-narrow-phase-contact
+        title: Two-phase contact against vessels
+        note: sphere rejects, hull decides, unknown falls back to sphere
+      - slug: engine-free-seams-for-testable-physics
+        title: Keep physics maths free of game types behind narrow seams
+        note: pass differences, not absolute positions
+  - id: mods/ksagolf/features/launch-site-surface-raycast
+    title: Launch-site surface by raycast into a copied collider
+    category: physics
+    submod: null
+    summary: >-
+      A prefix on Universe.ExecuteNextVehicleSolvers, the one window where nothing holds the shapes
+      registry, copies each launch site's BigCompound convex children under
+      ConstraintSim.UnlockShapes (placed as UpdateStaticObjectCollider places them) and the site's
+      Terrain-tagged model triangles via reflection on StaticObject._models; the ball ray-casts
+      straight down into the copy at any time.
+    novelty: high
+    techniques: [harmony-prefix, reflection, bepu-physics, ray-cast, main-thread-sync-point]
+    lifecycle: [frame:dispatch-solvers, frame:draw-ui]
+    hooks: ["harmony-prefix KSA.Universe.ExecuteNextVehicleSolvers", "reflection KSA.StaticObject._models"]
+    game_types: [KSA.Universe, KSA.ConstraintSim, KSA.ShapesUnlock, KSA.LocationReference, KSA.LandmarkReference, KSA.StaticObject, KSA.StaticObjectModel, KSA.PartModelModule, KSA.MeshReference, KSA.CelestialTemplate, KSA.Celestial, KSA.VehicleUpdateTask, BepuPhysics.Collidables.Shapes, BepuPhysics.Collidables.BigCompound, BepuPhysics.Collidables.CompoundChild, BepuPhysics.Collidables.IConvexShape, BepuPhysics.Collidables.TypedIndex, BepuPhysics.RigidPose]
+    key_paths: [src/KSAGolf/Ksa/PadSurface.cs, src/KSAGolf/Ksa/Golf.cs, docs/BLOCKED-ON-KSA.md]
+    howto_topics:
+      - slug: read-bepu-shapes-registry-safely
+        title: Read or mutate the shared Bepu shapes registry
+        note: only between ApplyVehicleSolvers and ExecuteNextVehicleSolvers; UnlockShapes throws elsewhere
+      - slug: raycast-launch-pad-surface
+        title: Find the top of a launch pad under a point
+        note: copy convex children; IConvexShape.RayTest needs no registry
+      - slug: find-launch-sites-on-a-body
+        title: Enumerate launch sites and their static objects
+        note: BodyTemplate.Locations, LandmarkReference.IsLaunchPad, GetStaticObject, GetAxesCcf
+      - slug: read-static-object-meshes
+        title: Read a static object's drawn triangles
+        note: private _models; Template.Terrain; MeshReference.PositionsCompare
+      - slug: main-thread-physics-sync-point
+        title: Use the frame's physics sync point
+        note: prefix on ExecuteNextVehicleSolvers runs before the step is queued
+  - id: mods/ksagolf/features/course-colliders-as-clutter
+    title: Course colliders registered as ground clutter
+    category: physics
+    submod: null
+    summary: >-
+      Box shapes made at the ExecuteNextVehicleSolvers sync point; worker-thread prefixes on
+      ConstraintSim.DetectCollisions and Simulate add them as statics in every nearby Ccf bubble and
+      register each handle as infinite-mass ground clutter by reflection, the only kind of mod
+      static the narrow phase lets a kitten stand on; a TryResetForPool prefix forgets recycled
+      simulations.
+    novelty: high
+    techniques: [harmony-prefix, reflection, bepu-physics, main-thread-sync-point, worker-thread-patch]
+    lifecycle: [frame:draw-ui, frame:dispatch-solvers, physics:vehicle-solver, physics:bepu]
+    hooks: ["harmony-prefix KSA.Universe.ExecuteNextVehicleSolvers", "harmony-prefix KSA.ConstraintSim.DetectCollisions", "harmony-prefix KSA.ConstraintSim.Simulate", "harmony-prefix KSA.ConstraintSim.TryResetForPool", "reflection KSA.BubbleClutterStatics._statics"]
+    game_types: [KSA.Universe, KSA.ConstraintSim, KSA.ConstraintSimPool, KSA.BubbleClutterStatics, KSA.NarrowPhaseCallbacks, KSA.PhysicsBubble, KSA.VehicleUpdateTask, KSA.VehicleUpdateState, KSA.ReadOnlyPhysicsStates, KSA.BubbleOrigin, KSA.BubbleFrameEx, KSA.StaticsShouldntAwakenBodies, KSA.ShapesUnlock, BepuPhysics.Statics, BepuPhysics.StaticDescription, BepuPhysics.StaticHandle, BepuPhysics.RigidPose, BepuPhysics.Collidables.Box, BepuPhysics.Collidables.Shapes, BepuPhysics.Collidables.TypedIndex]
+    key_paths: [src/KSAGolf/Ksa/CourseCollider.cs, src/KSAGolf/Sim/CourseColliders.cs, src/KSAGolf/Ksa/CourseBuilder.cs, docs/KSA-MODDING-NOTES.md]
+    howto_topics:
+      - slug: add-static-colliders-to-physics-bubbles
+        title: Add mod static colliders to the vehicle physics
+        note: per-bubble ConstraintSim, bubble-relative poses, Ccf bubbles only
+      - slug: make-kittens-stand-on-custom-geometry
+        title: Make kittens stand on mod geometry
+        note: AllowContactGeneration only accepts clutter, terrain blocks or own ground
+      - slug: register-statics-as-ground-clutter
+        title: Register statics as ground clutter
+        note: private _statics; infinite mass never displaces; re-register every pass
+      - slug: patch-constraint-sim-on-worker-threads
+        title: Patch the Bepu constraint sim safely
+        note: worker threads, one sim per prefix call, volatile snapshot handoff
+      - slug: create-bepu-shapes-at-sync-point
+        title: Create Bepu shapes from a mod
+        note: UnlockShapes in an ExecuteNextVehicleSolvers prefix; cache by size
+      - slug: track-pooled-constraint-sims
+        title: Track pooled physics simulations
+        note: ConditionalWeakTable plus a TryResetForPool prefix
+  - id: mods/ksagolf/features/course-surface-exact-shapes
+    title: Course surface from exact shapes
+    category: physics
+    submod: null
+    summary: >-
+      The minigolf course as the ball meets it, from exact rail boxes, posts, felt and ramp heights
+      and a regulation cup profile shared with the Blender models; rails and posts are swept as
+      circles against rounded boxes and circles, seams are exact, and anything off the pieces falls
+      through to the planet's ground.
+    novelty: medium
+    techniques: [custom-physics, continuous-collision, analytic-geometry, headless-tests]
+    lifecycle: [frame:draw-ui, frame:celestials, frame:after-on-frame]
+    hooks: ["starmap StarMapAfterGui", "harmony-prefix KSA.Program.OnFrameCelestials", "starmap StarMapAfterOnFrame"]
+    game_types: [KSA.Celestial]
+    key_paths: [src/KSAGolf/Sim/CourseSurface.cs, src/KSAGolf/Sim/PieceShape.cs, src/KSAGolf/Sim/CourseLines.cs, src/KSAGolf/Sim/GolfBall.cs]
+    howto_topics:
+      - slug: analytic-collision-instead-of-mesh
+        title: Collide with analytic shapes instead of mesh triangles
+        note: no seam snags; one source of dimensions for code and models
+      - slug: swept-circle-vs-box
+        title: Sweep a moving circle against a box and a circle
+        note: grown box with rounded corners; overlap moving in is a hit at t=0
+      - slug: minigolf-cup-profile
+        title: Model a cup a ball can roll over or drop into
+        note: rim profile seen by the ball's centre
+      - slug: layered-ground-providers
+        title: Layer a local surface over the planet's ground
+        note: fall through to the beyond ground
+  - id: mods/ksagolf/features/terrain-height-queries
+    title: Terrain height queries off the engine's height field
+    category: celestials
+    submod: null
+    summary: >-
+      Everything built on Celestial.GetTerrainHeightFromDirCcf/Cce: a centre-plus-radius ground test
+      with a sea clamp, a height-field seam, a closed-form-band ridge mask, a gradient slope
+      reading, a local east/north frame and a real terrain ceiling, plus what accurate true vs false
+      actually changes.
+    novelty: medium
+    techniques: [custom-physics, closed-form-geometry, decorator-cache, headless-tests]
+    lifecycle: [frame:draw-ui]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: [KSA.Celestial, KSA.Astronomical, KSA.CelestialSystem, KSA.Universe, KSA.Rendering.Water.Data.OceanReference, KSA.TerrainRadiusCache, KSA.PhysicsEnvironment, KSA.TerrainImpactFinder, KSA.TerrainPatch]
+    key_paths: [src/KSAGolf/Ksa/GroundTest.cs, src/KSAGolf/Ksa/TerrainHeights.cs, src/KSAGolf/Sim/IGroundTest.cs, src/KSAGolf/Sim/CoarseGroundTest.cs, src/KSAGolf/Sim/ITerrainHeights.cs, src/KSAGolf/Sim/TerrainMask.cs, src/KSAGolf/Sim/LineOfSight.cs, src/KSAGolf/Sim/GroundSlope.cs, src/KSAGolf/Sim/TerrainMap.cs, docs/KSA-TERRAIN.md]
+    howto_topics:
+      - slug: query-terrain-height
+        title: Query terrain height under a point
+        note: Ccf vs Cce entry points; result is metres above MeanRadius
+      - slug: accurate-vs-coarse-terrain-sampling
+        title: Choose accurate or coarse terrain sampling
+        note: accurate false skips every procedural modifier, including launch-site decals
+      - slug: terrain-line-of-sight
+        title: Test whether a ridge hides one point from another
+        note: closed-form band below the terrain ceiling, fixed sample budget
+      - slug: bound-max-terrain-height
+        title: Get a true upper bound on terrain height
+        note: MaxTerrainHeightApprox is a sample, not a bound
+      - slug: measure-ground-slope
+        title: Measure ground slope at a point
+        note: gradient, not the median of a ring of spokes
+      - slug: local-east-north-up-frame
+        title: Build a local east/north/up frame on a body
+        note: north from the spin axis, not the ecliptic
+      - slug: sea-level-vs-seabed
+        title: Handle oceans in ground queries
+        note: clamp to OceanReference.Level when Density > 0
+  - id: mods/ksagolf/features/craft-mover
+    title: Craft mover
+    category: vehicles-and-parts
+    submod: null
+    summary: >-
+      Click a craft to pick it up and click the ground to set it down, or send the flown craft to
+      any body, through Vehicle.TeleportToLocation, which queues a bounding-box-based surface
+      placement applied in the next PrepareFrame.
+    novelty: medium
+    techniques: [imgui-window, gizmo-drawing]
+    lifecycle: [frame:draw-ui, frame:input]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: [KSA.Vehicle, KSA.Celestial, KSA.InputEvents, KSA.Universe, KSA.CelestialSystem]
+    key_paths: [src/KSAGolf/Ksa/CraftMover.cs, src/KSAGolf/Ksa/KsaWorld.cs, src/KSAGolf/Sim/Picking.cs]
+    howto_topics:
+      - slug: teleport-vehicle-to-surface
+        title: Place a vehicle on a body's surface at a latitude and longitude
+        note: Vehicle.TeleportToLocation queues InputEvents.TeleportInputData
+      - slug: pick-vehicle-under-cursor
+        title: Pick the vehicle under the mouse cursor
+        note: project each craft, pick radius from apparent size
+  - id: mods/ksagolf/features/file-command-bridge
+    title: File command bridge and MCP server
+    category: testing-and-tooling
+    submod: null
+    summary: >-
+      Drives a running game from outside through JSON command files in Logs/bridge/in answered in
+      out, gated to developer installs by a marker file, with long-running commands as per-frame
+      delegates and a stdlib MCP server that exposes them as agent tools.
+    novelty: high
+    techniques: [starmap-lifecycle, reflection, file-ipc, mcp-server]
+    lifecycle: [frame:after-on-frame, frame:draw-ui, frame:celestials]
+    hooks: ["starmap StarMapAfterOnFrame", "starmap StarMapAllModsLoaded"]
+    game_types: [KSA.Universe, KSA.SimSpeed, KSA.GameSaves, KSA.Vehicle, KSA.Orbit, KSA.KittenEva]
+    key_paths: [src/KSAGolf/Ksa/Bridge.cs, src/KSAGolf/Sim/BridgeCommand.cs, src/KSAGolf/Ksa/Build.cs, tools/ksa-mcp/server.py, .mcp.json]
+    howto_topics:
+      - slug: control-game-from-external-process
+        title: Control a running KSA from an external script
+        note: file inbox/outbox, atomic .part rename, one command at a time
+      - slug: mcp-server-for-ksa
+        title: Expose a running game to an AI agent through MCP
+      - slug: developer-only-features
+        title: Gate developer-only features behind a marker file
+      - slug: step-simulation-exact-seconds
+        title: Run the world for an exact number of simulated seconds and pause
+      - slug: load-save-from-code
+        title: Load a save game from code
+        note: GameSaves.LoadSaveGame
+  - id: mods/ksagolf/features/visual-testing-captures
+    title: Visual testing captures
+    category: testing-and-tooling
+    submod: null
+    summary: >-
+      Scripted screenshots through KSA's private ScreenshotCapture with a UI-free warm-up, per-image
+      JSON manifests with the craft's projected screen position, simulated-time series, same-instant
+      variant diffs and a temporal noise map.
+    novelty: high
+    techniques: [reflection, starmap-lifecycle, file-ipc]
+    lifecycle: [frame:after-on-frame, frame:prepare, frame:post-render, thread:background]
+    hooks: ["starmap StarMapAfterOnFrame", "reflection KSA.Program._screenshotCapture"]
+    game_types: [KSA.ScreenshotCapture, KSA.Program, KSA.Camera, KSA.Constants]
+    key_paths: [src/KSAGolf/Ksa/KsaWorld.cs, src/KSAGolf/Ksa/Bridge.cs, src/KSAGolf/Ksa/SceneCamera.cs, tools/vis/vis.py, tools/screenshot.sh]
+    howto_topics:
+      - slug: take-screenshot-from-code
+        title: Take a game screenshot from mod code
+        note: Program._screenshotCapture.Request(scale, "warm=N"); file lands in Documents/.../exports/screenshots
+      - slug: project-world-point-to-screen
+        title: Project a world position to screen coordinates
+        note: Camera.EgoToClipDouble
+      - slug: visual-regression-for-mods
+        title: Visual regression testing for a KSA mod
+        note: same-instant variant diffs, temporal std-dev map
+  - id: mods/ksagolf/features/headless-sim-tests
+    title: Headless simulation tests behind a Sim/Ksa boundary
+    category: testing-and-tooling
+    submod: null
+    summary: >-
+      A KSA-free Sim folder linked wholesale into an xUnit project that references no KSA.dll, so
+      about 290 tests of physics, frame bookkeeping and parsing run without the game and the
+      boundary is a compile error.
+    novelty: medium
+    techniques: [headless-tests, msbuild-linked-sources]
+    lifecycle: []
+    hooks: []
+    game_types: [Brutal.Numerics.double3]
+    key_paths: [tests/KSAGolf.Tests/KSAGolf.Tests.csproj, tools/check-boundary.sh, tools/test.sh, tests/KSAGolf.Tests/SkippedFrameTests.cs]
+    howto_topics:
+      - slug: unit-test-mod-logic-without-game
+        title: Unit-test mod logic without running KSA
+        note: link pure sources into an xUnit project; reference only Brutal maths
+      - slug: test-frame-timing-logic
+        title: Test frame-timing and epoch logic headlessly
+        note: vary the step, invariance tests, missed frames
+  - id: mods/ksagolf/features/api-surface-and-assembly-lock
+    title: API surface record and assembly lock
+    category: testing-and-tooling
+    submod: null
+    summary: >-
+      A SHA-256 lock of referenced KSA assemblies plus build number, a generated list of every
+      external member the compiled DLL binds to read from its metadata tables, and scripts that diff
+      a new decompiled build against just that surface.
+    novelty: high
+    techniques: [metadata-reader, decompiling, ci-checks]
+    lifecycle: []
+    hooks: []
+    game_types: [KSA.Program]
+    key_paths: [ksa-assemblies.lock, tools/apisurface/Program.cs, tools/api-surface.sh, tools/check-assemblies.sh, tools/ksa-api-diff.sh, tools/decompile-assemblies.sh]
+    howto_topics:
+      - slug: track-ksa-api-dependencies
+        title: Record exactly which KSA APIs a mod uses
+        note: System.Reflection.Metadata over TypeRef/MemberRef; nameof and reflection are invisible
+      - slug: upgrade-mod-to-new-ksa-build
+        title: Upgrade a mod to a new KSA build
+        note: lock, decompile, diff against the surface, fix
+      - slug: detect-new-ksa-build
+        title: Notice a new KSA build before installing it
+        note: scheduled CI job against the master server version endpoint
+  - id: mods/ksagolf/features/packaging-and-release
+    title: Packaging, deploy and release pipeline
+    category: testing-and-tooling
+    submod: null
+    summary: >-
+      One portable net10.0 archive for Windows and Linux with gates against symbols and game DLLs, a
+      deploy script that installs and registers the mod in manifest.toml, and semantic-release plus
+      SpaceDock publishing from Conventional Commits.
+    novelty: medium
+    techniques: [ci-checks, packaging]
+    lifecycle: []
+    hooks: []
+    game_types: [KSA.ModLibrary]
+    key_paths: [tools/package.sh, tools/deploy.sh, .github/workflows/release.yml, .github/workflows/spacedock.yml, .releaserc.json, .github/workflows/ci.yml]
+    howto_topics:
+      - slug: package-mod-for-release
+        title: Package a KSA mod for release (Windows and Linux)
+        note: one zip, no pdb, no game DLLs
+      - slug: automate-mod-releases
+        title: Automate mod releases with semantic-release and SpaceDock
+      - slug: deploy-mod-locally
+        title: Deploy a mod build into the local KSA install
+        note: manifest.toml registration, locked DLL detection
+      - slug: ci-without-redistributing-game-assemblies
+        title: Build a mod in CI without publishing the game's assemblies
+        note: private mirror via deploy key, skip on forks

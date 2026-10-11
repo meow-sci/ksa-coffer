@@ -1,0 +1,632 @@
+batch: flight-and-orbits-2
+game_loop_reference: getting-started/game-loop-and-lifecycle
+category: flight-and-orbits
+category_description: Reading a vehicle's flight state and orbit, working in KSA's coordinate frames and epochs, driving the
+  flight computer and burns from a mod, extending the stock Transfer Planner, transfer and encounter math, targets, map-view
+  overlays and guided flight (ascent, boostback, landing, ballistic and homing guidance).
+groups:
+  guidance: 'Guided flight: suicide burns, powered landing, closed-loop ascent, boostback and glide, ballistic prediction,
+    homing guidance and running heavy solves off the frame.'
+  map-view: 'Map-view interaction: closest approach, points anchored to bodies, and predicted trajectories, markers and orbit
+    lines.'
+topics:
+- slug: compute-a-suicide-burn
+  title: Compute a suicide-burn (hoverslam) start altitude and the thrust it needs
+  kind: howto
+  group: guidance
+  batch: flight-and-orbits-2
+  summary: Work out when to light the engines for a just-in-time landing burn using live thrust, Isp and mass, and invert
+    a thrust demand into a throttle setting.
+  game_types:
+  - KSA.Vehicle
+  - KSA.IParentBody
+  - KSA.AtmosphericBody
+  - KSA.Astronomical
+  - KSA.PhysicsEnvironment
+  - KSA.EngineController
+  - KSA.ActiveEnginePerformance
+  - KSA.RocketControllerData
+  - KSA.FlightComputer
+  - KSA.SolidMotor
+  engine_pointers:
+  - current/decomp/KSA/Vehicle.cs GetRadarAltitude
+  - current/decomp/KSA/EngineController.cs ComputeActivePerformance
+  - current/decomp/KSA/FlightComputer.cs SolveGLoadThrottleCap
+  lifecycle:
+  - frame:draw-ui
+  - frame:after-on-frame
+  - frame:dispatch-solvers
+  approaches:
+  - n: 1
+    title: Closed-form calculator on radar altitude
+    mod: kitten-engineer-redux
+    features:
+    - mods/kitten-engineer-redux/features/suicide-burn-calculator
+    technique: flight-math
+    note: Live pressure thrust; avoid GetNearSurfaceRadius for ground gravity.
+  - n: 2
+    title: Sum ComputeActivePerformance ThrustMax per active controller
+    mod: ksa-public-telemetry
+    features:
+    - mods/ksa-public-telemetry/features/live-flight-telemetry-sampling
+    technique: snapshot-copy
+    note: 'Sub-step folded from compute-live-engine-thrust (give it its own section): The simplest live thrust and T/W number
+      for a readout.'
+  - n: 3
+    title: Core-model evaluation at a throttle and pressure, with throttle inversion
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/engine-performance-and-throttle-inversion
+    technique: engine-model-reuse
+    note: 'Sub-step folded from compute-live-engine-thrust (give it its own section): Thrust at ambient pressure, bracketed
+      root find for a requested thrust, saturation reporting, solid-motor detection and the g-load cap.'
+  related:
+  - plan-and-fly-a-powered-landing
+  - fly-closed-loop-ascent-guidance
+  - read-staged-delta-v-from-the-game
+  merged_from:
+  - compute-live-engine-thrust
+- slug: plan-and-fly-a-powered-landing
+  title: Plan and fly a powered landing
+  kind: howto
+  group: guidance
+  batch: flight-and-orbits-2
+  summary: Plan a deorbit burn to a site on a rotating body, fly a fuel-optimal powered descent, and finish with a hover and
+    touchdown under engine power.
+  game_types:
+  - KSA.Vehicle
+  - KSA.Celestial
+  - KSA.IParentBody
+  - KSA.FlightComputer
+  - KSA.ManualControlInputs
+  - KSA.Burn
+  - KSA.BurnTarget
+  - KSA.FlightPlan
+  - KSA.PatchedConic
+  - KSA.Orbit
+  - KSA.Universe
+  engine_pointers:
+  - current/decomp/KSA/Vehicle.cs
+  - current/decomp/KSA/Celestial.cs GetTerrainHeightFromDirCcf
+  - current/decomp/KSA/FlightPlan.cs
+  - current/decomp/KSA/OrbitalTransfers.cs
+  lifecycle:
+  - frame:dispatch-solvers
+  - thread:background
+  - physics:vehicle-solver
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: G-FOLD lossless convexification solved synchronously with a time limit
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/gfold-powered-descent
+    technique: custom-physics
+    note: Site-fixed frame; periodic re-solves; committed-trajectory tracking.
+  - n: 2
+    title: 6-DOF landing MPC on a dedicated background thread
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/scvx-6dof-landing-mpc
+    technique: background-thread
+    note: Single result slot, estimated acceleration bias, wall-clock budget, node ladder.
+  - n: 3
+    title: Sink-profile hover controller with terrain height below the craft
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/terminal-hover-touchdown
+    technique: harmony-prefix
+    note: 'Sub-step folded from hover-and-touch-down-under-engine-power (give it its own section): Gravity feedforward PID;
+      contact flag for touchdown.'
+  - n: 4
+    title: Time-sliced Lambert search under a work budget, then a stock node
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/deorbit-landing-planner
+    technique: harmony-prefix
+    note: 'Sub-step folded from plan-a-deorbit-burn-to-a-landing-site (give it its own section): C# iterator with per-step
+      and total budgets; stock computes the ignition timing.'
+  related:
+  - run-an-expensive-solve-without-stalling-the-frame
+  - build-a-site-frame-and-compute-a-launch-window
+  - compute-a-suicide-burn
+  - aim-a-transfer-at-a-flyby-periapsis
+  - execute-planned-burns-with-the-stock-autopilot
+  merged_from:
+  - fuel-optimal-powered-landing
+  - hover-and-touch-down-under-engine-power
+  - plan-a-deorbit-burn-to-a-landing-site
+- slug: fly-closed-loop-ascent-guidance
+  title: Fly a closed-loop ascent to a target orbit
+  kind: howto
+  group: guidance
+  batch: flight-and-orbits-2
+  summary: Guide a launch to a target orbit with closed-loop ascent guidance, optionally seeded by a propellant-optimal pre-planned
+    trajectory.
+  game_types:
+  - KSA.SequencePerformanceList
+  - KSA.SequencePerformance
+  - KSA.PartTree
+  - KSA.SolidMotor
+  - KSA.Vehicle
+  - KSA.FlightComputer
+  - KSA.Orbit
+  engine_pointers:
+  - current/decomp/KSA/SequencePerformanceList.cs
+  - current/decomp/KSA/Vehicle.cs
+  lifecycle:
+  - frame:dispatch-solvers
+  - frame:draw-ui
+  - thread:background
+  approaches:
+  - n: 1
+    title: UPFG with a stage list from SequencePerformance phases
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/upfg-ascent-guidance
+    technique: custom-physics
+    note: Live ambient pressure only for the burning stage; launch window and co-elliptic chase target.
+  - n: 2
+    title: SCvx with Clarabel on its own thread, immutable plan published
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/convex-ascent-scvx
+    technique: background-thread
+    note: 'Sub-step folded from plan-an-optimal-ascent-trajectory (give it its own section): Air-relative velocity subtracts
+      omega x r from inertial velocity.'
+  related:
+  - build-a-site-frame-and-compute-a-launch-window
+  - read-staged-delta-v-from-the-game
+  - run-an-expensive-solve-without-stalling-the-frame
+  merged_from:
+  - plan-an-optimal-ascent-trajectory
+- slug: run-an-expensive-solve-without-stalling-the-frame
+  title: Run an expensive solve without stalling the frame
+  kind: howto
+  group: guidance
+  batch: flight-and-orbits-2
+  summary: Move a heavy guidance or planning solve (convex ascent, descent MPC, deorbit planner, guidance preview) off the
+    frame and the vehicle worker, and pick it up when it finishes.
+  game_types:
+  - KSA.Vehicle
+  - KSA.FlightComputer
+  - KSA.Celestial
+  - KSA.Universe
+  engine_pointers:
+  - current/decomp/KSA/Vehicle.cs PrepareWorker
+  lifecycle:
+  - frame:dispatch-solvers
+  - thread:background
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: Build plain data on the main thread, solve on a worker, publish an immutable plan
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/convex-ascent-scvx
+    technique: background-thread
+    note: Lock-protected single request/result slot.
+  - n: 2
+    title: Receding-horizon MPC with wall-clock budget
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/scvx-6dof-landing-mpc
+    technique: background-thread
+    note: Immutable inputs, one solver instance per thread.
+  - n: 3
+    title: Synchronous solve with a solver time limit
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/gfold-powered-descent
+    technique: custom-physics
+    note: Cheaper problems solved inside the per-vehicle step.
+  - n: 4
+    title: C# iterator time-sliced across frames
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/deorbit-landing-planner
+    technique: iterator-time-slicing
+    note: Per-step and total work budgets.
+  - n: 5
+    title: Wall-clock rate limit and throttled caches
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/guided-bomb-tail-kit-and-sight
+    - mods/compendium/features/root-closest-approach-search
+    technique: rate-limited-solve
+    note: 'Wall-clock interval so time warp does not defeat it; caches keyed by object identity plus real and sim time limits.
+      Also (merged from testing-and-tooling/measure-and-budget-mod-performance approach 6, "Per-vehicle ConditionalWeakTable
+      cache with real and sim time limits" [compendium]): Folded from throttle-expensive-ui-computation (sub-step: give it
+      its own section (throttle rather than measure)). Cache invalidated when time moves backwards or advances 60 s, when
+      the cached approach time has passed, or after one real second. Also (merged from testing-and-tooling/measure-and-budget-mod-performance
+      approach 7, "Wall-clock interval for a sight solve so time warp cannot defeat it"): Folded from throttle-expensive-ui-computation
+      (sub-step: give it its own section (throttle rather than measure)). Caches keyed by object identity plus real and sim
+      time limits.'
+  related:
+  - plan-and-fly-a-powered-landing
+  - fly-closed-loop-ascent-guidance
+  - find-closest-approach-along-the-flight-plan
+  - measure-and-budget-mod-performance
+- slug: predict-impact-point-and-build-a-ballistic-computer
+  title: Predict impact points with drag and build a ballistic computer
+  kind: howto
+  group: guidance
+  batch: flight-and-orbits-2
+  summary: Predict where a falling vehicle will hit the ground, measure lift and drag under the active aero model, and compute
+    the velocity to be gained for a powered flight to a ballistic target.
+  game_types:
+  - KSA.Vehicle
+  - KSA.PhysicsStates
+  - KSA.Celestial
+  - KSA.IParentBody
+  - KSA.Program
+  - KSA.PhysicsEnvironment
+  - KSA.CelestialFrameMath
+  - KSA.FlightComputer
+  - KSA.ActiveEnginePerformance
+  - KSA.StructuralLoad
+  engine_pointers:
+  - current/decomp/KSA/PhysicsStates.cs
+  - current/decomp/KSA/Celestial.cs
+  - current/decomp/KSA/PhysicsStates.cs ComputeDerivatives
+  - current/decomp/KSA/Vehicle.cs
+  lifecycle:
+  - frame:dispatch-solvers
+  - frame:draw-ui
+  - frame:celestials
+  approaches:
+  - n: 1
+    title: Gravity plus drag on air-relative velocity with a drag table
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/boostback-impact-prediction
+    - mods/ksa-advancedflightcomputer/features/drag-table-measurement
+    technique: custom-physics
+    note: 'Drag table measured from the active aero model. Also (measure-lift-and-drag-under-the-active-aero-model): Sub-step
+      folded from measure-lift-and-drag-under-the-active-aero-model (give it its own section): Fits Cd and CL over Mach and
+      AoA; the sign of CL/CD tells which way to tilt.'
+  - n: 2
+    title: Throwaway copy flown in a ground-carried frame
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/guided-bomb-tail-kit-and-sight
+    technique: ground-carried-frame
+    note: Rate-limited re-prediction; platform-relative cache.
+  - n: 3
+    title: Flown impact check against a closed-form solution
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/icbm-ballistic-computer
+    technique: flown-prediction
+    note: 'Self-check of the Lambert solution by a flown prediction. Also (guide-a-ballistic-flight-by-velocity-to-be-gained):
+      Sub-step folded from guide-a-ballistic-flight-by-velocity-to-be-gained (give it its own section): Ascent errors cost
+      fuel, not accuracy; countdown solved a few times a second and stepped per frame.'
+  related:
+  - fly-a-boostback-and-glide-to-a-landing-site
+  - read-flight-state-in-a-local-horizon-frame
+  - aim-a-transfer-at-a-flyby-periapsis
+  - execute-burns-with-rcs-and-throttle-inputs
+  merged_from:
+  - predict-impact-point-with-drag
+  - measure-lift-and-drag-under-the-active-aero-model
+  - guide-a-ballistic-flight-by-velocity-to-be-gained
+- slug: fly-a-boostback-and-glide-to-a-landing-site
+  title: Fly a boostback burn and glide a booster to its landing site
+  kind: howto
+  group: guidance
+  batch: flight-and-orbits-2
+  summary: Fly a boostback burn and then steer an unpowered descent onto a landing site with angle of attack.
+  game_types:
+  - KSA.Vehicle
+  - KSA.SequenceList
+  - KSA.Decoupler
+  - KSA.PhysicsStates
+  - KSA.FlightComputer
+  - KSA.PartTree
+  - KSA.IParentBody
+  - KSA.PhysicsEnvironment
+  - KSA.Orbit
+  engine_pointers:
+  - current/decomp/KSA/Vehicle.cs Split
+  - current/decomp/KSA/PhysicsStates.cs
+  lifecycle:
+  - frame:dispatch-solvers
+  approaches:
+  - n: 1
+    title: Impact-prediction-driven boostback and glide
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/boostback-impact-prediction
+    technique: harmony-prefix
+    note: Adopt the separated stage, predict impact with drag, receding-horizon burn.
+  - n: 2
+    title: Zero-effort-miss law with an inverted lift curve
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/aerodynamic-glide-impact-steering
+    technique: closed-loop-guidance
+    note: 'Sub-step folded from steer-descent-with-angle-of-attack (give it its own section): gain/tgo^2 law, integral off
+      for long glides; automatic differentiation for the Jacobian.'
+  related:
+  - predict-impact-point-and-build-a-ballistic-computer
+  - run-an-autopilot-for-every-vehicle-each-step
+  - steer-by-zero-effort-miss
+  merged_from:
+  - fly-a-boostback-to-a-landing-site
+  - steer-descent-with-angle-of-attack
+- slug: steer-by-zero-effort-miss
+  title: Steer by predicted miss (zero-effort-miss guidance) and model homing sensors
+  kind: howto
+  group: guidance
+  batch: flight-and-orbits-2
+  summary: Steer a missile or falling object by its zero-effort miss or predicted impact, and model a sensor's field of view,
+    line of sight and target loss for homing objects.
+  game_types:
+  - KSA.Vehicle
+  - KSA.Celestial
+  - KSA.IParentBody
+  - KSA.Universe
+  - KSA.Program
+  - KSA.Camera
+  - KSA.FlightComputer
+  - KSA.Part
+  - KSA.PartTree
+  - KSA.Ray
+  engine_pointers:
+  - current/decomp/KSA/Vehicle.cs
+  - current/decomp/KSA/Ray.cs
+  lifecycle:
+  - frame:dispatch-solvers
+  - frame:draw-ui
+  - frame:celestials
+  - render:imgui
+  - frame:after-on-frame
+  approaches:
+  - n: 1
+    title: Proportional navigation on a back-dated target sample
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/proportional-navigation-guidance
+    technique: sim-boundary
+    note: True PN with gravity compensation, command projected square to the airflow and clipped to a g limit, sub-stepped.
+  - n: 2
+    title: ZEM on a predicted impact point
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/aerodynamic-glide-impact-steering
+    technique: closed-loop-guidance
+    note: Gain over tgo squared, long-glide behavior.
+  - n: 3
+    title: Predicted-impact guidance with ground-designation input
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/guided-bomb-tail-kit-and-sight
+    - mods/ksarmory/features/ground-target-designation-and-reach
+    technique: predicted-impact-guidance
+    note: 'Sub-step folded from steer-a-falling-object-by-predicted-impact (give it its own section): Remaining reach flown
+      and drawn so a click is either a correction or the next aim.'
+  - n: 4
+    title: Gimbal limit, raycast occlusion and uplink loss
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/seekers-uplink-and-laser-homing
+    technique: engine-raycast
+    note: 'Sub-step folded from model-sensor-field-of-view-and-line-of-sight (give it its own section): Beam stops at the
+      first craft mesh or ground; each emitter or decoy judged once when it first outshines the target.'
+  related:
+  - fly-a-boostback-and-glide-to-a-landing-site
+  - predict-impact-point-and-build-a-ballistic-computer
+  - anchor-and-pick-points-on-bodies
+  - find-closest-approach-along-the-flight-plan
+  merged_from:
+  - steer-a-falling-object-by-predicted-impact
+  - model-sensor-field-of-view-and-line-of-sight
+- slug: find-closest-approach-along-the-flight-plan
+  title: Find the closest approach to a target along a trajectory
+  kind: howto
+  group: map-view
+  batch: flight-and-orbits-2
+  summary: Locate the time and distance of closest approach to a target along the flight plan or a predicted path using root
+    finding, classify the threat, and write the result into the stock gauge digits.
+  game_types:
+  - KSA.FlightPlan
+  - KSA.PatchedConic
+  - KSA.Orbit
+  - KSA.Burn
+  - KSA.IOrbiter
+  - KSA.Program
+  - KSA.DigitRoller
+  engine_pointers:
+  - current/decomp/KSA/FlightPlan.cs
+  - current/decomp/KSA/PatchedConic.cs
+  - current/decomp/KSA/Program.cs UpdateGauges
+  lifecycle:
+  - frame:gauges
+  - frame:draw-ui
+  approaches:
+  - n: 1
+    title: Sample patches uniformly and log-spaced, golden-section refine, cache per vehicle
+    mod: compendium
+    features:
+    - mods/compendium/features/root-closest-approach-search
+    technique: numeric-minimization
+    note: '512 uniform plus 512 log-spaced samples per coast patch over 10 years; periapsis included; refresh rule of one
+      second, 60 sim-seconds and plan identity. Also (override-stock-gauge-readouts): Sub-step folded from override-stock-gauge-readouts
+      (give it its own section): Used to show TGT distance, speed and closest approach.'
+  - n: 2
+    title: Closest point of approach from relative motion
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/cpa-threat-classification
+    technique: frame-invariant-signatures
+    note: Straight-line relative motion ranking by time to closest approach rather than by closing speed.
+  related:
+  - understand-ksa-coordinate-frames-and-epochs
+  - aim-a-transfer-at-a-flyby-periapsis
+  - set-and-clear-the-vehicle-target
+  merged_from:
+  - override-stock-gauge-readouts
+- slug: anchor-and-pick-points-on-bodies
+  title: Anchor points to a rotating body and pick bodies and orbit lines under the cursor
+  kind: howto
+  group: map-view
+  batch: flight-and-orbits-2
+  summary: Keep a point attached to a rotating, orbiting body so it stays put on the surface, and find the body, limb or orbit-line
+    point under the mouse cursor.
+  game_types:
+  - KSA.Celestial
+  - KSA.Astronomical
+  - KSA.IParentBody
+  - KSA.CelestialSystem
+  - KSA.Universe
+  - KSA.Camera
+  - KSA.Orbit
+  - KSA.OrbitHoverCandidate
+  - KSA.FlightPlan
+  - KSA.StellarBody
+  engine_pointers:
+  - current/decomp/KSA/Celestial.cs (GetCcf2Cce, GetTerrainHeightFromDirCcf)
+  - current/decomp/KSA/Universe.cs DeserializeSave
+  - current/decomp/KSA/Orbit.cs GetNearestPosition
+  - current/decomp/KSA/OrbitHoverCandidate.cs
+  - current/decomp/KSA/Astronomical.cs CursorHoverEligible
+  lifecycle:
+  - frame:draw-ui
+  - frame:input
+  - event:save-load
+  approaches:
+  - n: 1
+    title: Body-fixed ground point re-read into ecliptic position and velocity each frame
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/ground-target-designation-and-reach
+    technique: body-fixed-anchor
+    note: Click on terrain via a cursor ray, store as a body-fixed anchor, re-resolve per frame with the ground's velocity.
+  - n: 2
+    title: Immutable anchors in CCE, orbit-parent or body-fixed frames, pruned and cleared on save load
+    mod: ksa-measuretools
+    features:
+    - mods/ksa-measuretools/features/live-body-relative-anchors
+    technique: frame-relative-anchors
+    note: Identity-based pruning each frame, a DeserializeSave postfix to drop state the system-change check misses.
+  - n: 3
+    title: Projected center and disc radius, limb snap by closest point on the ray
+    mod: ksa-measuretools
+    features:
+    - mods/ksa-measuretools/features/body-and-limb-snapping
+    technique: screen-space-picking
+    note: 'Sub-step folded from pick-bodies-and-orbit-lines-under-the-cursor (give it its own section): Gate dot-sized bodies
+      on CursorHoverEligible, reset in OnFrameViewports and set after StarMapAfterGui.'
+  - n: 4
+    title: Orbit.GetNearestPosition on patches, burn branches and body orbits
+    mod: ksa-measuretools
+    features:
+    - mods/ksa-measuretools/features/orbit-line-snapping
+    technique: reuse-stock-picker
+    note: 'Sub-step folded from pick-bodies-and-orbit-lines-under-the-cursor (give it its own section): Re-validate on screen
+      to close the behind-camera NaN hole in the stock acceptance test.'
+  related:
+  - understand-ksa-coordinate-frames-and-epochs
+  - draw-a-predicted-trajectory-and-map-markers
+  merged_from:
+  - anchor-a-point-to-a-rotating-body
+  - pick-bodies-and-orbit-lines-under-the-cursor
+- slug: draw-a-predicted-trajectory-and-map-markers
+  title: Draw a predicted trajectory and markers in the map view, and control orbit lines
+  kind: howto
+  group: map-view
+  batch: flight-and-orbits-2
+  summary: Preview a planned burn's resulting trajectory, multi-pass previews and impact sights on screen, and draw markers,
+    transfer overlays and panels in the map view. Also covers overriding whether a body's orbit line is drawn and recolouring
+    it.
+  game_types:
+  - KSA.TransferPlanner
+  - KSA.FlightPlan
+  - KSA.OrbitalTransfers
+  - KSA.PatchedConic
+  - KSA.CelestialSystem
+  - KSA.Camera
+  - KSA.IViewport
+  - KSA.CameraMode
+  - KSA.ImGuiHelper
+  - KSA.Orbit
+  - KSA.IOrbiter
+  - KSA.IPosition
+  - KSA.Astronomical
+  - KSA.Celestial
+  - KSA.OrbitUiMode
+  - KSA.NearestOrbitPointJob
+  - KSA.IGameViewport
+  - Brutal.Numerics.byte4
+  engine_pointers:
+  - current/decomp/KSA/OrbitalTransfers.cs BuildFlightPlan
+  - current/decomp/KSA/FlightPlan.cs AddLineInstances
+  - current/decomp/KSA/TransferPlanner.cs DrawSelectedTransfer
+  - current/decomp/KSA/Camera.cs EclToScreen
+  - current/decomp/KSA/ImGuiHelper.cs GetOverlayDrawList
+  - current/decomp/KSA/TransferPlanner.cs (stock alignment marker)
+  - current/decomp/KSA/Astronomical.cs ShouldDrawLines
+  - current/decomp/KSA/Orbit.cs OrbitLineColor
+  lifecycle:
+  - frame:draw-ui
+  - frame:pre-render
+  - render:imgui
+  approaches:
+  - n: 1
+    title: OrbitalTransfers.BuildFlightPlan drawn in a TransferPlanner.OnPreRender postfix
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/planner-preview-trajectories
+    technique: harmony-postfix
+    note: Paired transpilers on DrawSelectedTransfer and DrawSelectedTransferUi suppress the stock preview.
+  - n: 2
+    title: Per-pass dimmed orbit lines with cached previews
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/multi-pass-preview-rendering
+    technique: harmony-postfix
+    note: 'FlightPlan.AddLineInstances per plan with dimmed colors; cache behind quantized vehicle-state keys. Also (draw-markers-and-lines-in-the-map-view):
+      Sub-step folded from draw-markers-and-lines-in-the-map-view (give it its own section): Markers accompany the per-pass
+      preview lines.'
+  - n: 3
+    title: ImGui polyline of a flown prediction
+    mod: ksarmory
+    features:
+    - mods/ksarmory/features/guided-bomb-tail-kit-and-sight
+    technique: imgui-drawlist
+    note: Background draw list, line broken where the arc passes behind the camera.
+  - n: 4
+    title: GetPositionEclFromCce plus EclToScreen on the main viewport background list
+    mod: ksa-deltavmap
+    features:
+    - mods/ksa-deltavmap/features/map-mode-transfer-overlay
+    technique: world-to-screen-projection
+    note: 'Sub-step folded from draw-markers-and-lines-in-the-map-view (give it its own section): Fixed-length direction arrows
+      from a probe point along the ray; viewport.Position added.'
+  - n: 5
+    title: Click-through full-screen overlay projecting CCI points
+    mod: ksa-advancedflightcomputer
+    features:
+    - mods/ksa-advancedflightcomputer/features/guidance-panel-and-overlays
+    technique: imgui-drawlist
+    note: 'Sub-step folded from draw-markers-and-lines-in-the-map-view (give it its own section): Per-viewport projection
+      of CCI or body-fixed points with fault isolation.'
+  - n: 6
+    title: 'Force or hide a body''s orbit line and change its color: Postfix on ShouldDrawLines with an Always/On/Off table'
+    mod: compendium
+    features:
+    - mods/compendium/features/orbit-line-visibility-and-color
+    technique: harmony-postfix
+    note: 'Sub-step folded from set-orbit-line-visibility-and-color (give it its own section): Override the game''s decision
+      about whether a body''s orbit line is drawn and recolor it. Overload binding by assignability to IGameViewport; the
+      nearest-orbit job reads the same result. Also (set-orbit-line-visibility-and-color): Replace RGB while keeping alpha;
+      no patch required.'
+  related:
+  - aim-a-transfer-at-a-flyby-periapsis
+  - compute-transfer-windows
+  - project-world-positions-to-screen
+  - anchor-and-pick-points-on-bodies
+  merged_from:
+  - draw-a-predicted-trajectory
+  - draw-markers-and-lines-in-the-map-view
+  - set-orbit-line-visibility-and-color

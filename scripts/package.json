@@ -8,5 +8,8 @@
     "typescript": "7.0.2"
   },
   "module": "index.ts",
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "yaml": "^2.9.1"
+  }
 }

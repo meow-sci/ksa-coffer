@@ -1,0 +1,5 @@
+# Feed a ShaderExtensions shader from C# with uniform buffers (std140) history
+
+## 2026-10-10
+* **Creation**: Added [Feed a ShaderExtensions shader from C# with uniform buffers (std140)](overview.md) (3 approaches): [Feed a shader with uniform buffers: Pack=1 structs with manual std140 padding, one block per effect](feed-uniform-buffers-to-a-shaderextensions-shader-1.md), [Feed a shader with uniform buffers: share one buffer across passes (Size owns it, Id references it)](feed-uniform-buffers-to-a-shaderextensions-shader-2.md), [Feed a shader with uniform buffers: Span, pointer and BufferEx lookups beside push constants in a HUD mod](feed-uniform-buffers-to-a-shaderextensions-shader-3.md). Written from the pinned mod checkouts and verified against the decompiled game build 2026.10.10.5554.
+* **Update**: Independent review (claude-code/sonnet-5.5): overview approaches table lifecycle cells for articles 2 and 3 now match the article frontmatter (`frame:prepare`; `startup:asset-load`, `frame:viewports`).

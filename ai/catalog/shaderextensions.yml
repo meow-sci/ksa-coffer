@@ -1,0 +1,377 @@
+mod: shaderextensions
+repo: ShaderExtensions
+ref: 6a2eb66ea85bcaa2d4657e502a4f75e92693ea77
+summary: >-
+  ShaderExtensions (AMPW) is the shader infrastructure layer for KSA mods (used by MPFX and
+  KSA_AircraftHUD). Through KittenExtensions Continued it registers four XML assets: <ShaderEx>, a
+  ShaderReference subclass whose children add texture, mod-defined uniform-buffer and push-constant
+  bindings to a fragment shader's descriptor set (binding 0 input image, binding 1 a shared time UBO,
+  2+ children); <PostProcessingShader> and <GlobalPostShader>, fullscreen passes ordered by
+  RenderPassId that each render into their own target and sample the previous image as a sampler2D at
+  set 1 binding 0 (set 0 is the game's GlobalShaderBindings), with cross-pass input/output references;
+  and <ImGuiShader>, which re-renders one tagged ImGui window offscreen with the backend's shaders,
+  runs a custom fragment over it and swaps the draw list for an AddImage. A Harmony transpiler on
+  Program.RenderGame replaces the swapchain BeginRenderPass with a method that records the ImGui
+  window shaders and the pre-ImGui chain on the HDR offscreen image (copied back for the tonemap
+  composite), and inserts the post-ImGui chain on the swapchain image after EndRenderPass. Consumers
+  declare UBO and push-constant structs with copied attribute classes that ShaderExtensions finds by
+  full name across AssemblyLoadContexts at a Program.Main prefix, where it also rebuilds the game's
+  XmlSerializers with injected child elements. A RebuildRenderer postfix and a forced first-frame
+  rebuild keep GPU resources in step; MSBuild generates mod.toml and CI releases to GitHub and
+  SpaceDock.
+features:
+  - id: mods/shaderextensions/features/shaderex-extra-bindings
+    title: ShaderEx asset with extra descriptor bindings
+    category: shaders
+    submod: null
+    summary: >-
+      A ShaderReference subclass registered as <ShaderEx> whose child elements become descriptor
+      bindings 2+ (after the caller's input image at 0 and the time buffer at 1); it builds its own
+      pool, set layout and writes, resolving references in an IBinder.Bind during ModLibrary.Bind.
+    novelty: high
+    techniques: [xml-asset, glsl-shader, vulkan-pipeline, vulkan-texture, vulkan-buffer]
+    lifecycle: [startup:asset-load, frame:render]
+    hooks: ["kittenextensions KxAsset ShaderEx", "binder KSA.ModLibrary.Bind"]
+    game_types: [KSA.ShaderReference, KSA.FileReference, KSA.ModLibrary, KSA.IBinder, KSA.TextureReference, KSA.Program, Brutal.VulkanApi.Abstractions.DescriptorPoolEx, Brutal.VulkanApi.Abstractions.DescriptorSetLayoutEx]
+    key_paths: [ShaderExtensions/ShaderEx.cs, ShaderExtensions/ShaderBinding.cs]
+    howto_topics:
+      - slug: declare-shader-bindings-in-xml
+        title: Declare extra texture and buffer bindings for a shader in asset XML
+        note: binding numbers follow document order after fixed bindings 0 and 1
+      - slug: build-descriptor-layout-from-data
+        title: Build a Vulkan descriptor pool, layout and writes from a binding list
+        note: count per descriptor type, MaxSets 1, stackalloc writes
+      - slug: post-load-binding-with-ibinder
+        title: Resolve cross-asset references after load with ModLibrary.RegisterBinder
+        note: Bind runs in parallel on the thread pool inside the Program constructor
+      - slug: forward-ondataload-to-nested-assets
+        title: Load nested XML elements the game does not visit
+        note: AssetBundle.OnDataLoad only calls top-level entries
+  - id: mods/shaderextensions/features/shared-time-uniform-buffer
+    title: Shared shader time uniform buffer
+    category: shaders
+    submod: null
+    summary: >-
+      One persistently mapped host-coherent UBO (frame number, dt, real and sim time, warp rate)
+      rewritten from a Program.RenderGame prefix each flight frame and bound at binding 1 of every
+      ShaderEx set.
+    novelty: medium
+    techniques: [harmony-prefix, vulkan-buffer, glsl-shader]
+    lifecycle: [frame:render]
+    hooks: ["harmony-prefix KSA.Program.RenderGame", "harmony-postfix KSA.Program.RebuildRenderer"]
+    game_types: [KSA.Program, KSA.Universe, Brutal.VulkanApi.Abstractions.BufferEx, Brutal.VulkanApi.Abstractions.MappedMemory, Core.Renderer]
+    key_paths: [ShaderExtensions/SharedTimeBuffer.cs, ShaderExtensions/Patches.cs]
+    howto_topics:
+      - slug: pass-time-to-shaders
+        title: Give custom shaders frame, real and simulation time
+        note: Program.FrameNumber, RenderGame dt, Universe.GetElapsedSeconds, SimulationSpeed
+      - slug: persistently-mapped-uniform-buffer
+        title: Create and update a persistently mapped uniform buffer
+        note: HostVisible|HostCoherent BufferEx, single copy vs two frames in flight
+  - id: mods/shaderextensions/features/custom-uniform-buffers
+    title: Mod-defined uniform buffer bindings
+    category: shaders
+    submod: null
+    summary: >-
+      A consumer struct tagged with a copied [SxUniformBuffer("Element")] becomes an XML element that
+      owns (Size) or references (Id only) a mapped UBO bound to the shader; static delegate fields are
+      filled with Span/pointer/BufferEx/MappedMemory lookups for per-frame writes.
+    novelty: high
+    techniques: [vulkan-buffer, xml-asset, inter-mod-api, reflection, glsl-shader]
+    lifecycle: [startup:starmap-before-main, startup:asset-load, frame:draw-ui, frame:render]
+    hooks: ["harmony-prefix KSA.Program.Main", "binder KSA.ModLibrary.Bind", "starmap StarMapAfterGui (consumer, MPFX)"]
+    game_types: [KSA.ModLibrary, KSA.IBinder, KSA.SerializedId, KSA.LookupCollection, KSA.KeyHash, KSA.AssetBundle, Brutal.VulkanApi.Abstractions.BufferEx, Brutal.VulkanApi.Abstractions.MappedMemory]
+    key_paths: [ShaderExtensions/UniformBufferEx.cs, ShaderExtensions/ShaderBinding.cs, ShaderExtensions/AssetEx.cs]
+    howto_topics:
+      - slug: feed-shader-parameters-from-csharp
+        title: Feed per-frame parameters from C# to a custom shader
+        note: write the mapped span from StarMapAfterGui, before RenderGame records
+      - slug: share-uniform-buffer-between-shaders
+        title: Share one uniform buffer between several shaders by Id
+      - slug: std140-struct-layout-in-csharp
+        title: Match a C# struct to a GLSL std140 uniform block
+  - id: mods/shaderextensions/features/push-constants
+    title: Mod-defined push constants
+    category: shaders
+    submod: null
+    summary: >-
+      A consumer struct tagged [SxPushConstant] becomes an XML element whose value lives in a managed
+      field, is added as a VkPushConstantRange (4-byte aligned, max 128 bytes, one per shader) and is
+      pushed when each pass records.
+    novelty: medium
+    techniques: [vulkan-pipeline, xml-asset, inter-mod-api, reflection, glsl-shader]
+    lifecycle: [startup:starmap-before-main, startup:asset-load, frame:draw-ui, frame:render]
+    hooks: ["harmony-prefix KSA.Program.Main", "starmap StarMapAfterGui (consumer, MPFX)"]
+    game_types: [KSA.SerializedId, KSA.LookupCollection, KSA.KeyHash, Brutal.VulkanApi.VkDeviceExtensions, Brutal.VulkanApi.VkPushConstantRange]
+    key_paths: [ShaderExtensions/PushConstantEx.cs, ShaderExtensions/ShaderBinding.cs, ShaderExtensions/ShaderEx.cs]
+    howto_topics:
+      - slug: push-constants-for-custom-passes
+        title: Use push constants for small per-frame shader values
+        note: captured at record time, so no cross-frame tearing
+      - slug: vulkan-push-constant-range-rules
+        title: Lay out Vulkan push constant ranges across shader stages
+        note: overlapping ranges with different stages need every stage in each push
+  - id: mods/shaderextensions/features/duck-typed-attribute-api
+    title: Attribute duck typing as an inter-mod API
+    category: external-io
+    submod: null
+    summary: >-
+      Consumers copy look-alike attribute classes into their own assembly; a Program.Main prefix scans
+      every AssemblyLoadContext, matches attributes by full name via GetCustomAttributesData, closes a
+      generic registration method over the consumer type and fills its static delegate fields.
+    novelty: high
+    techniques: [inter-mod-api, reflection, assembly-load-context, harmony-prefix]
+    lifecycle: [startup:starmap-before-main]
+    hooks: ["harmony-prefix KSA.Program.Main"]
+    game_types: [KSA.Program, KSA.KeyHash]
+    key_paths: [ShaderExtensions/AssetEx.cs, ShaderExtensions/UniformBufferEx.cs, ShaderExtensions/Attributes.cs]
+    howto_topics:
+      - slug: inter-mod-api-without-assembly-reference
+        title: Expose a C# API to other mods without a shared contract assembly
+        note: match attributes by FullName, bind delegates by signature; unmanaged is not enforced through reflection
+      - slug: scan-all-mod-assemblies
+        title: Find types in every mod's AssemblyLoadContext at startup
+        note: AssemblyLoadContext.All after StarMap loaded all mods
+      - slug: makegenericmethod-createdelegate-registration
+        title: Register user types through MakeGenericMethod and CreateDelegate
+  - id: mods/shaderextensions/features/xml-asset-types-and-element-injection
+    title: Custom XML asset types and injected child elements
+    category: assets
+    submod: null
+    summary: >-
+      KxAsset attributes register the four asset types with KittenExtensions; a copied injector adds
+      child element types to existing XML list members through XmlHelper.AttributeOverrides (keyed by
+      declaring type, appending when KittenExtensions already overrode AssetBundle.Assets), rebuilds all
+      serializers and swaps the save serializers via UnsafeAccessor.
+    novelty: high
+    techniques: [xml-asset, harmony-prefix, reflection, unsafe-accessor, inter-mod-api]
+    lifecycle: [startup:starmap-before-main, startup:asset-load]
+    hooks: ["harmony-prefix KSA.Program.Main", "kittenextensions KxAsset", "reflection KSA.GameSaves.<UniverseSerializer>k__BackingField", "reflection KSA.VehicleSaves.<VehicleSerializer>k__BackingField"]
+    game_types: [KSA.XmlHelper, KSA.AssetBundle, KSA.GameSaves, KSA.VehicleSaves, KSA.UniverseData, KSA.VehicleSaveData, KSA.Program]
+    key_paths: [ShaderExtensions/AssetEx.cs, ShaderExtensions/Attributes.cs, ShaderExtensions/Patches.cs]
+    howto_topics:
+      - slug: register-custom-xml-asset-type
+        title: Register a custom XML asset type
+        note: KittenExtensions KxAsset attribute, or a copied XmlAttributeOverrides injector
+      - slug: inject-child-elements-into-game-xml
+        title: Add new child element types to an existing game XML list
+        note: XmlAttributeOverrides keyed by DeclaringType, rebuild XmlHelper.Serializers
+      - slug: replace-static-readonly-backing-field
+        title: Replace a static auto-property backing field with UnsafeAccessor
+      - slug: program-main-prefix-timing
+        title: Run code after all mods load but before the game constructs Program
+        note: Harmony prefix on Program.Main installed from StarMapBeforeMain
+  - id: mods/shaderextensions/features/post-processing-pass-chain
+    title: RenderPassId-ordered fullscreen pass chain
+    category: shaders
+    submod: null
+    summary: >-
+      One RenderTarget, RenderTechnique pipeline (dynamic rendering, triangle strip, no vertex input)
+      and descriptor set per shader, ordered by RenderPassId; each pass samples the previous image at
+      set 1 binding 0 with the game's GlobalShaderBindings at set 0. Dynamic offset count is one too
+      many in build 5554.
+    novelty: high
+    techniques: [post-processing, vulkan-pipeline, vulkan-texture, glsl-shader]
+    lifecycle: [frame:render, render:post-process]
+    hooks: ["harmony-transpiler KSA.Program.RenderGame", "harmony-postfix KSA.Program.RebuildRenderer"]
+    game_types: [RenderCore.RenderTechnique, KSA.Rendering.RenderTarget, KSA.Rendering.RenderImage, KSA.Rendering.ImageBarrierInfo, KSA.GlobalShaderBindings, KSA.CommandBufferEx, KSA.RenderingPresets, Brutal.VulkanApi.Abstractions.Presets]
+    key_paths: [ShaderExtensions/PostProcessing/PostProcessingChain.cs, ShaderExtensions/PostProcessing/PostProcessingPassRenderer.cs, ShaderExtensions/PostProcessing/IPostProcessingShader.cs]
+    howto_topics:
+      - slug: fullscreen-pass-with-rendertechnique
+        title: Write a fullscreen shader pass with RenderTechnique and RenderTarget
+        note: RenderTarget as IRenderPassInfo gives a dynamic-rendering pipeline
+      - slug: post-processing-chain-ordering
+        title: Chain several post-processing shaders in a defined order
+      - slug: bind-game-global-shader-data
+        title: Read the game's global camera and lighting UBO from a custom pass
+        note: GlobalShaderBindings.DescriptorSet(slot), no dynamic offsets in 5554
+  - id: mods/shaderextensions/features/cross-pass-image-references
+    title: Cross-pass image references
+    category: shaders
+    submod: null
+    summary: >-
+      PostProcessingInputReference/OutputReference children bind the input or output image of an
+      earlier pass, by RenderPassId and pre/post-ImGui stage, as extra sampler2D bindings resolved
+      while the chain is built.
+    novelty: medium
+    techniques: [post-processing, xml-asset, vulkan-texture, glsl-shader]
+    lifecycle: [frame:render, render:post-process]
+    hooks: ["harmony-transpiler KSA.Program.RenderGame", "harmony-postfix KSA.Program.RebuildRenderer"]
+    game_types: [KSA.Rendering.RenderImage, KSA.SerializedId, KSA.Program]
+    key_paths: [ShaderExtensions/PostProcessing/PostProcessingInputReference.cs, ShaderExtensions/PostProcessing/PostProcessingOutputReference.cs, ShaderExtensions/PostProcessing/PostProcessingInputResolver.cs]
+    howto_topics:
+      - slug: multi-input-post-processing
+        title: Combine images from several earlier post-processing passes
+      - slug: sample-pre-ui-image-after-ui
+        title: Sample the pre-UI scene image from a post-UI shader
+  - id: mods/shaderextensions/features/pre-imgui-post-processing
+    title: Pre-ImGui post-processing on the HDR scene image
+    category: shaders
+    submod: null
+    summary: >-
+      Runs the PostProcessingShader chain on Program._offscreenTarget (RGBA16F, linear HDR) just
+      before the swapchain BeginRenderPass and copies the result back so RenderFinalComposite tonemaps
+      it; invisible with CMAA2 and leaves the image in a transfer layout (by reading 5554).
+    novelty: high
+    techniques: [post-processing, harmony-transpiler, reflection, vulkan-texture, glsl-shader]
+    lifecycle: [frame:render, render:post-process]
+    hooks: ["harmony-transpiler KSA.Program.RenderGame", "reflection KSA.Program._offscreenTarget"]
+    game_types: [KSA.Program, KSA.Rendering.RenderTarget, KSA.Rendering.PostProcessing.Cmaa2Renderer, KSA.ScreenspaceRenderer, KSA.ScreenshotCapture, KSA.CommandBufferEx]
+    key_paths: [ShaderExtensions/PostProcessing/PreImgui/PostProcessingHandler.cs, ShaderExtensions/Patches.cs, ShaderExtensions/PostProcessing/PreImgui/PostProcessingShaderAsset.cs]
+    howto_topics:
+      - slug: hdr-scene-post-processing
+        title: Post-process the 3D scene before tonemapping and UI
+        note: hook before the swapchain render pass, copy back into the offscreen image
+      - slug: ksa-render-frame-order
+        title: Where scene, composite, AA and ImGui are recorded in Program.RenderGame
+        note: composite and ImGui share one render pass; no generic post chain in the game
+      - slug: cmaa2-and-custom-post-processing
+        title: Interaction of custom post effects with the game's CMAA2 path
+  - id: mods/shaderextensions/features/post-imgui-global-post-shaders
+    title: Post-ImGui global post shaders on the swapchain image
+    category: shaders
+    submod: null
+    summary: >-
+      Inserted after the swapchain EndRenderPass: copies the presented image (scene plus UI) into a
+      tracked target, runs the GlobalPostShader chain and copies back into the swapchain image in
+      PresentSrcKHR; the swapchain lacks TRANSFER_DST usage in 5554.
+    novelty: high
+    techniques: [post-processing, harmony-transpiler, vulkan-texture, glsl-shader]
+    lifecycle: [frame:render, render:post-process]
+    hooks: ["harmony-transpiler KSA.Program.RenderGame"]
+    game_types: [KSA.Program, Core.Renderer, Brutal.VulkanApi.Abstractions.FrameResources, KSA.Rendering.RenderTarget, KSA.ScreenshotCapture]
+    key_paths: [ShaderExtensions/PostProcessing/PostImgui/GlobalPostShaderHandler.cs, ShaderExtensions/PostProcessing/PostProcessingChain.cs]
+    howto_topics:
+      - slug: full-screen-effect-including-ui
+        title: Apply a full-screen effect that also covers the UI
+      - slug: copy-to-and-from-swapchain-image
+        title: Copy to and from the swapchain image with manual layout transitions
+        note: PresentSrcKHR in and out; check swapchain usage flags
+  - id: mods/shaderextensions/features/imgui-window-post-shader
+    title: Per-window ImGui post shader
+    category: shaders
+    submod: null
+    summary: >-
+      For a tagged window, replays its draw list offscreen with the ImGui backend's private shader
+      modules and pipeline layout, runs a ShaderEx fragment over the bounding rect, registers the
+      result as an ImGui texture and rewrites the draw list to a single AddImage before RenderDrawData.
+    novelty: high
+    techniques: [imgui-drawlist, vulkan-pipeline, vulkan-texture, vulkan-buffer, reflection, glsl-shader, harmony-transpiler]
+    lifecycle: [frame:draw-ui, frame:render, render:imgui]
+    hooks: ["harmony-transpiler KSA.Program.RenderGame", "reflection KSA.ImGuiBackendVulkanImpl._shaderModuleVert", "reflection KSA.ImGuiBackendVulkanImpl._shaderModuleFrag", "reflection KSA.ImGuiBackendVulkanImpl._pipelineLayout", "reflection KSA.ImGuiBackendVulkanImpl.UpdateTexture", "reflection KSA.ShaderReference.Shader (private setter)"]
+    game_types: [KSA.ImGuiBackendVulkanImpl, KSA.ImGuiBackend, KSA.ShaderReference, RenderCore.RenderTechnique, KSA.Rendering.RenderTarget, Brutal.ImGuiApi.ImDrawListPtr, Brutal.ImGuiApi.ImDrawDataPtr, Brutal.ImGuiApi.ImGuiPlatformIOPtr, Brutal.ImGuiApi.ImDrawVert]
+    key_paths: [ShaderExtensions/ImGuiShader/ImGuiRenderers.cs, ShaderExtensions/ImGuiShader/ImGuiBaseRenderer.cs, ShaderExtensions/ImGuiShader/ImGuiPostRenderer.cs, ShaderExtensions/ImGuiShader/ImGuiShaderReference.cs]
+    howto_topics:
+      - slug: shader-effect-on-imgui-window
+        title: Apply a custom shader to one ImGui window
+      - slug: render-imgui-drawlist-offscreen
+        title: Render an ImGui draw list into an offscreen Vulkan texture
+        note: reuse the backend's shader modules and pipeline layout
+      - slug: rewrite-imgui-draw-data-after-render
+        title: Modify ImGui draw data between ImGui.Render and the backend draw
+      - slug: register-vulkan-image-as-imgui-texture
+        title: Show a Vulkan image in ImGui with ImGuiBackend.Vulkan.AddTexture
+  - id: mods/shaderextensions/features/imgui-draw-list-marker-callback
+    title: Tagging an ImGui window with a draw-list marker callback
+    category: ui
+    submod: null
+    summary: >-
+      A no-op ImDrawList callback whose copied 8-byte user data holds a marker hash and a shader key
+      tags the current window; the renderer scans CmdBuffer callbacks for the marker, and unprocessed
+      markers are harmless no-ops in the game's backend.
+    novelty: high
+    techniques: [imgui-drawlist, inter-mod-api, native-interop]
+    lifecycle: [frame:draw-ui, frame:render, render:imgui]
+    hooks: ["imgui ImDrawList.AddCallback (consumer)", "harmony-transpiler KSA.Program.RenderGame"]
+    game_types: [Brutal.ImGuiApi.ImDrawListPtr, Brutal.ImGuiApi.ImDrawCmd, Brutal.ImGuiApi.ImDrawListExtensions, Brutal.ImGuiApi.ImGuiPlatformIOPtr, Brutal.ImGuiApi.ImGuiViewportPtr, KSA.ImGuiBackendVulkanImpl, KSA.KeyHash]
+    key_paths: [ShaderExtensions/ImGuiShader/ImGuiRenderers.cs, README.md]
+    howto_topics:
+      - slug: tag-imgui-window-with-callback-data
+        title: Attach custom per-window data to ImGui draw data
+        note: AddCallback with userdata size copies the payload into _CallbacksDataBuf
+      - slug: imgui-callback-delegate-lifetime
+        title: Keep ImGui draw callback delegates alive across the frame
+  - id: mods/shaderextensions/features/rendergame-render-pass-transpiler
+    title: RenderGame transpiler around the swapchain render pass
+    category: patching
+    submod: null
+    summary: >-
+      Replaces the swapchain BeginRenderPass call in Program.RenderGame with a same-stack static method
+      that records mod passes first, and inserts a call with ldloc.1/ldloc.0 after the last
+      EndRenderPass, giving two recording slots outside the render pass.
+    novelty: high
+    techniques: [harmony-transpiler, starmap-lifecycle]
+    lifecycle: [startup:starmap-before-main, frame:render, render:post-process, render:imgui]
+    hooks: ["starmap StarMapBeforeMain", "harmony-transpiler KSA.Program.RenderGame"]
+    game_types: [KSA.Program, KSA.ImGuiBackendVulkanImpl, Brutal.VulkanApi.VkDeviceExtensions, Brutal.VulkanApi.CommandBuffer, Brutal.VulkanApi.Abstractions.FrameResources]
+    key_paths: [ShaderExtensions/Patches.cs, ShaderExtensions/ShaderExtensions.cs]
+    howto_topics:
+      - slug: insert-render-pass-before-ui
+        title: Record custom GPU work right before the game's UI render pass
+        note: replace the call with a same-signature static method that calls the original
+      - slug: harmony-transpiler-call-replacement
+        title: Replace one call in a game method while keeping the IL stack intact
+      - slug: dynamic-rendering-outside-render-pass
+        title: Why vkCmdBeginRendering and image copies must sit outside a render pass
+      - slug: transpiler-failure-handling
+        title: Make an IL-shape transpiler fail safely on game updates
+        note: anchor checks that throw out of StarMapBeforeMain abort the launch; hard-coded locals are never checked
+  - id: mods/shaderextensions/features/renderer-rebuild-hook
+    title: Rebuilding mod GPU resources with the game renderer
+    category: rendering
+    submod: null
+    summary: >-
+      Postfix on Program.RebuildRenderer rebuilds both chains after the game recreates its targets, a
+      first-frame ScheduleRendererRebuild forces one rebuild, and a per-frame extent check rebuilds
+      inline; ImGui shader targets follow ImGui viewport sizes.
+    novelty: medium
+    techniques: [harmony-postfix, harmony-transpiler, reflection, vulkan-texture]
+    lifecycle: [frame:prepare, frame:render, frame:post-render]
+    hooks: ["harmony-postfix KSA.Program.RebuildRenderer", "harmony-transpiler KSA.Program.RenderGame"]
+    game_types: [KSA.Program, Core.Renderer, KSA.ScreenshotCapture, KSA.Rendering.RenderTarget]
+    key_paths: [ShaderExtensions/Patches.cs, ShaderExtensions/PostProcessing/PostImgui/GlobalPostShaderHandler.cs, ShaderExtensions/PostProcessing/PreImgui/PostProcessingHandler.cs]
+    howto_topics:
+      - slug: handle-renderer-rebuild-and-resize
+        title: Recreate mod render targets when KSA rebuilds its renderer
+        note: RebuildRenderer is called from PrepareFrame, Render, PostRender and ScreenshotCapture
+      - slug: renderer-extent-override
+        title: Account for Renderer.ExtentOverride during high-resolution screenshots
+  - id: mods/shaderextensions/features/generated-mod-toml
+    title: mod.toml generated by MSBuild with a StarMap dependency
+    category: getting-started
+    submod: null
+    summary: >-
+      CopyOutput.targets copies the output to Release/<ModName>/ and writes mod.toml from project
+      properties, including [[StarMap.ModDependencies]] with ImportedAssemblies from
+      StarMapModDependency items.
+    novelty: medium
+    techniques: [toml-config, msbuild-targets, mod-dependencies]
+    lifecycle: []
+    hooks: []
+    game_types: []
+    key_paths: [ShaderExtensions/CopyOutput.targets, ShaderExtensions/ShaderExtensions.csproj, ShaderExtensions/KSADLLs.props]
+    howto_topics:
+      - slug: generate-mod-toml-with-msbuild
+        title: Generate mod.toml from the project file
+      - slug: declare-starmap-mod-dependency
+        title: Declare a StarMap dependency with ImportedAssemblies
+  - id: mods/shaderextensions/features/ci-build-and-release
+    title: CI build against private game DLLs with GitHub and SpaceDock releases
+    category: testing-and-tooling
+    submod: null
+    summary: >-
+      GitHub Actions pulls latest StarMap.API and KittenExtensions DLLs from releases, clones private
+      KSA DLLs with a GitHub App token, builds Debug/Release, and on a VersionPrefix change publishes a
+      GitHub release and a SpaceDock update.
+    novelty: medium
+    techniques: [github-actions, release-automation]
+    lifecycle: []
+    hooks: []
+    game_types: []
+    key_paths: [.github/workflows/build.yml, ShaderExtensions/ShaderExtensions.csproj]
+    howto_topics:
+      - slug: ci-with-private-game-dlls
+        title: Build a KSA mod in CI against privately hosted game DLLs
+        note: GitHub App token scoped to one private repo
+      - slug: release-to-spacedock-from-ci
+        title: Publish GitHub and SpaceDock releases from a version bump

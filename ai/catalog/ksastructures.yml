@@ -1,0 +1,493 @@
+mod: ksastructures
+repo: KSAStructures
+ref: c24759358381fb10290c61f9a6980b7d832ba3d4
+summary: >-
+  KSAStructures (LaurensDeV) is a StarMap code mod that stands a walkable office tower on Earth as
+  launch-pad landmark static objects, digging a garage, a deep spiral ramp and an optional vault
+  into Earth's terrain with decal modifiers added at load. It runs a lift as a moving landmark,
+  darkens and lights the underground with invisible shadow casters, per-viewport spot lights and a
+  compute pass before bloom, keeps a below-sea-level volume dry, seats a kitten in a chair part
+  whose computer flies the nearest craft, and offers a first-person kitten view through a
+  replacement fixed camera controller; it ships headless tests, asset validators, a mesh generator
+  and an MCP-driven developer bridge.
+features:
+  - id: mods/ksastructures/features/office-landmarks-static-objects
+    title: Launch-pad landmarks that stand a walkable building on Earth
+    category: celestials
+    submod: null
+    summary: Adds IsLaunchPad LandmarkReferences to Earth's CelestialTemplate at StarMapAllModsLoaded so the engine resolves, draws and collides a multi-part XML static object, and redraws it from an UpdateStaticObjectRenderData postfix (inside Program.Render, per visible viewport) when the tangent-plane cull hides it.
+    novelty: high
+    techniques: [starmap-lifecycle, xml-asset, glb-model, harmony-postfix, reflection]
+    lifecycle: [startup:all-mods-loaded, frame:render, physics:bepu]
+    hooks: ["starmap StarMapAllModsLoaded", "harmony-postfix KSA.LocationReference.UpdateStaticObjectRenderData"]
+    game_types: [KSA.LandmarkReference, KSA.LocationReference, KSA.CelestialTemplate, KSA.StaticObject, KSA.StaticObjectTemplate, KSA.StaticSubObjectTemplate, KSA.ConstraintSim, KSA.Camera, KSA.Celestial, KSA.Program, KSA.ModLibrary]
+    key_paths: [src/KSAStructures/Ksa/Office.cs, src/KSAStructures/KSAStructuresOffice.xml]
+    howto_topics:
+      - slug: place-static-object-on-planet
+        title: Place a static building on a planet at a latitude and longitude
+        note: add an IsLaunchPad LandmarkReference to CelestialTemplate.Locations before StaticObject.ResolveAll
+      - slug: walkable-static-object-colliders
+        title: Make a structure kittens can walk on with static-object colliders
+        note: nearest launch pad within 300 m is the only static collider per body
+      - slug: draw-static-object-manually
+        title: Draw a static object yourself when the engine culls it
+        note: postfix UpdateStaticObjectRenderData and call StaticObject.UpdateRenderData with your own matrix
+  - id: mods/ksastructures/features/terrain-decal-pits
+    title: Terrain decal pits dug at load
+    category: celestials
+    submod: null
+    summary: Deserializes DecalModifierReference XML in code and inserts it into Earth's TerrainReference.ProceduralModifiers.Modifiers and TerrainModifiers at StarMapAllModsLoaded, before ProceduralModifiersRenderData and the PlanetRenderer storage buffer are sized from the modifier count in the Program constructor; AltitudeOffset's Km attribute is read raw and used as metres.
+    novelty: high
+    techniques: [starmap-lifecycle, xml-asset, terrain-modifier]
+    lifecycle: [startup:all-mods-loaded]
+    hooks: ["starmap StarMapAllModsLoaded"]
+    game_types: [KSA.DecalModifierReference, KSA.ModifierReference, KSA.TerrainReference, KSA.ProceduralModifiersReference, KSA.ProceduralModifiersRenderData, KSA.DistanceReference, KSA.Astronomical, KSA.Celestial, KSA.CelestialTemplate, KSA.CelestialRenderData, KSA.PlanetRenderer, KSA.PlanetMeshLibrary, KSA.GroundClutterRenderer, KSA.PartModelModule, KSA.StaticObjectModel]
+    key_paths: [src/KSAStructures/Ksa/OfficeTerrain.cs, src/KSAStructures/Textures/KSAOffice_GaragePit.png]
+    howto_topics:
+      - slug: add-terrain-decal-from-code
+        title: Add a terrain heightmap decal from code at load
+        note: both lists, sorted by Order, only before the renderer builds ProceduralModifiersRenderData
+      - slug: flatten-or-dig-terrain-for-a-site
+        title: Flatten or dig terrain under a custom site
+        note: absolute-level decal (Additive false) plus an additive height map; AltitudeOffset is effectively metres
+      - slug: static-mesh-shaded-as-terrain
+        title: Draw a static mesh with the terrain shader
+        note: PartModel <Terrain>true</Terrain> selects the OpaqueTerrain bucket (SAMPLE_TERRAIN)
+  - id: mods/ksastructures/features/terrain-height-roof-override
+    title: Terrain height answered as roof, ramp or floor
+    category: physics
+    submod: null
+    summary: Postfixes Celestial.GetTerrainHeightFromDirCce (not the Ccf overload physics uses) to answer roof, ramp slab, spiral-road level or floor depending on whether the asker is the vehicle being prepared (ThreadStatic set from a PrepareWorker prefix) or the main camera; lends the tower template's SurfaceHeight across TeleportToLocation so craft land on the roof.
+    novelty: high
+    techniques: [harmony-postfix, harmony-prefix, harmony-finalizer, custom-physics]
+    lifecycle: [frame:dispatch-solvers, frame:viewports, frame:celestials, event:teleport]
+    hooks: ["harmony-postfix KSA.Celestial.GetTerrainHeightFromDirCce", "harmony-prefix KSA.Vehicle.PrepareWorker", "harmony-finalizer KSA.Vehicle.PrepareWorker", "harmony-prefix KSA.Vehicle.TeleportToLocation", "harmony-finalizer KSA.Vehicle.TeleportToLocation"]
+    game_types: [KSA.Celestial, KSA.Vehicle, KSA.KittenEva, KSA.Camera, KSA.TerrainPatch, KSA.Universe, KSA.StaticObjectTemplate, KSA.InputEvents]
+    key_paths: [src/KSAStructures/Ksa/OfficeTerrain.cs, src/KSAStructures/Sim/OfficeDeep.cs]
+    howto_topics:
+      - slug: override-terrain-height-for-cameras-and-wheels
+        title: Override the terrain height cameras and wheel mods see without touching collision
+        note: patch the Cce overload; TerrainPatch reads the Ccf one
+      - slug: identify-vehicle-in-prepareworker-window
+        title: Know which vehicle a callback runs for during PrepareWorker
+        note: ThreadStatic set in a Priority.First prefix and cleared in a Priority.Last finalizer
+      - slug: spawn-craft-on-top-of-a-structure
+        title: Set a craft down on top of a structure by latitude and longitude
+        note: lend the pad template's SurfaceHeight for the synchronous start-state computation; restore in a finalizer
+  - id: mods/ksastructures/features/lift-moving-landmark
+    title: A lift built from a moving launch-pad landmark
+    category: physics
+    submod: null
+    summary: Moves a collider-only static object by rewriting its template GroundOffset each simulated step, under the 1.5 m/s contact recovery speed so riders are carried by contact; wakes and moves riders from a Vehicle.PrepareWorker prefix (the only place a state write survives) and reads floor keys with ImGui.
+    novelty: high
+    techniques: [harmony-prefix, custom-physics, imgui-drawlist, starmap-lifecycle]
+    lifecycle: [frame:draw-ui, frame:dispatch-solvers, frame:render, physics:bepu]
+    hooks: ["starmap StarMapAfterGui", "harmony-prefix KSA.Vehicle.PrepareWorker", "harmony-postfix KSA.LocationReference.UpdateStaticObjectRenderData"]
+    game_types: [KSA.StaticObject, KSA.StaticObjectTemplate, KSA.ConstraintSim, KSA.NarrowPhaseCallbacks, KSA.Vehicle, KSA.KittenEva, KSA.PhysicsStates, KSA.VehicleProperties, KSA.FlightPlan, KSA.LandmarkReference, Brutal.ImGuiApi.ImGui]
+    key_paths: [src/KSAStructures/Ksa/OfficeLift.cs, src/KSAStructures/Ksa/VehicleCommand.cs, src/KSAStructures/Ksa/Office.cs]
+    howto_topics:
+      - slug: moving-platform-from-static-object
+        title: Build a moving platform or elevator kittens can ride
+        note: GroundOffset of a dedicated launch-pad static object; keep speed under MaximumRecoveryVelocity
+      - slug: write-vehicle-physics-state-safely
+        title: Change a vehicle's position or velocity so the change survives the worker
+        note: GetPhysicsStatesMutable from a Vehicle.PrepareWorker prefix; take it off rails
+      - slug: keep-sleeping-bodies-awake
+        title: Keep a resting kitten or craft awake so colliders follow a moving surface
+        note: UpdateSimFromVehicle only updates the static collider for off-rails bodies
+  - id: mods/ksastructures/features/office-furniture-craft
+    title: Office furniture as single-part craft, kept out of saves
+    category: vehicles-and-parts
+    submod: null
+    summary: Declares a chair part with IVASeat and EVADoor (and a monitor part), builds one-part craft in code with ModLibrary.Get<PartTemplate>, Vehicle.CreateVehicle and TeleportToLocation while lending the floor height, and strips them from every save with a Universe.SerializeSystems postfix.
+    novelty: medium
+    techniques: [xml-asset, harmony-postfix, glb-model, save-filter]
+    lifecycle: [frame:draw-ui, event:save, event:board]
+    hooks: ["harmony-postfix KSA.Universe.SerializeSystems", "starmap StarMapAfterGui"]
+    game_types: [KSA.PartTemplate, KSA.EVADoor, KSA.IVASeat, KSA.EditorTagDefinition, KSA.Part, KSA.Vehicle, KSA.Orbit, KSA.ConstraintSim, KSA.ModLibrary, KSA.KittenEva, KSA.Universe, KSA.CelestialSystemData, KSA.StaticObjectTemplate]
+    key_paths: [src/KSAStructures/Ksa/OfficeFurniture.cs, src/KSAStructures/Ksa/CraftSpawner.cs, src/KSAStructures/KSAStructuresOffice.xml]
+    howto_topics:
+      - slug: seat-a-kitten-in-a-part
+        title: Make a part a kitten can sit in
+        note: PartGameData IVASeat plus a SubPartGameData EVADoor whose SeatId names it
+      - slug: spawn-single-part-vehicle-in-code
+        title: Spawn a one-part vehicle from code and set it on the ground
+        note: UnlockShapesBlocking, new Part, CreateOwnTree, Vehicle.CreateVehicle, TeleportToLocation
+      - slug: keep-mod-vehicles-out-of-saves
+        title: Keep mod-only vehicles out of save files
+        note: postfix Universe.SerializeSystems and filter CelestialSystemData.Vehicles
+  - id: mods/ksastructures/features/computer-flies-nearest-craft
+    title: Fly the nearest craft from the office computer
+    category: vehicles-and-parts
+    submod: null
+    summary: Enter in the chair swaps Program.ControlledVehicle to the nearest craft (the setter only clears held input, so cameras stay put), holds the main view at the seated kitten's eyes through a pose source, and borrows a secondary viewport via ViewportRegistry.TryOpenSecondaryViewport to film the craft.
+    novelty: high
+    techniques: [imgui-drawlist, reflection, starmap-lifecycle, viewport-borrow]
+    lifecycle: [frame:draw-ui, frame:viewports, event:key]
+    hooks: ["starmap StarMapAfterGui", "reflection KSA.ViewportBase.OptionFlags (protected setter)"]
+    game_types: [KSA.Program, KSA.Vehicle, KSA.KittenEva, KSA.ViewportRegistry, KSA.IGameViewport, KSA.GameViewport, KSA.ViewportBase, KSA.Camera, KSA.FixedController, Brutal.ImGuiApi.ImGui]
+    key_paths: [src/KSAStructures/Ksa/OfficeComputer.cs, src/KSAStructures/Ksa/KsaWorld.cs]
+    howto_topics:
+      - slug: control-a-vehicle-remotely
+        title: Fly one vehicle while the camera stays on another
+        note: set Program.ControlledVehicle; keys go to ControlledVehicle.OnKey
+      - slug: borrow-a-secondary-viewport
+        title: Open and drive one of KSA's spare camera windows from a mod
+        note: ViewportRegistry.TryOpenSecondaryViewport, Fixed mode, LookAt, then camera.OnFrame and UpdateShaderData/SetCameraUbo
+      - slug: switch-control-from-eva-kitten
+        title: Hand control from a seated or EVA kitten to a vehicle and back
+        note: record the main view before the first write, restore mode, FOV and follow afterwards
+  - id: mods/ksastructures/features/level-horizon-camera-controller
+    title: A replacement fixed camera controller with an up vector and an in-phase pose
+    category: camera
+    submod: null
+    summary: Subclasses KSA.FixedController and swaps it into the main GameViewport through the FixedController auto-property backing field; asks an IViewPose inside the engine's viewport pass, stabilises roll, and takes right-drag look with the orbit camera's constants while suppressing part clicks via IsMouseDrag.
+    novelty: high
+    techniques: [reflection, controller-subclass, starmap-lifecycle]
+    lifecycle: [frame:viewports, frame:input, frame:draw-ui]
+    hooks: ["reflection KSA.GameViewport.<FixedController>k__BackingField", "override KSA.FixedController.OnFrame", "override KSA.Controller.OnMouseButton", "starmap StarMapUnload"]
+    game_types: [KSA.FixedController, KSA.Controller, KSA.GameViewport, KSA.IGameViewport, KSA.Camera, KSA.CameraMode, KSA.OrbitController, KSA.Vehicle, Brutal.GlfwApi.GlfwMouseButton, Brutal.GlfwApi.GlfwCursorMode]
+    key_paths: [src/KSAStructures/Ksa/LevelHorizonController.cs, src/KSAStructures/Ksa/KsaWorld.cs, src/KSAStructures/Sim/StableUp.cs]
+    howto_topics:
+      - slug: custom-camera-controller
+        title: Replace a viewport's camera controller with your own
+        note: subclass FixedController and write the backing field; restore on unload
+      - slug: drive-main-camera-from-mod
+        title: Drive the main camera from a mod without a one-frame lag
+        note: set the pose inside Controller.OnFrame, which runs before Camera.OnFrame in OnFrameViewports
+      - slug: mouse-look-in-custom-camera
+        title: Add right-drag mouse look that coexists with KSA input
+        note: override OnMouseButton/OnCursorPos/IsMouseDrag/GetCursorMode
+  - id: mods/ksastructures/features/first-person-kitten-view
+    title: First-person view for a kitten on foot
+    category: camera
+    submod: null
+    summary: V borrows the main view in Fixed mode at the Head_M bone read by an IAnimProcessor added to the kitten avatar, with yaw/pitch measured from the world, and patches KittenLocomotion.StepGrounded on the vehicle worker so the walk follows the look and strafes.
+    novelty: high
+    techniques: [harmony-prefix, harmony-postfix, reflection, starmap-lifecycle, anim-processor]
+    lifecycle: [frame:draw-ui, frame:viewports, physics:vehicle-solver, frame:dispatch-solvers, frame:render]
+    hooks: ["starmap StarMapAfterGui", "harmony-prefix KSA.KittenLocomotion.StepGrounded", "harmony-postfix KSA.KittenLocomotion.StepGrounded", "reflection KSA.KittenRenderable._characterAvatar"]
+    game_types: [KSA.KittenEva, KSA.KittenRenderable, KSA.CharacterAvatar, KSA.AnimatedRenderable, KSA.IAnimProcessor, KSA.KittenLocomotion, KSA.CharacterControlInputs, KSA.LocomotionCommand, KSA.LocomotionState, KSA.LocomotionFacts, KSA.PhysicsBubble, KSA.GameViewport, KSA.FixedController, Brutal.ImGuiApi.ImGui]
+    key_paths: [src/KSAStructures/Ksa/FirstPerson.cs, src/KSAStructures/Ksa/FirstPersonHook.cs, src/KSAStructures/Ksa/KittenFrame.cs, src/KSAStructures/Sim/HeadLook.cs]
+    howto_topics:
+      - slug: first-person-camera-for-kittens
+        title: First-person camera for an EVA kitten
+        note: head bone via IAnimProcessor, camera in Fixed mode following the kitten
+      - slug: read-kitten-bone-positions
+        title: Read a kitten's bone positions in world space
+        note: CharacterAvatar via KittenRenderable._characterAvatar; ModelToBody chain
+      - slug: change-kitten-walking-behaviour
+        title: Change how an EVA kitten walks and faces
+        note: patch KittenLocomotion.StepGrounded on the worker thread; inputs are the worker's copy
+  - id: mods/ksastructures/features/frame-step-plumbing
+    title: One step per frame across three hooks, on the simulation clock
+    category: getting-started
+    submod: null
+    summary: Latches a single per-frame step across StarMapAfterGui, a prefix on the private Program.OnFrameCelestials (runs with the UI hidden) and StarMapAfterOnFrame, all after the solvers were dispatched; integrates Universe.GetLastSimStep exactly once per NextTime with gap closing.
+    novelty: high
+    techniques: [starmap-lifecycle, harmony-prefix, harmony-postfix, frame-latch]
+    lifecycle: [startup:immediate-load, startup:all-mods-loaded, frame:draw-ui, frame:celestials, frame:after-on-frame, startup:game-loaded]
+    hooks: ["starmap StarMapImmediateLoad", "starmap StarMapAllModsLoaded", "starmap StarMapBeforeGui", "starmap StarMapAfterGui", "starmap StarMapAfterOnFrame", "starmap StarMapUnload", "harmony-prefix KSA.Program.OnFrameCelestials", "harmony-postfix KSA.Program.OnGameLoaded"]
+    game_types: [KSA.Program, KSA.Universe, KSA.SimStep, KSA.UniverseTime, KSA.UncompressedSave, KSA.CelestialSystem, KSA.Vehicle]
+    key_paths: [src/KSAStructures/Ksa/KSAStructuresMod.cs, src/KSAStructures/Sim/FrameLatch.cs, src/KSAStructures/Ksa/PreRenderHook.cs, src/KSAStructures/Ksa/WorldReloadHook.cs, src/KSAStructures/Sim/StepGate.cs]
+    howto_topics:
+      - slug: run-code-when-ui-hidden
+        title: Keep per-frame mod code running when the UI is hidden (F2)
+        note: GUI hooks are behind DrawUI; prefix Program.OnFrameCelestials or use AfterOnFrame
+      - slug: use-simulation-time-not-player-time
+        title: Step mod simulation on the game's simulated time
+        note: Universe.GetLastSimStep, consumed once per NextTime
+      - slug: fault-tolerant-mod-entry
+        title: Make a mod degrade instead of crashing the game
+        note: fault counter, StandDown unpatching, swallow exceptions inside patches
+  - id: mods/ksastructures/features/settings-menu
+    title: Settings menu entry, settings window and optional ModMenu listing
+    category: ui
+    submod: null
+    summary: Draws a main menu bar entry from StarMapBeforeGui and a settings window with a stable
+    novelty: low
+    techniques: [imgui-menu, imgui-window, starmap-lifecycle, inter-mod-api]
+    lifecycle: [frame:draw-ui]
+    hooks: ["starmap StarMapBeforeGui", "starmap StarMapAfterGui"]
+    game_types: [Brutal.ImGuiApi.ImGui, KSA.Program]
+    key_paths: [src/KSAStructures/Ksa/Ui/Ui.cs, src/KSAStructures/Ksa/Ui/ModMenuEntry.cs, src/KSAStructures/Sim/Settings.cs]
+    howto_topics:
+      - slug: add-mod-menu-entry
+        title: Add a menu for your mod to the game's menu bar
+        note: StarMapBeforeGui; in 2026.10.10.5554 KSA's bar is a "Menu Bar" window with BeginMenuBar
+      - slug: integrate-with-modmenu-optionally
+        title: List a mod in ModMenu without depending on it
+        note: copy the attribute by type name; detect the ModMenu assembly
+  - id: mods/ksastructures/features/mod-log-file
+    title: Per-mod log file beside KSA's logs
+    category: getting-started
+    submod: null
+    summary: Batched per-session log in the KSA user Logs folder with the previous session kept, a thread-pool timer flush, immediate flush on warnings, a lazily formatted debug level switchable at runtime, and version lines comparing compiled-against and running KSA builds.
+    novelty: low
+    techniques: [background-thread, starmap-lifecycle]
+    lifecycle: [startup:immediate-load, thread:background]
+    hooks: ["starmap StarMapImmediateLoad", "starmap StarMapUnload"]
+    game_types: [KSA.Constants]
+    key_paths: [src/KSAStructures/Ksa/Log.cs, src/KSAStructures/Ksa/Build.cs]
+    howto_topics:
+      - slug: per-mod-log-file
+        title: Write a mod's own log file next to KSA's logs
+        note: probe Documents/My Games and XDG paths; rotate; batch and flush on a timer
+  - id: mods/ksastructures/features/dev-file-bridge-and-mcp
+    title: Developer file bridge and MCP server for driving a running game
+    category: testing-and-tooling
+    submod: null
+    summary: On developer installs only, polls a per-mod folder for JSON commands from StarMapAfterOnFrame (load, step, pause, speed, camera, lighting, shader reload via internal FileReference.DoLoad, screenshots via the private Program._screenshotCapture with manifests); a stdlib Python MCP server and image tools drive it.
+    novelty: high
+    techniques: [reflection, json-config, external-process, starmap-lifecycle]
+    lifecycle: [startup:all-mods-loaded, frame:after-on-frame, frame:draw-ui]
+    hooks: ["starmap StarMapAllModsLoaded", "starmap StarMapAfterOnFrame", "reflection KSA.Program._screenshotCapture", "reflection KSA.FileReference.DoLoad"]
+    game_types: [KSA.Program, KSA.ScreenshotCapture, KSA.FileReference, KSA.ShaderReference, KSA.GameSaves, KSA.Universe, KSA.SimSpeed, KSA.Camera, KSA.Constants]
+    key_paths: [src/KSAStructures/Ksa/Bridge.cs, src/KSAStructures/Sim/BridgeCommand.cs, tools/ksa-mcp/server.py, tools/vis/vis.py]
+    howto_topics:
+      - slug: drive-running-game-from-outside
+        title: Drive a running game from scripts or an AI agent
+        note: file inbox/outbox polled from the always-called frame postfix; atomic rename replies
+      - slug: take-screenshots-from-a-mod
+        title: Take clean screenshots from a mod
+        note: Program._screenshotCapture.Request(scale, "warm=N")
+      - slug: hot-reload-mod-shader
+        title: Recompile a mod's shader in a running game
+        note: invoke internal FileReference.DoLoad on the ShaderReference, then rebuild pipelines
+  - id: mods/ksastructures/features/headless-tests-and-ci
+    title: Headless tests over a KSA-free Sim folder, assembly resolution and CI
+    category: testing-and-tooling
+    submod: null
+    summary: Test project links Sim/** wholesale and references no KSA assembly so the boundary enforces itself; Directory.Build.props resolves game DLLs first-match-wins with a friendly error; a SHA-256 lock pins the KSA build; one check script runs from the pre-push hook and CI, which builds against a private assemblies repo.
+    novelty: medium
+    techniques: [headless-tests, msbuild-props, ci-pipeline]
+    lifecycle: []
+    hooks: []
+    game_types: []
+    key_paths: [tests/KSAStructures.Tests/KSAStructures.Tests.csproj, Directory.Build.props, ksa-assemblies.lock, tools/check-all.sh, .github/workflows/ci.yml]
+    howto_topics:
+      - slug: unit-test-mod-logic-without-game
+        title: Unit-test mod logic without loading the game
+        note: keep pure logic in a folder that a test project links wholesale with no KSA reference
+      - slug: resolve-game-assemblies-for-build
+        title: Build a mod against the game's assemblies on any machine and in CI
+        note: Directory.Build.props probing, Private=false, digest lock file
+  - id: mods/ksastructures/features/asset-and-mesh-validation-tools
+    title: Asset XML, mesh and shader checks that run without the game
+    category: testing-and-tooling
+    submod: null
+    summary: validate-parts.py cross-checks asset XML ids, mesh names in GLB atlases, exact-case paths, mod.toml asset listing, id collisions, shared textures and ids named in C#; checkmesh.py finds coplanar z-fighting and degenerate UVs; meshinfo.py prints GLB bounds; check-shaders.sh compiles GLSL with glslang against the install's library.
+    novelty: medium
+    techniques: [xml-asset, glb-model, glsl-shader, static-analysis]
+    lifecycle: []
+    hooks: []
+    game_types: []
+    key_paths: [tools/validate-parts.py, tools/model/checkmesh.py, tools/meshinfo.py, tools/check-shaders.sh, tools/check-xml.sh]
+    howto_topics:
+      - slug: validate-part-xml-offline
+        title: Validate part and asset XML before launching the game
+        note: ids, mesh names from the GLB JSON chunk, exact-case paths, mod.toml assets
+      - slug: detect-z-fighting-in-glb
+        title: Find z-fighting faces in a GLB model
+        note: bucket triangles by quantized canonical plane
+      - slug: compile-mod-shader-offline
+        title: Compile a mod shader outside the game
+        note: glslangValidator with -I on the game's Shaders folder and GL_GOOGLE_include_directive
+  - id: mods/ksastructures/features/generated-deep-ramp
+    title: A generated spiral ramp - mesh, shadow caster, box colliders and lamps from one script
+    category: assets
+    submod: null
+    summary: A numpy/Pillow script writes the GLB atlas with a hand-rolled glTF writer, an invisible shadow-caster GLB, flat-colour textures, StaticSubObjects with stepped box colliders spliced between XML markers, and the lamp table as a C# partial class.
+    novelty: medium
+    techniques: [glb-model, xml-asset, code-generation]
+    lifecycle: [startup:asset-load]
+    hooks: []
+    game_types: [KSA.StaticSubObjectTemplate, KSA.StaticObject, KSA.PartModelModule]
+    key_paths: [tools/model/office-deep.py, src/KSAStructures/Sim/OfficeDeepLayout.cs, src/KSAStructures/KSAStructuresOffice.xml]
+    howto_topics:
+      - slug: generate-glb-without-blender
+        title: Generate GLB meshes for KSA from a Python script
+        note: minimal glTF 2.0 binary writer with POSITION/NORMAL/TEXCOORD_0 and swatch UVs
+      - slug: sloped-colliders-for-static-objects
+        title: Give a static object a ramp kittens and cars can climb
+        note: box colliders only, so steps under the slab
+  - id: mods/ksastructures/features/garage-spot-lights
+    title: Garage spot lights submitted per viewport
+    category: rendering
+    submod: null
+    summary: Recreates KSA spot lights every frame for every visible viewport from the UpdateStaticObjectRenderData postfix (after LightSystem.ClearLights, before the lights are sorted and shadow tiles assigned), flagging the nearest lamps to fill MaxShadowCasters minus four.
+    novelty: high
+    techniques: [harmony-postfix, starmap-lifecycle, dynamic-lights]
+    lifecycle: [startup:all-mods-loaded, frame:draw-ui, frame:render]
+    hooks: ["starmap StarMapAllModsLoaded", "harmony-postfix KSA.LocationReference.UpdateStaticObjectRenderData", "starmap StarMapAfterGui"]
+    game_types: [KSA.Rendering.Lighting.Light, KSA.Rendering.Lighting.ELightFlags, KSA.Rendering.Lighting.ILightSystem, KSA.Rendering.Lighting.ClusteredLightSystem, KSA.Rendering.Lighting.LightSystemShadowMap, KSA.LocationReference, KSA.Program, KSA.IViewport, KSA.GameSettings]
+    key_paths: [src/KSAStructures/Ksa/OfficeUnderground.cs, src/KSAStructures/Ksa/Office.cs, src/KSAStructures/Sim/OfficeDeepLayout.cs]
+    howto_topics:
+      - slug: submit-dynamic-lights-per-viewport
+        title: Add dynamic point or spot lights to the world from a mod
+        note: CreateLightInstance per viewport every frame after ClearLights, e.g. from a render-data postfix
+      - slug: budget-light-shadow-slots
+        title: Choose which mod lights cast shadows
+        note: flag the nearest lights up to MaxShadowCasters, leave slots for parts and exhaust
+  - id: mods/ksastructures/features/invisible-shadow-casters
+    title: Invisible shadow casters
+    category: rendering
+    submod: null
+    summary: Builds engine StaticMeshRenderables from GltfFile assets that are never drawn and appends their ShadowRenderables to SuperMeshRenderSystem.ShadowRenderablePool from a prefix on whichever of PrepareShadowCasters (lamp atlas) or AddPoolToShadowBucket (sun cascades) runs first each frame.
+    novelty: high
+    techniques: [harmony-prefix, harmony-postfix, reflection, glb-model, xml-asset]
+    lifecycle: [startup:all-mods-loaded, frame:render, render:shadows]
+    hooks: ["starmap StarMapAllModsLoaded", "harmony-postfix KSA.LocationReference.UpdateStaticObjectRenderData", "harmony-prefix KSA.SuperMeshShadowCasterProvider.PrepareShadowCasters", "harmony-prefix KSA.SuperMeshRenderSystem.AddPoolToShadowBucket", "reflection KSA.StaticMeshRenderable.MaterialIndices", "reflection KSA.SuperMeshRenderSystem.GltfSystem", "reflection KSA.SuperMeshRenderSystem.MaterialSystem"]
+    game_types: [KSA.SuperMeshRenderSystem, KSA.SuperMeshShadowCasterProvider, KSA.StaticMeshRenderable, KSA.ShadowRenderable, KSA.InstanceData, KSA.GltfPbrAssetRef, KSA.GpuObjectAssetRef, KSA.LoadedAssetRef, Core.AssetName, KSA.StaticObjectRenderer, KSA.Rendering.Lighting.LightSystemShadowMap, KSA.GameSettings]
+    key_paths: [src/KSAStructures/Ksa/OfficeUnderground.cs, src/KSAStructures/Meshes/KSAOffice_ShadowCaster.glb, src/KSAStructures/Meshes/KSAOffice_DeepCaster.glb]
+    howto_topics:
+      - slug: make-static-objects-cast-shadows
+        title: Make a static object cast sun and light shadows
+        note: static objects never enter a shadow pass; add caster meshes to the SuperMesh shadow pool
+      - slug: add-meshes-to-supermesh-shadow-pool
+        title: Add a depth-only mesh to KSA's shadow passes
+        note: StaticMeshRenderable + ShadowRenderable entries before the first shadow consumer each frame
+  - id: mods/ksastructures/features/underground-dark-compute-pass
+    title: Underground dark compute pass
+    category: shaders
+    submod: null
+    summary: A Priority.First prefix on SunbloomRenderer.Render records a ComputePipelineWrapper dispatch over the main view's HDR colour (General) and depth, sampling ClusteredLightSystem's irradiance images read by reflection, to scale ambient out of underground pixels before bloom, then leaves a compute write-to-read barrier for other mods.
+    novelty: high
+    techniques: [harmony-prefix, vulkan-pipeline, glsl-shader, post-processing, reflection]
+    lifecycle: [startup:all-mods-loaded, render:bloom]
+    hooks: ["starmap StarMapAllModsLoaded", "harmony-prefix KSA.SunbloomRenderer.Render", "reflection KSA.Rendering.Lighting.ClusteredLightSystem._diffuseIrradianceImage", "reflection KSA.Rendering.Lighting.ClusteredLightSystem._specularIrradianceImage"]
+    game_types: [KSA.SunbloomRenderer, KSA.Rendering.ComputePipelineWrapper, KSA.Rendering.BarrierBatch, KSA.Rendering.ImageBarrierInfo, KSA.Rendering.RenderImage, KSA.Rendering.Lighting.ClusteredLightSystem, KSA.PrePassRenderer, KSA.GpuTextureSystem, KSA.ShaderReference, KSA.GameSettings, KSA.Program]
+    key_paths: [src/KSAStructures/Ksa/DarkPass.cs, src/KSAStructures/Shaders/KSAStructuresDark.comp]
+    howto_topics:
+      - slug: compute-pass-before-bloom
+        title: Run a custom compute pass on the scene image before bloom without ShaderExtensions
+        note: prefix SunbloomRenderer.Render, which hands over the command buffer with colour in General layout
+      - slug: read-light-prepass-results
+        title: Read KSA's light pre-pass irradiance in a mod shader
+        note: reflect ClusteredLightSystem's irradiance images and barrier them through BarrierBatch
+  - id: mods/ksastructures/features/core-shader-library-include
+    title: Core shader library include
+    category: shaders
+    submod: null
+    summary: At StarMapImmediateLoad writes Shaders/Content/KSAStructuresCore.glsl with absolute
+    novelty: high
+    techniques: [starmap-lifecycle, glsl-shader, xml-asset, reflection]
+    lifecycle: [startup:immediate-load, startup:asset-load, frame:after-on-frame]
+    hooks: ["starmap StarMapImmediateLoad", "starmap StarMapAfterOnFrame", "reflection KSA.FileReference.DoLoad"]
+    game_types: [KSA.ShaderReference, KSA.FileReference, KSA.ModLibrary, KSA.Mod, KSA.AssetBundle, KSA.AssetReloader.ShaderReloader, RenderCore.Shaders.ShaderCompilerResolve, RenderCore.ShaderModuleUtils, Brutal.ShaderCApi.ShaderC, KSA.Rendering.ComputePipelineWrapper]
+    key_paths: [src/KSAStructures/Ksa/CoreShaderInclude.cs, src/KSAStructures/KSAStructuresOffice.xml, tools/check-shaders.sh]
+    howto_topics:
+      - slug: include-core-shader-library
+        title: Include KSA's own GLSL library from a mod shader
+        note: generated absolute-path header under a folder named Content, written at ImmediateLoad
+      - slug: reload-mod-shader-at-runtime
+        title: Recompile a mod shader while the game runs
+        note: internal FileReference.DoLoad, then rebuild the pipelines that use it
+      - slug: validate-glsl-offline
+        title: Compile-check a KSA shader without launching the game
+        note: glslangValidator -I on the install's shader folder
+  - id: mods/ksastructures/features/dry-volume-below-sea-level
+    title: Dry volume below sea level
+    category: celestials
+    submod: null
+    summary: Keeps a radial column under the office free of the planet-wide ocean sphere by zeroing OceanRadius/Volume/SurfaceArea in a worker-thread PhysicsEnvironment.RecomputePositionalValues postfix (not for already floating craft), and skipping OceanRenderer.Render and RenderUnderwater and clamping GetMaxVisibleDepth while the camera is inside.
+    novelty: high
+    techniques: [harmony-postfix, harmony-prefix, custom-physics]
+    lifecycle: [startup:all-mods-loaded, physics:vehicle-solver, frame:draw-ui, render:planet, render:ocean]
+    hooks: ["starmap StarMapAllModsLoaded", "harmony-postfix KSA.PhysicsEnvironment.RecomputePositionalValues", "harmony-prefix KSA.Rendering.Water.Rendering.OceanRenderer.Render", "harmony-prefix KSA.Rendering.Water.Rendering.OceanRenderer.RenderUnderwater", "harmony-postfix KSA.Rendering.Water.Rendering.OceanRenderer.GetMaxVisibleDepth"]
+    game_types: [KSA.PhysicsEnvironment, KSA.VehicleProperties, KSA.Situation, KSA.IParentBody, KSA.Celestial, KSA.PhysicsStates, KSA.PhysicsBubble, KSA.Rendering.Water.Rendering.OceanRenderer, KSA.PlanetRenderer, KSA.PlanetFrustumCulling]
+    key_paths: [src/KSAStructures/Ksa/OfficeDry.cs, src/KSAStructures/Ksa/OfficeLift.cs]
+    howto_topics:
+      - slug: suppress-ocean-in-region
+        title: Remove the ocean from a region below sea level
+        note: zero the ocean in PhysicsEnvironment and skip the ocean renderer for cameras inside
+      - slug: patch-physics-environment-on-worker-threads
+        title: Change per-vehicle physics environment values from a patch
+        note: RecomputePositionalValues runs on worker threads per substep; swap data via volatile arrays
+  - id: mods/ksastructures/features/viewport-image-on-monitor
+    title: Live viewport image on an in-world monitor
+    category: rendering
+    submod: null
+    summary: Points a part material's bindless diffuse and emissive slots at a borrowed secondary viewport's MainTarget.ColorImage view (re-pointing on Generation changes, restoring on log-off) and also paints the viewport's ImGui texture over the screen as an 8x5 projected AddImageQuad grid on the background draw list.
+    novelty: high
+    techniques: [imgui-drawlist, vulkan-texture, reflection, xml-asset]
+    lifecycle: [frame:draw-ui, frame:celestials, frame:after-on-frame]
+    hooks: ["starmap StarMapAfterGui", "harmony-prefix KSA.Program.OnFrameCelestials", "starmap StarMapAfterOnFrame", "reflection KSA.ViewportBase.OptionFlags"]
+    game_types: [RenderCore.Systems.BindlessTextureLibrary, KSA.PbrMaterialReference, KSA.TextureReference, KSA.ViewportBase, KSA.ViewportRegistry, KSA.IViewport, KSA.IGameViewport, KSA.Rendering.RenderImage, KSA.Rendering.RenderTarget, KSA.Vehicle, KSA.Camera, Brutal.ImGuiApi.ImDrawListExtensions]
+    key_paths: [src/KSAStructures/Ksa/OfficeComputer.cs, src/KSAStructures/Ksa/KsaWorld.cs]
+    howto_topics:
+      - slug: viewport-image-on-mesh-bindless
+        title: Show a live camera feed on a part's mesh
+        note: BindlessTextures.SetTexture(material handle, viewport colour image view)
+      - slug: project-image-onto-world-imgui
+        title: Paint an image onto a world-space quad with ImGui
+        note: project corners through the part's Asmb2Ego matrix and EclToScreen, AddImageQuad strips
+  - id: mods/ksastructures/features/first-person-body-hiding-and-shadow
+    title: First-person body hiding with a full-body shadow
+    category: kittens
+    submod: null
+    summary: An IAnimProcessor collapses every bone to the head only while KittenEva.UpdateRenderData draws the main viewport, and AnimatedRenderable.Draw / StaticMeshRenderable.Draw postfixes replace the collapsed kitten's shadow entries with a second skinning of the saved full pose (helmet and visor re-targeted).
+    novelty: high
+    techniques: [harmony-prefix, harmony-postfix, reflection, anim-processor]
+    lifecycle: [startup:all-mods-loaded, frame:draw-ui, render:prepass, render:shadows]
+    hooks: ["starmap StarMapAllModsLoaded", "harmony-prefix KSA.KittenEva.UpdateRenderData", "harmony-postfix KSA.KittenEva.UpdateRenderData", "harmony-prefix KSA.AnimatedRenderable.Draw", "harmony-postfix KSA.AnimatedRenderable.Draw", "harmony-prefix KSA.StaticMeshRenderable.Draw", "harmony-postfix KSA.StaticMeshRenderable.Draw", "reflection KSA.KittenRenderable._characterAvatar", "reflection RenderCore.Animation.Skeleton.InverseBindPose", "reflection KSA.AnimatedRenderable.ShadowIgnoreIndicies", "reflection KSA.AnimatedRenderable.MaterialIndices"]
+    game_types: [KSA.KittenEva, KSA.KittenRenderable, KSA.AnimatedRenderable, KSA.IAnimProcessor, KSA.CharacterAvatar, KSA.StaticMeshRenderable, KSA.SuperMeshRenderSystem, KSA.ShadowRenderable, KSA.InstanceData, RenderCore.Animation.Skeleton, KSA.Program]
+    key_paths: [src/KSAStructures/Ksa/FirstPersonHook.cs, src/KSAStructures/Ksa/FirstPerson.cs]
+    howto_topics:
+      - slug: hide-body-per-viewport-anim-processor
+        title: Hide a character from one viewport only
+        note: mark the viewport in a KittenEva.UpdateRenderData prefix and collapse bones in IAnimProcessor.UpdateSkeleton
+      - slug: custom-skinned-shadow-entries
+        title: Draw a different skinned pose into the shadow pass
+        note: AllocateSkinningMatrices and ShadowRenderable with the bone offset in data.y
+  - id: mods/ksastructures/features/ground-clutter-exclusion-zones
+    title: Ground clutter kept off the launch pads nearest the camera
+    category: celestials
+    submod: null
+    summary: Postfixes the private GroundClutterPlacementData.PopulateLaunchPadExclusionZones to fill the four per-body clutter exclusion zones with the launch pads nearest the main camera instead of the first four in list order; the zones are baked into the ecotype buffers once, when the clutter renderer is built during load.
+    novelty: medium
+    techniques: [harmony-postfix, starmap-lifecycle]
+    lifecycle: [startup:all-mods-loaded, startup:game-loaded]
+    hooks: ["starmap StarMapAllModsLoaded", "harmony-postfix KSA.GroundClutterPlacementData.PopulateLaunchPadExclusionZones"]
+    game_types: [KSA.GroundClutterPlacementData, KSA.ClutterCubeCellGrid, KSA.ClutterEcotypeRenderData, KSA.ClutterEcotypePhysicalData, KSA.GroundClutterRenderer, KSA.PlanetRenderer, KSA.LandmarkReference, KSA.StaticObject, KSA.Celestial, KSA.Camera, KSA.Universe]
+    key_paths: [src/KSAStructures/Ksa/ClutterZones.cs, src/KSAStructures/Ksa/Office.cs]
+    howto_topics:
+      - slug: clear-ground-clutter-around-site
+        title: Keep grass and trees off a custom site
+        note: FootprintRadius plus 50 m, first four pads only unless PopulateLaunchPadExclusionZones is patched; evaluated once when the clutter buffers are built
+      - slug: patch-private-method-with-field-injection
+        title: Patch a private method and read its private fields from the patch
+        note: AccessTools.Method by name plus Harmony's ____field parameter injection
+  - id: mods/ksastructures/features/save-load-detection
+    title: Noticing a save load with a Program.OnGameLoaded postfix
+    category: persistence
+    submod: null
+    summary: Postfixes Program.OnGameLoaded, whose only caller runs right after Universe.DeserializeSave, to latch a flag that the mod's next frame step consumes to reset its cached world state; a never-called method pins the public target at compile time.
+    novelty: medium
+    techniques: [harmony-postfix, starmap-lifecycle]
+    lifecycle: [startup:all-mods-loaded, startup:game-loaded, event:save, frame:draw-ui]
+    hooks: ["starmap StarMapAllModsLoaded", "harmony-postfix KSA.Program.OnGameLoaded"]
+    game_types: [KSA.Program, KSA.UncompressedSave, KSA.Universe, KSA.GameSaves, KSA.SimStep]
+    key_paths: [src/KSAStructures/Ksa/WorldReloadHook.cs, src/KSAStructures/Ksa/KSAStructuresMod.cs]
+    howto_topics:
+      - slug: detect-save-load
+        title: Detect when a save has been loaded
+        note: postfix Program.OnGameLoaded, called only after Universe.DeserializeSave; latch and handle in the next frame hook
+      - slug: pin-patch-target-signature
+        title: Make a game signature change a build error for a Harmony target
+        note: a never-called method that calls the patched public member
+  - id: mods/ksastructures/features/live-terrain-material-override
+    title: Terrain slope displacement held down live in the planet renderer's material buffer
+    category: celestials
+    submod: null
+    summary: Reflects into PlanetRenderer's persistently mapped biome-material buffer and clamps the Grass and Beach slope materials' displacementScale to their ground materials' while the camera is within 300 m of the site, restoring the stored values when it leaves.
+    novelty: medium
+    techniques: [reflection, vulkan-buffer]
+    lifecycle: [frame:draw-ui, frame:celestials, frame:after-on-frame]
+    hooks: ["starmap StarMapAfterGui", "reflection KSA.PlanetRenderer._biomeMaterialsMap", "reflection KSA.PlanetRenderer._biomeMaterialSlot"]
+    game_types: [KSA.PlanetRenderer, KSA.BiomeMaterialReference, KSA.BiomeMaterialsReference, KSA.TerrainReference, KSA.Celestial, KSA.Camera, KSA.Program]
+    key_paths: [src/KSAStructures/Ksa/OfficeTerrain.cs, src/KSAStructures/Ksa/OfficeLift.cs]
+    howto_topics:
+      - slug: edit-planet-biome-material-live
+        title: Change planet biome material parameters at runtime
+        note: reflect PlanetRenderer._biomeMaterialsMap and _biomeMaterialSlot; two entries per biome, ground then slope

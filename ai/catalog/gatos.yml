@@ -1,0 +1,979 @@
+mod: gatos
+repo: gatOS
+ref: b88c28588e013841cfec58a1b3a09fcbd2cbc47e
+summary: gatOS boots a real Alpine Linux guest in a QEMU microVM as a child process of KSA and lets players open
+  shell sessions into it through the purrTTY terminal mod. Live vessel telemetry and controls are exposed in the
+  guest as a 9P2000.L /sim filesystem served from inside the game process, and the same snapshot/command model is
+  projected over HTTP (with SSE and OpenAPI), an embedded MQTT broker, an MCP server for AI agents and an optional
+  virtio-serial port speaking NDJSON, NMEA, CCSDS and SCPI. On top it adds a programmable camera, a timed command
+  scheduler, vehicle and EVA paint, projected sticker decals, ground-clutter texture overrides, a Kitty-graphics
+  screen stream, FMOD audio playback, IVA cabin physics in its own Bepu world, FX-editor access, particle bursts
+  and several cheats, with a strict game-thread/solver-phase write discipline and per-binding churn tracking across
+  KSA builds.
+features:
+- id: mods/gatos/features/compile-gated-game-seam
+  title: Compile-gated game seam
+  category: getting-started
+  submod: null
+  summary: Splits the mod class into a game-free half and a Game/ half compiled only when KSA.dll exists, joined
+    by partial methods that vanish without the game assemblies.
+  novelty: high
+  techniques: [partial-methods, msbuild-conditions, starmap-lifecycle]
+  lifecycle: ['startup:all-mods-loaded']
+  hooks: [starmap StarMapAllModsLoaded]
+  game_types: []
+  key_paths: [gatOS.GameMod/gatOS.GameMod.csproj, gatOS.GameMod/Mod.cs, Directory.Build.props]
+  howto_topics:
+  - slug: build-mod-without-game-dlls
+    title: Build and test a mod in CI without game DLLs
+    note: Compile Remove Game/** plus partial methods
+  - slug: layer-mod-for-testability
+    title: Layer a large mod so most code is unit-testable
+    note: only one project references the game
+- id: mods/gatos/features/frame-hooks-and-f2-fallback
+  title: Frame hooks with an F2-proof fallback
+  category: getting-started
+  submod: null
+  summary: Runs all per-frame game-thread work from a main-viewport GameViewport.OnFrame prefix plus StarMapBeforeGui/AfterGui,
+    with StarMapAfterOnFrame standing in when F2 hides the HUD and skips the GUI hooks.
+  novelty: high
+  techniques: [starmap-lifecycle, harmony-prefix, harmony-postfix]
+  lifecycle: ['frame:viewports', 'frame:draw-ui', 'frame:after-on-frame']
+  hooks: [starmap StarMapBeforeGui, starmap StarMapAfterGui, starmap StarMapAfterOnFrame, harmony-prefix KSA.GameViewport.OnFrame,
+    harmony-postfix KSA.GameViewport.OnFrame]
+  game_types: [KSA.Program, KSA.GameViewport, KSA.ViewportRegistry]
+  key_paths: [gatOS.GameMod/Mod.cs, gatOS.GameMod/Game/Ksa/Camera/CameraViewportPatch.cs, gatOS.GameMod/Game/Mod.Game.cs]
+  howto_topics:
+  - slug: per-frame-work-that-survives-hidden-hud
+    title: Keep per-frame mod work running when the HUD is hidden (F2)
+    note: StarMapBeforeGui/AfterGui sit inside if(DrawUI); use StarMapAfterOnFrame with a latch
+  - slug: choose-the-right-frame-hook
+    title: Choose where in KSA's frame to run mod code
+    note: map of PrepareFrame, viewports, draw-ui and after-on-frame slots
+  - slug: hook-main-viewport-only
+    title: Hook GameViewport.OnFrame for the main viewport only
+    note: identity guard against Program.MainViewport
+- id: mods/gatos/features/logging-and-perfstats
+  title: Logging shim and perf stats
+  category: getting-started
+  submod: null
+  summary: A game-free logging interface swapped for a Brutal LogCategory sink at load, plus allocation-free single-writer
+    timing and allocation counters shown in the status window.
+  novelty: medium
+  techniques: [starmap-lifecycle, imgui-window]
+  lifecycle: ['startup:all-mods-loaded', 'frame:draw-ui']
+  hooks: [starmap StarMapAllModsLoaded, starmap StarMapAfterGui]
+  game_types: [Brutal.Logging.LogCategory, Brutal.Logging.LogSystem]
+  key_paths: [gatOS.Logging/ModLog.cs, gatOS.GameMod/Game/BrutalModLogger.cs, gatOS.Logging/PerfStat.cs]
+  howto_topics:
+  - slug: log-to-the-game-log
+    title: Write mod logs into KSA's log
+    note: LogCategory.Make with LogSystem.IsEnabled guard
+  - slug: profile-mod-hot-paths
+    title: Profile a mod's per-frame cost without allocating
+    note: Stopwatch ticks, volatile single-writer stats
+- id: mods/gatos/features/solver-phase-command-drain
+  title: Solver-phase drain for flight computer setpoints
+  category: patching
+  submod: null
+  summary: Drains flight computer setpoints, refills and teleports in a Priority.First prefix on Universe.ExecuteNextVehicleSolvers,
+    the window between apply and the next FlightComputer snapshot.
+  novelty: high
+  techniques: [harmony-prefix, command-queue]
+  lifecycle: ['frame:dispatch-solvers']
+  hooks: [harmony-prefix KSA.Universe.ExecuteNextVehicleSolvers]
+  game_types: [KSA.Universe, KSA.Vehicle, KSA.FlightComputer, KSA.VehicleUpdateState, KSA.VehicleUpdateData, KSA.VehicleUpdateTask, KSA.BurnTarget, KSA.VehicleReferenceFrameEx]
+  key_paths: [gatOS.GameMod/Game/Mod.Game.cs, gatOS.SimFs/Commands/SimCommand.cs, gatOS.GameMod/Game/Ksa/Actuators/FlightComputerActuator.cs]
+  howto_topics:
+  - slug: set-flight-computer-attitude-mode
+    title: Set the flight computer attitude mode from code
+    note: FlightComputer.CopyFrom snapshot/restore erases frame-phase writes
+  - slug: write-state-the-vehicle-solver-sees
+    title: Write vehicle state the async vehicle solver will see
+    note: 'prefix ExecuteNextVehicleSolvers: after apply, before PrepareWorker'
+  - slug: schedule-an-impulsive-burn
+    title: Schedule an impulsive burn for the autopilot
+    note: FlightComputer.Burn = new BurnTarget
+  - slug: custom-attitude-quaternion
+    title: Point a vessel at an arbitrary attitude quaternion
+    note: convert to EclBody euler angles for the Custom track
+- id: mods/gatos/features/embedded-mqtt-broker
+  title: Embedded MQTT broker
+  category: external-io
+  submod: null
+  summary: Hosts an MQTTnet broker in the game publishing retained telemetry and per-leaf topics, gated by connected
+    clients, live subscriptions and byte changes, with a command topic.
+  novelty: medium
+  techniques: [background-thread, protocol-server, command-queue, immutable-snapshot]
+  lifecycle: ['startup:all-mods-loaded', 'thread:background', 'event:unload']
+  hooks: [starmap StarMapAllModsLoaded, 'thread:background SimMqttBroker.PublishPumpAsync']
+  game_types: []
+  key_paths: [gatOS.Mqtt/SimMqttBroker.cs]
+  howto_topics:
+  - slug: publish-telemetry-over-mqtt
+    title: Publish game telemetry over MQTT
+    note: embedded broker, subscription-gated changed-only publish
+  - slug: mqtt-command-topic
+    title: Accept commands over MQTT without leaking them
+    note: ProcessPublish=false and a result topic
+- id: mods/gatos/features/external-api-clients
+  title: External API clients and SDK
+  category: external-io
+  submod: null
+  summary: A dual-transport TypeScript SDK and Rust, TS and shell example programs (dashboards, landing guidance,
+    an Apollo Guidance Computer bridge, cinematics) built on the external API.
+  novelty: low
+  techniques: [external-client, command-queue]
+  lifecycle: ['thread:background']
+  hooks: []
+  game_types: []
+  key_paths: [examples/sdk-ts/src/transport.ts, examples/agc/README.md, examples/land-o-matic/README.md]
+  howto_topics:
+  - slug: external-autopilot-for-ksa
+    title: Write an external autopilot for KSA
+    note: pace by sim time, gate on telemetry
+  - slug: typed-sdk-over-file-and-http
+    title: Build a typed client over files and HTTP
+    note: one Transport interface, two implementations
+- id: mods/gatos/features/game-thread-command-queue
+  title: Game-thread command queue
+  category: external-io
+  submod: null
+  summary: All external writes become immutable SimCommands enqueued by transport threads and drained, routed and
+    executed on the game thread in Frame or Solver phase, returning errno-style results.
+  novelty: high
+  techniques: [starmap-lifecycle, harmony-prefix, background-thread, command-queue]
+  lifecycle: ['frame:viewports', 'frame:draw-ui', 'frame:after-on-frame', 'frame:dispatch-solvers', 'thread:background']
+  hooks: [harmony-prefix KSA.GameViewport.OnFrame, starmap StarMapBeforeGui, starmap StarMapAfterOnFrame, harmony-prefix KSA.Universe.ExecuteNextVehicleSolvers]
+  game_types: [KSA.Program, KSA.Universe, KSA.Vehicle]
+  key_paths: [gatOS.SimFs/Commands/CommandQueue.cs, gatOS.SimFs/Commands/SimCommand.cs, gatOS.SimFs/Commands/CommandResult.cs,
+    gatOS.GameMod/Game/Ksa/KsaCatalog.cs]
+  howto_topics:
+  - slug: marshal-commands-to-game-thread
+    title: Marshal commands from background threads to the game thread
+    note: two-phase ConcurrentQueue, TCS with timeout, abandon on timeout
+  - slug: atomic-same-tick-command-batches
+    title: Apply a batch of controls in the same tick
+    note: one pending group drained as a unit
+  - slug: errno-results-for-control-writes
+    title: Return meaningful errors from control writes
+    note: outcome to errno mapping shared by all transports
+- id: mods/gatos/features/http-v1-api-server
+  title: HTTP /v1 API server
+  category: external-io
+  submod: null
+  summary: A raw-TcpListener HTTP/1.1 server in the game process serving JSON snapshots, SSE, long-poll, OpenAPI,
+    a per-leaf /sim mirror and a generic command endpoint.
+  novelty: high
+  techniques: [background-thread, protocol-server, command-queue, immutable-snapshot]
+  lifecycle: ['startup:all-mods-loaded', 'thread:background', 'event:unload']
+  hooks: [starmap StarMapAllModsLoaded, 'thread:background SimHttpServer.AcceptLoopAsync']
+  game_types: []
+  key_paths: [gatOS.Http/SimHttpServer.cs, gatOS.Http/HttpRequestLine.cs, gatOS.SimFs/SimJson.cs]
+  howto_topics:
+  - slug: http-api-for-game-telemetry
+    title: Serve game telemetry over HTTP and SSE
+    note: read snapshots, never game objects
+  - slug: http-control-endpoint
+    title: Accept control commands over HTTP
+    note: POST into the command queue, map errno to HTTP status
+- id: mods/gatos/features/mcp-server-for-agents
+  title: MCP server for AI agents
+  category: external-io
+  submod: null
+  summary: A stateless Streamable HTTP MCP endpoint built on ModelContextProtocol.Core with a hand-rolled HTTP adapter,
+    exposing logical resources and control tools for AI agents.
+  novelty: high
+  techniques: [background-thread, protocol-server, command-queue, immutable-snapshot]
+  lifecycle: ['startup:all-mods-loaded', 'thread:background', 'event:unload']
+  hooks: [starmap StarMapAllModsLoaded, 'thread:background SimMcpServer.HandleMcpAsync']
+  game_types: []
+  key_paths: [gatOS.Mcp/SimMcpServer.cs, gatOS.Mcp/McpRegistry.cs, gatOS.Mcp/McpToolHandlers.cs]
+  howto_topics:
+  - slug: mcp-server-in-a-game-mod
+    title: Let AI agents control a game through MCP
+    note: stateless transport per request, Host/Origin validation
+  - slug: design-agent-facing-game-api
+    title: Design an agent-facing API over game state
+    note: logical grouped reads and batch/scheduled actions
+- id: mods/gatos/features/ninep-server-in-csharp
+  title: 9P2000.L server in C#
+  category: external-io
+  submod: null
+  summary: A from-scratch 9P2000.L server and VFS in C# that the Linux guest mounts as /sim, with inline metadata
+    handling, pooled buffers and a confined host-folder passthrough.
+  novelty: high
+  techniques: [background-thread, protocol-server, virtual-filesystem]
+  lifecycle: ['startup:all-mods-loaded', 'thread:background']
+  hooks: [starmap StarMapAllModsLoaded, 'thread:background NinePServer.AcceptLoopAsync']
+  game_types: []
+  key_paths: [gatOS.NineP/Server/NinePServer.cs, gatOS.NineP/Server/Session.cs, gatOS.NineP/Vfs/VfsNode.cs, gatOS.NineP/Vfs/HostDirectory.cs]
+  howto_topics:
+  - slug: expose-game-data-as-filesystem
+    title: Expose game data as a filesystem to Linux
+    note: 9P2000.L over TCP mounted with trans=tcp
+  - slug: share-host-folders-into-vm
+    title: Share host folders into a guest safely
+    note: path confinement and read-only default
+- id: mods/gatos/features/purrtty-custom-shell-contract
+  title: purrTTY custom shell contract
+  category: external-io
+  submod: null
+  summary: Registers a custom shell with purrTTY by importing its exported contract assembly through an optional
+    StarMap ModDependency, sharing one registry, with vendored fallbacks when purrTTY is absent.
+  novelty: high
+  techniques: [inter-mod-api, assembly-load-context, starmap-lifecycle]
+  lifecycle: ['startup:all-mods-loaded']
+  hooks: [starmap StarMapAllModsLoaded]
+  game_types: []
+  key_paths: [gatOS.GameMod/mod.toml, gatOS.GameMod/Mod.cs, gatOS.GameMod/gatOS.GameMod.csproj, vendor/purrTTY/README.md]
+  howto_topics:
+  - slug: share-api-between-mods
+    title: Share an API between two StarMap mods
+    note: ExportedAssemblies/ImportedAssemblies resolve from the dependency's ALC
+  - slug: optional-mod-dependency
+    title: Depend on another mod optionally
+    note: Optional=true plus Private=true vendored copies in deps.json
+  - slug: add-a-purrtty-shell
+    title: Add a custom shell to purrTTY
+    note: CustomShellRegistry.Instance.RegisterShell with a trivial ctor
+- id: mods/gatos/features/qemu-microvm-host-process
+  title: QEMU microVM as a game child process
+  category: external-io
+  submod: null
+  summary: Boots and supervises a QEMU VM from a mod with an async state machine, per-OS accelerator ladders with
+    TCG fallback, an SSH readiness probe and a QGA-QMP-kill shutdown ladder, all off the main thread.
+  novelty: high
+  techniques: [background-thread, process-hosting, async-state-machine]
+  lifecycle: ['startup:all-mods-loaded', 'thread:background', 'event:unload']
+  hooks: [starmap StarMapAllModsLoaded, starmap StarMapUnload, 'thread:background VmHost.EnsureStartedAsync']
+  game_types: []
+  key_paths: [gatOS.Vm/VmHost.cs, gatOS.Vm/QemuCommandBuilder.cs, gatOS.Vm/QemuProcess.cs, gatOS.Vm/QemuLocator.cs]
+  howto_topics:
+  - slug: host-external-process-from-mod
+    title: Host and supervise an external process from a KSA mod
+    note: async boot task, bounded stop at StarMapUnload
+  - slug: run-a-vm-inside-a-game
+    title: Run a virtual machine alongside the game
+    note: QEMU accelerator ladders, CPU model under WHPX
+- id: mods/gatos/features/serial-bus-ccsds-nmea-scpi
+  title: Serial bus with CCSDS, NMEA and SCPI
+  category: external-io
+  submod: null
+  summary: A virtio-serial port into the guest streams NDJSON, NMEA or CCSDS telemetry and accepts SCPI-style command
+    lines answering OK or ERR errno.
+  novelty: medium
+  techniques: [background-thread, protocol-server, command-queue, immutable-snapshot]
+  lifecycle: ['thread:background']
+  hooks: ['thread:background SerialBridgeConnector']
+  game_types: []
+  key_paths: [gatOS.Bus/SerialBridge.cs, gatOS.Bus/Ccsds.cs, gatOS.Bus/Nmea.cs, gatOS.Bus/ScpiCommandPort.cs]
+  howto_topics:
+  - slug: emit-ccsds-space-packets
+    title: Emit CCSDS space packets from game telemetry
+    note: 6-byte primary header encoder
+  - slug: virtio-serial-bridge
+    title: Bridge a QEMU virtio-serial port to the game
+    note: chardev socket server=on,wait=off, reconnect per boot
+- id: mods/gatos/features/sim-filesystem-file-models
+  title: The /sim file models
+  category: external-io
+  submod: null
+  summary: 'Defines synthetic file types that make Unix tools work on live data under Linux netfslib rules: memoized
+    sensors, growing-log streams, blocking event and alarm files, and errno-returning control files.'
+  novelty: high
+  techniques: [virtual-filesystem, command-queue, background-thread]
+  lifecycle: ['thread:background']
+  hooks: ['thread:background Session.HandleReadAsync']
+  game_types: []
+  key_paths: [gatOS.SimFs/SimFsTree.cs, gatOS.SimFs/StreamFile.cs, gatOS.SimFs/EventsFile.cs, gatOS.SimFs/Commands/CommandFile.cs,
+    guest/rootfs-overlay/usr/local/bin/tail]
+  howto_topics:
+  - slug: synthetic-files-for-live-data
+    title: Design synthetic files that work with cat, watch and tail -f
+    note: truthful size; growing-log vs blocking-event models
+  - slug: control-files-with-errno
+    title: Make writes to control files fail with real errno
+    note: parse, submit, map outcome to errno
+- id: mods/gatos/features/slirp-tcp-host-guest-transport
+  title: Host-guest transport over slirp TCP
+  category: external-io
+  submod: null
+  summary: All host-guest channels are TCP over QEMU user networking, with host ports passed on the kernel command
+    line and guest supervisors that remount on failure.
+  novelty: high
+  techniques: [process-hosting, background-thread]
+  lifecycle: ['startup:all-mods-loaded', 'thread:background']
+  hooks: [starmap StarMapAllModsLoaded]
+  game_types: []
+  key_paths: [gatOS.Vm/QemuCommandBuilder.cs, gatOS.Vm/PortAllocator.cs, guest/rootfs-overlay/sbin/sim-mount, guest/rootfs-overlay/sbin/init-gatos]
+  howto_topics:
+  - slug: cross-platform-vm-host-channels
+    title: Connect a VM guest to the game process on every OS
+    note: TCP over slirp; no virtio-9p/virtiofs/vsock on Windows
+  - slug: allocate-loopback-ports
+    title: Allocate free loopback ports for child processes
+    note: bind port 0 for all at once, retry once on clash
+- id: mods/gatos/features/snapshot-diff-flight-events
+  title: Snapshot-diff flight events
+  category: external-io
+  submod: null
+  summary: Derives flight events (situation, SOI, engine, flameout, docking, decoupling, animation, battery) by
+    diffing consecutive snapshots, and delivers them as a blocking 9p file, SSE and MQTT.
+  novelty: medium
+  techniques: [immutable-snapshot, edge-detection, background-thread]
+  lifecycle: ['frame:viewports', 'frame:draw-ui', 'thread:background']
+  hooks: [harmony-prefix KSA.GameViewport.OnFrame, starmap StarMapBeforeGui]
+  game_types: [KSA.Vehicle]
+  key_paths: [gatOS.SimFs/Telemetry/EventDiffer.cs, gatOS.SimFs/EventsFile.cs]
+  howto_topics:
+  - slug: detect-flight-events-without-event-bus
+    title: Detect flight events when the game has no event bus
+    note: edge detection over snapshots, allocation-free common case
+  - slug: blocking-event-file-over-9p
+    title: Serve a blocking event stream as a file
+    note: size 1, park the read, two zero-byte replies
+- id: mods/gatos/features/ssh-shell-session-into-guest
+  title: SSH shell sessions into the guest
+  category: external-io
+  submod: null
+  summary: Implements purrTTY's ICustomShell as an SSH.NET PTY session into the guest with lazy VM boot, host-key
+    pinning and a non-blocking input writer thread.
+  novelty: medium
+  techniques: [background-thread, inter-mod-api]
+  lifecycle: ['thread:background']
+  hooks: ['thread:background SshShellSession.StartAsync']
+  game_types: []
+  key_paths: [gatOS.Ssh/SshShellSession.cs, gatOS.Ssh/VmConnectionBroker.cs, gatOS.Ssh/ShellInputQueue.cs]
+  howto_topics:
+  - slug: terminal-session-into-process
+    title: Back a terminal tab with a remote shell
+    note: SSH PTY, bounded input queue, thread-agnostic output
+  - slug: pin-ssh-host-keys
+    title: Pin an SSH host key
+    note: compare SHA-256 of the presented key to a manifest
+- id: mods/gatos/features/telemetry-sampler-snapshot
+  title: Telemetry sampler and snapshot store
+  category: external-io
+  submod: null
+  summary: A rate-limited game-thread sampler builds an immutable SimSnapshot of all vehicles and bodies and publishes
+    it with one volatile swap that transport threads read lock-free.
+  novelty: high
+  techniques: [starmap-lifecycle, harmony-prefix, immutable-snapshot, background-thread]
+  lifecycle: ['frame:viewports', 'frame:draw-ui', 'frame:after-on-frame', 'thread:background']
+  hooks: [harmony-prefix KSA.GameViewport.OnFrame, starmap StarMapBeforeGui, starmap StarMapAfterOnFrame]
+  game_types: [KSA.Universe, KSA.Program, KSA.Vehicle, KSA.CelestialSystem, KSA.VersionInfo]
+  key_paths: [gatOS.GameMod/Game/TelemetrySampler.cs, gatOS.SimFs/Snapshots/SnapshotStore.cs, gatOS.SimFs/Telemetry/SampleClock.cs,
+    gatOS.SimFs/Snapshots/SnapshotIndex.cs]
+  howto_topics:
+  - slug: export-game-state-to-other-threads
+    title: Export live game state to background threads safely
+    note: immutable snapshot plus volatile reference swap and async wait
+  - slug: rate-limit-per-frame-sampling
+    title: Rate-limit per-frame work with a drift-free clock
+    note: keep phase, drop backlog
+  - slug: measure-main-thread-allocations
+    title: Measure allocations of a main-thread hot path
+    note: GC.GetAllocatedBytesForCurrentThread delta
+- id: mods/gatos/features/timed-command-scheduler
+  title: Timed command scheduler
+  category: external-io
+  submod: null
+  summary: Plays back millisecond-offset command scripts on render, wall or sim-time clocks, ticked on the game
+    thread just before the command drain, with coalescing catch-up.
+  novelty: medium
+  techniques: [command-queue, starmap-lifecycle, harmony-prefix]
+  lifecycle: ['frame:viewports', 'frame:draw-ui', 'thread:background']
+  hooks: [harmony-prefix KSA.GameViewport.OnFrame, starmap StarMapBeforeGui]
+  game_types: [KSA.Universe, KSA.App]
+  key_paths: [gatOS.SimFs/Commands/TimedBatchFile.cs, gatOS.SimFs/Commands/Scheduler.cs, gatOS.SimFs/Commands/ScheduleStore.cs,
+    gatOS.GameMod/Game/Mod.Game.cs]
+  howto_topics:
+  - slug: timed-command-sequences
+    title: Run timed sequences of game commands
+    note: absolute offsets, tick before drain
+  - slug: choose-a-clock-under-warp
+    title: Choose the right clock for timing under time warp
+    note: dtPlayer is clamped; use sim time for orbital events
+- id: mods/gatos/features/debug-cheats-teleport-refuel-warp
+  title: Debug cheats for teleport, refuel, warp and impulse
+  category: flight-and-orbits
+  submod: null
+  summary: Teleports vessels to CCI state vectors, applies impulsive kicks, refills fuel and batteries, sets warp
+    and switches vessels, with bubble-mutating cheats in the solver window.
+  novelty: medium
+  techniques: [harmony-prefix, command-queue]
+  lifecycle: ['frame:dispatch-solvers', 'frame:viewports', 'frame:draw-ui']
+  hooks: [harmony-prefix KSA.Universe.ExecuteNextVehicleSolvers, harmony-prefix KSA.GameViewport.OnFrame]
+  game_types: [KSA.Vehicle, KSA.Orbit, KSA.Universe, KSA.PartTree, KSA.Battery, KSA.ModuleStateful, KSA.Camera, KSA.Program, KSA.VehicleUpdateTask]
+  key_paths: [gatOS.GameMod/Game/Ksa/Actuators/DebugActuator.cs, gatOS.SimFs/Commands/ImpulseRules.cs]
+  howto_topics:
+  - slug: teleport-vessel-to-orbit
+    title: Teleport a vessel to a given orbit or state vector
+    note: Orbit.CreateFromStateCci + Vehicle.Teleport in the solver window
+  - slug: refuel-a-vessel
+    title: Refill a vessel's propellant and batteries
+    note: RefillConsumables; mutable battery state access
+  - slug: set-time-warp
+    title: Set time warp from code
+    note: 'Universe.SetSimulationSpeed(f, alert: false)'
+- id: mods/gatos/features/vessel-flight-state-reads
+  title: Vessel flight-state reads
+  category: flight-and-orbits
+  submod: null
+  summary: Reads position, velocity, attitude, altitude, mass, orbit, navball, environment and SOI encounters from
+    KSA.Vehicle in CCI/CCF/ECL frames, scrubbing NaN and UniverseTime sentinels.
+  novelty: medium
+  techniques: [starmap-lifecycle, harmony-prefix, immutable-snapshot]
+  lifecycle: ['frame:viewports', 'frame:draw-ui']
+  hooks: [harmony-prefix KSA.GameViewport.OnFrame, starmap StarMapBeforeGui]
+  game_types: [KSA.Vehicle, KSA.Orbit, KSA.IParentBody, KSA.NavBallData, KSA.PhysicsEnvironment, KSA.PhysicalAtmosphereReference,
+    KSA.PatchedConic, KSA.Encounter, KSA.UniverseTime]
+  key_paths: [gatOS.GameMod/Game/Ksa/Readers/VesselReader.cs, gatOS.SimFs/Telemetry/Sanitize.cs, docs/KSA_CELESTIAL_COORDINATE_FRAMES.md]
+  howto_topics:
+  - slug: read-vehicle-flight-state
+    title: Read a vehicle's position, velocity, attitude and orbit
+    note: which Vehicle members, frames and units
+  - slug: ksa-coordinate-frames
+    title: Understand KSA coordinate frames (ECL, CCE, CCF, CCI)
+    note: attitude is stored as Body2Cce
+  - slug: geodetic-lat-lon-from-cci
+    title: Convert a CCI position to latitude and longitude
+    note: GetCci2Ccf then GetLlaFromCcf
+  - slug: handle-universetime-sentinels
+    title: Handle UniverseTime 'no event' sentinels
+    note: EndOfTime converts to a finite number; test IsSaturated
+- id: mods/gatos/features/ignition-staging-and-module-actuators
+  title: Ignition, staging and module actuators
+  category: vehicles-and-parts
+  submod: null
+  summary: Ignites, stages, toggles engines and RCS, fires decouplers, undocks and drives animations through the
+    same entry points as keybinds, most of which queue InputEvents applied in the next PrepareFrame.
+  novelty: medium
+  techniques: [command-queue, input-event-buffer]
+  lifecycle: ['frame:viewports', 'frame:draw-ui', 'frame:input']
+  hooks: [harmony-prefix KSA.GameViewport.OnFrame, starmap StarMapBeforeGui]
+  game_types: [KSA.Vehicle, KSA.VehicleEngine, KSA.EngineController, KSA.PartTree, KSA.SequenceList, KSA.Decoupler,
+    KSA.DockingPort, KSA.ThrusterController, KSA.KeyframeAnimationModule, KSA.InputEvents]
+  key_paths: [gatOS.GameMod/Game/Ksa/Actuators/EngineActuator.cs, gatOS.GameMod/Game/Ksa/Actuators/StagingActuator.cs,
+    gatOS.GameMod/Game/Ksa/Actuators/DecouplerActuator.cs, gatOS.GameMod/Game/Ksa/Actuators/DockingActuator.cs,
+    gatOS.GameMod/Game/Ksa/Actuators/RcsActuator.cs, gatOS.GameMod/Game/Ksa/Actuators/AnimationActuator.cs]
+  howto_topics:
+  - slug: ignite-and-stage-from-code
+    title: Ignite engines and activate the next stage from code
+    note: Vehicle.SetEnum(MainIgnite), SequenceList.ActivateNextSequence
+  - slug: undock-a-docking-port
+    title: Undock a docking port programmatically
+    note: InputEvents.VehicleDockingInputBuffer
+  - slug: ksa-input-event-buffers
+    title: Use KSA's deferred input-event buffers
+    note: IActivateInputBuffer applied in ApplyInputEvents
+  - slug: change-engine-min-throttle
+    title: Change an engine's minimum throttle
+    note: MarkDerivedDirty(RocketControls) refreshes the cached clamp
+- id: mods/gatos/features/manual-throttle-and-rcs-inputs
+  title: Manual throttle and RCS inputs
+  category: vehicles-and-parts
+  submod: null
+  summary: Sets manual throttle and RCS translate/rotate thruster flags by reflecting into the private Vehicle._manualControlInputs
+    struct that the solver copies each dispatch.
+  novelty: high
+  techniques: [reflection, command-queue]
+  lifecycle: ['frame:viewports', 'frame:draw-ui', 'frame:dispatch-solvers']
+  hooks: [reflection KSA.Vehicle._manualControlInputs, harmony-prefix KSA.GameViewport.OnFrame, starmap StarMapBeforeGui]
+  game_types: [KSA.Vehicle, KSA.ManualControlInputs, KSA.ThrusterMapFlags, KSA.FlightComputer, KSA.FlightComputerRCSMode]
+  key_paths: [gatOS.GameMod/Game/Ksa/Actuators/ThrottleActuator.cs, gatOS.GameMod/Game/Ksa/Actuators/TranslateActuator.cs,
+    gatOS.GameMod/Game/Ksa/Actuators/RotateActuator.cs]
+  howto_topics:
+  - slug: set-manual-throttle
+    title: Set a vessel's manual throttle from code
+    note: no public setter; boxed struct reflection write
+  - slug: command-rcs-translation-and-rotation
+    title: Command RCS translation and rotation
+    note: ThrusterMapFlags bits; RCSMode and attitude hold gate them
+  - slug: reflection-write-to-struct-field
+    title: Write a field of a private struct via reflection
+    note: box, set, write the box back
+- id: mods/gatos/features/part-module-state-reads
+  title: Part and module state reads
+  category: vehicles-and-parts
+  submod: null
+  summary: Reads engines, tanks, solid motors, batteries, power, RCS, solar, docking, decouplers, animations and
+    the part tree via PartTree module lists and ModuleStateful state lists, caching structural links per vehicle.
+  novelty: medium
+  techniques: [starmap-lifecycle, harmony-prefix, immutable-snapshot, conditional-weak-table-cache]
+  lifecycle: ['frame:viewports', 'frame:draw-ui']
+  hooks: [harmony-prefix KSA.GameViewport.OnFrame, starmap StarMapBeforeGui]
+  game_types: [KSA.PartTree, KSA.ModuleList, KSA.ModuleStateful, KSA.EngineController, KSA.EngineControllerState,
+    KSA.Tank, KSA.Mole, KSA.SolidMotor, KSA.Battery, KSA.ThrusterController, KSA.SolarPanel, KSA.Generator, KSA.DockingPort,
+    KSA.Decoupler, KSA.KeyframeAnimationModule, KSA.Part]
+  key_paths: [gatOS.GameMod/Game/Ksa/Readers/VesselReader.cs, gatOS.GameMod/Game/Ksa/Readers/PartsReader.cs, gatOS.GameMod/Game/Ksa/Readers/AnimationLinks.cs]
+  howto_topics:
+  - slug: read-part-module-state
+    title: Read live part module state (engines, tanks, panels)
+    note: Parts.Modules.Get<T>() plus ModuleStateful.TryGetFrom(Parts.States)
+  - slug: read-propellant-and-srb-mass
+    title: Read tank and solid rocket motor propellant
+    note: Moles state list; SRB grain is not a Tank
+  - slug: cache-per-vehicle-data
+    title: Cache per-vehicle derived data safely
+    note: ConditionalWeakTable keyed by Vehicle, rebuilt on count change
+- id: mods/gatos/features/celestial-body-catalog-reads
+  title: Celestial body catalog reads
+  category: celestials
+  submod: null
+  summary: Walks CurrentSystem for Celestial bodies plus the separate StellarBody root, caching session-constant
+    body data so each sample only reads ECL position and velocity.
+  novelty: low
+  techniques: [starmap-lifecycle, harmony-prefix, immutable-snapshot, conditional-weak-table-cache]
+  lifecycle: ['frame:viewports', 'frame:draw-ui']
+  hooks: [harmony-prefix KSA.GameViewport.OnFrame, starmap StarMapBeforeGui]
+  game_types: [KSA.CelestialSystem, KSA.Celestial, KSA.StellarBody, KSA.IParentBody, KSA.Universe, KSA.Orbit, KSA.AtmosphereReference,
+    KSA.PhysicalAtmosphereReference]
+  key_paths: [gatOS.GameMod/Game/Ksa/Readers/BodyReader.cs]
+  howto_topics:
+  - slug: enumerate-celestial-bodies
+    title: Enumerate planets, moons and the star
+    note: the star is a StellarBody, not a Celestial
+  - slug: read-atmosphere-and-ocean-parameters
+    title: Read body atmosphere and ocean parameters
+    note: IParentBody.GetAtmosphereReference().Physical
+- id: mods/gatos/features/iva-cabin-physics-bepu
+  title: IVA cabin physics in an own Bepu world
+  category: physics
+  submod: null
+  summary: Simulates loose IVA props in a separate BepuPhysics world in the vessel assembly frame, driven by accelerometer
+    and body rates, writing poses onto IVA SubParts.
+  novelty: high
+  techniques: [bepu-physics, custom-physics, starmap-lifecycle]
+  lifecycle: ['frame:draw-ui', 'frame:after-on-frame']
+  hooks: [starmap StarMapAfterGui, starmap StarMapAfterOnFrame]
+  game_types: [BepuPhysics.Simulation, BepuUtilities.Memory.BufferPool, KSA.Vehicle, KSA.Part, KSA.PartModelModule,
+    KSA.MeshReference, KSA.JobSystems, KSA.ConstraintSim]
+  key_paths: [gatOS.SimFs/Iva/CabinPhysics.cs, gatOS.GameMod/Game/Ksa/Iva/CabinSim.cs, gatOS.GameMod/Game/Ksa/Iva/InteriorGeometry.cs,
+    gatOS.GameMod/Game/Ksa/Iva/FloatingObject.cs]
+  howto_topics:
+  - slug: own-bepu-simulation
+    title: Run your own Bepu simulation alongside KSA's
+    note: own BufferPool and Shapes, single-threaded Timestep
+  - slug: fictitious-forces-in-moving-vessel
+    title: Apply apparent forces inside a moving vessel
+    note: proper acceleration, Euler, Coriolis, centrifugal
+  - slug: animate-subparts-from-code
+    title: Move IVA props or subparts from code
+    note: PositionParentAsmb/Asmb2ParentAsmb on SubParts only
+- id: mods/gatos/features/welds-vessel-anchoring
+  title: Welds that pin one vessel to another
+  category: physics
+  submod: null
+  summary: Pins a vessel to another vessel or part by re-teleporting it onto the anchor pose every frame after VehicleSolver.Wait,
+    stamped with the next sim step time.
+  novelty: medium
+  techniques: [starmap-lifecycle, custom-physics, kinematic-teleport]
+  lifecycle: ['frame:draw-ui', 'frame:after-on-frame']
+  hooks: [starmap StarMapAfterGui, starmap StarMapAfterOnFrame]
+  game_types: [KSA.Vehicle, KSA.Orbit, KSA.Part, KSA.Universe, KSA.SimStep, KSA.JobSystems, KSA.IParentBody]
+  key_paths: [gatOS.GameMod/Game/Ksa/Welds/WeldManager.cs, gatOS.GameMod/Game/Ksa/Welds/WeldEngine.cs]
+  howto_topics:
+  - slug: attach-vessels-kinematically
+    title: Rigidly attach one vessel to another without joints
+    note: per-frame teleport onto anchor pose
+  - slug: mutate-vehicles-after-solver-wait
+    title: Safely mutate vehicles mid-frame
+    note: JobSystems.VehicleSolver.Wait() first
+- id: mods/gatos/features/clutter-texture-override
+  title: Ground-clutter texture override
+  category: rendering
+  submod: null
+  summary: Replaces stock ground-clutter textures at runtime by decoding user images with the game loaders and re-pointing
+    their bindless slots, retiring old images after frames in flight.
+  novelty: high
+  techniques: [vulkan-texture, bindless-slot-swap, deferred-destruction]
+  lifecycle: ['frame:viewports', 'frame:draw-ui', 'frame:after-on-frame']
+  hooks: [harmony-prefix KSA.GameViewport.OnFrame, starmap StarMapBeforeGui, starmap StarMapAfterOnFrame]
+  game_types: [RenderCore.Systems.BindlessTextureLibrary, RenderCore.SimpleVkTexture, Brutal.TextureApi.TextureLoader, KSA.Program, KSA.PlanetRenderer, KSA.GroundClutterRenderer, Core.Renderer]
+  key_paths: [gatOS.GameMod/Game/Ksa/Paint/ClutterTextureBridge.cs, gatOS.GameMod/Game/Ksa/Paint/UserTextureGpu.cs]
+  howto_topics:
+  - slug: replace-a-texture-at-runtime
+    title: Replace a game texture at runtime
+    note: BindlessTextureLibrary.SetTexture on the existing slot
+  - slug: load-image-into-vulkan-texture
+    title: Load a PNG/KTX into a GPU texture from a mod
+    note: TextureLoader.LoadFromMemory + SimpleVkTexture
+  - slug: safe-gpu-resource-destruction
+    title: Destroy GPU resources safely
+    note: defer by MaxFramesInFlight + 1
+- id: mods/gatos/features/face-particle-bursts
+  title: Particle bursts from the emitter pool
+  category: rendering
+  submod: null
+  summary: Spawns one-shot particle bursts at a vessel or kitten face from the shared emitter pool with a C#-built
+    ParticleEmitterReference, plus verified findings from the repo's particle analysis.
+  novelty: medium
+  techniques: [particle-emitter, command-queue]
+  lifecycle: ['frame:viewports', 'frame:draw-ui', 'frame:pre-render', 'render:particles']
+  hooks: [harmony-prefix KSA.GameViewport.OnFrame, starmap StarMapBeforeGui]
+  game_types: [KSA.Rendering.Particles.ParticleSystem, KSA.Rendering.Particles.ParticleEmitter, KSA.Rendering.Particles.ParticleEmitterReference,
+    KSA.Rendering.Particles.EmitterSpawnMode, KSA.Vehicle, KSA.KittenEva, KSA.GameSettings, KSA.Program]
+  key_paths: [gatOS.GameMod/Game/Ksa/Fx/FaceFxManager.cs, docs/PARTICLE_ANALYSIS.md]
+  howto_topics:
+  - slug: spawn-particle-effects
+    title: Spawn particle effects from code
+    note: EmitterPool.Get + InitializeEmitter + AddEmitter
+  - slug: custom-particle-template-in-code
+    title: Define a particle effect without XML
+    note: new ParticleEmitterReference with SpawnMode.Burst
+  - slug: ksa-particle-system-internals
+    title: Understand KSA's particle system
+    note: pool of 1024 emitters, templates, OnPreRender update
+- id: mods/gatos/features/fx-editor-reflection
+  title: FX editors via reflection
+  category: rendering
+  submod: null
+  summary: Exposes the game's plume, trail, cloud and terrain debug editors as data by reflecting into private renderer
+    fields, replaying each editor's apply sequence and recording pristine values for reset.
+  novelty: medium
+  techniques: [reflection, command-queue, health-latch]
+  lifecycle: ['frame:viewports', 'frame:draw-ui']
+  hooks: [reflection KSA.Program._volumetricTrailRenderer, reflection KSA.VolumetricTrailRenderer._plumeTrailSegmentsManager, reflection KSA.PlumeTrailSegmentsManager._settings, reflection KSA.VolumetricExhaustTemplate.References, reflection KSA.Program._planetTransparenciesRenderer]
+  game_types: [KSA.Program, KSA.VolumetricTrailRenderer, KSA.PlumeTrailSegmentsManager, KSA.PlumeTrailSettings, KSA.VolumetricExhaustTemplate, KSA.VolumetricExhaustInstance, KSA.RocketNozzle, KSA.PlanetTransparenciesRenderer, KSA.Atmosphere.Rendering.CloudRenderer, KSA.Atmosphere.Rendering.CloudLayerRenderData, KSA.PlanetRenderer]
+  key_paths: [gatOS.GameMod/Game/Ksa/Fx/FxReflect.cs, gatOS.GameMod/Game/Ksa/Fx/PlumeActuator.cs, gatOS.GameMod/Game/Ksa/Fx/CloudActuator.cs,
+    gatOS.GameMod/Game/Ksa/Fx/FxPristine.cs]
+  howto_topics:
+  - slug: edit-engine-exhaust-plumes
+    title: Edit engine exhaust plume templates at runtime
+    note: write template, then OnSettingsChanged + RecomputeVolumetricExhaustLimits
+  - slug: edit-clouds-at-runtime
+    title: Change cloud layers at runtime
+    note: UpdateStaticData + PopulatePlanets
+  - slug: reset-runtime-tweaks
+    title: Make runtime tweaks resettable
+    note: capture pristine value on first write
+- id: mods/gatos/features/light-cone-control
+  title: Part light cone control
+  category: rendering
+  submod: null
+  summary: Changes part light state, brightness, colour and spotlight cone angles at runtime by cloning each light's
+    shared template, with the repo's findings on spotlight swap, clamp and falloff floor.
+  novelty: medium
+  techniques: [reflection, template-unsharing, command-queue]
+  lifecycle: ['frame:viewports', 'frame:draw-ui', 'frame:render']
+  hooks: [harmony-prefix KSA.GameViewport.OnFrame, starmap StarMapBeforeGui]
+  game_types: [KSA.LightModule, KSA.PowerConsumer, KSA.Vehicle, KSA.Rendering.Lighting.Light, KSA.FloatReference]
+  key_paths: [gatOS.GameMod/Game/Ksa/Actuators/LightActuator.cs, docs/LIGHT_PART_ANALYSIS.md]
+  howto_topics:
+  - slug: control-part-lights
+    title: Control part lights from code
+    note: PowerConsumer.LightIsActive and Vehicle.LightsOn
+  - slug: narrow-spotlight-beams
+    title: Make narrow spotlight beams
+    note: lower inner angle too; CreateSpotLight swaps inner/outer
+  - slug: per-instance-template-edits
+    title: Edit one part's template without affecting others
+    note: shallow-clone the shared template
+- id: mods/gatos/features/scale-and-force-render-cheats
+  title: Per-vessel scale and force-render cheats
+  category: rendering
+  submod: null
+  summary: Rescales vessels via recursive Part.Scale, bypasses the sub-pixel vehicle cull with prefixes on GetWorldMatrix/UpdateRenderData,
+    and shows IVA interiors by flipping Template.Internal, all with lazily installed Harmony patches.
+  novelty: medium
+  techniques: [harmony-prefix, harmony-postfix, reflection, dynamic-harmony-install]
+  lifecycle: ['frame:viewports', 'frame:draw-ui', 'frame:render']
+  hooks: [harmony-prefix KSA.Vehicle.GetWorldMatrix, harmony-prefix KSA.Vehicle.UpdateRenderData, harmony-postfix KSA.PartModel..ctor, reflection KSA.KittenEva._renderable]
+  game_types: [KSA.Vehicle, KSA.Part, KSA.PartTree, KSA.PartModel, KSA.PartModelModule, KSA.PartTreeRenderData, KSA.Camera, KSA.KittenEva]
+  key_paths: [gatOS.GameMod/Game/Ksa/Actuators/ScaleActuator.cs, gatOS.GameMod/Game/Ksa/Render/VesselForceRender.cs,
+    gatOS.GameMod/Game/Ksa/Render/IvaForceRender.cs]
+  howto_topics:
+  - slug: render-distant-vessels
+    title: Keep distant vessels rendered
+    note: replace the <1 px cull with a prefix that reproduces the body
+  - slug: show-iva-interiors-from-outside
+    title: Show IVA interiors from the exterior camera
+    note: flip PartModelModule.Template.Internal
+  - slug: visually-scale-a-vessel
+    title: Visually scale a vessel or kitten
+    note: Part.Scale recursion; avatar Core.Scale
+  - slug: install-harmony-patches-on-demand
+    title: Install Harmony patches only while a feature is in use
+    note: dedicated Harmony id, unpatch on last use
+- id: mods/gatos/features/screen-stream-frame-capture
+  title: Screen stream frame capture
+  category: rendering
+  submod: null
+  summary: Captures the rendered scene without stalls via a transpiler before RenderGame's final End(), a blit into
+    per-frame-slot staging buffers read back when slots recycle, and Kitty graphics encoding.
+  novelty: high
+  techniques: [harmony-transpiler, harmony-prefix, vulkan-buffer, background-thread, deferred-readback]
+  lifecycle: ['render:post-process', 'thread:background']
+  hooks: [harmony-transpiler KSA.Program.RenderGame, harmony-prefix KSA.GameSettings.UiPixelCulling]
+  game_types: [KSA.Program, KSA.Rendering.RenderTarget, KSA.GameSettings, KSA.UiCoverageMaskSystem, Core.Renderer]
+  key_paths: [gatOS.GameMod/Game/Ksa/DisplayRenderPatch.cs, gatOS.GameMod/Game/Ksa/FrameCapture.cs, gatOS.SimFs/Display/DisplaySurface.cs,
+    gatOS.SimFs/Display/KittyEncoder.cs]
+  howto_topics:
+  - slug: capture-game-frames
+    title: Capture rendered frames from KSA
+    note: record into the engine's command buffer, read back on slot reuse
+  - slug: transpile-a-call-into-a-method
+    title: Insert a call into a game method with a transpiler
+    note: find the last End() and reuse its receiver load
+  - slug: stream-video-to-a-terminal
+    title: Stream images to a terminal
+    note: Kitty graphics protocol with a fixed image id
+- id: mods/gatos/features/sticker-projected-decals
+  title: Projected sticker decals
+  category: rendering
+  submod: null
+  summary: Projects user images onto vessels, terrain and clutter with a post-resolve pass that reconstructs scene
+    positions from reverse-Z depth, using runtime-compiled GLSL that includes the game's shader library.
+  novelty: high
+  techniques: [harmony-postfix, vulkan-pipeline, glsl-shader, vulkan-texture, dynamic-harmony-install, deferred-destruction]
+  lifecycle: ['render:grid', 'frame:viewports', 'frame:draw-ui', 'frame:after-on-frame']
+  hooks: [harmony-postfix KSA.Rendering.RenderTarget.ResolveAttachments, harmony-prefix KSA.GameViewport.OnFrame, starmap StarMapBeforeGui, starmap StarMapAfterOnFrame]
+  game_types: [KSA.Rendering.RenderTarget, KSA.Program, KSA.GridPass, RenderCore.ShaderModuleUtils, RenderCore.Systems.BindlessTextureLibrary, KSA.Ray, KSA.Cursor, KSA.Camera, KSA.Vehicle, KSA.Part]
+  key_paths: [gatOS.GameMod/Game/Ksa/Paint/Stickers/StickerRenderPatches.cs, gatOS.GameMod/Game/Ksa/Paint/Stickers/StickerDecalRenderer.cs,
+    gatOS.GameMod/Game/Ksa/Paint/Stickers/StickerManager.cs, gatOS.GameMod/Game/Ksa/Paint/Stickers/StickerPicker.cs]
+  howto_topics:
+  - slug: projected-decals
+    title: Project decals onto arbitrary scene geometry
+    note: depth reconstruction after ResolveAttachments
+  - slug: compile-glsl-at-runtime
+    title: Compile GLSL at runtime with the game's includes
+    note: ShaderModuleUtils.FromString with a NUL-terminated debug path
+  - slug: raycast-parts-and-terrain
+    title: Raycast parts and terrain from the camera
+    note: Ray.RaycastWatertight plus terrain march and bisection
+  - slug: post-resolve-render-pass
+    title: Add a render pass after the scene resolves
+    note: postfix RenderTarget.ResolveAttachments, filter main viewport
+- id: mods/gatos/features/thug-life-world-space-quad
+  title: World-space textured quad (thug_life)
+  category: rendering
+  submod: null
+  summary: Draws a textured quad attached to a part into the offscreen scene pass by postfixing SuperMeshRenderSystem.RenderMainPass
+    with a pipeline built via Program.OffscreenTarget.SetupGraphicsPipeline.
+  novelty: high
+  techniques: [harmony-postfix, vulkan-pipeline, vulkan-buffer, vulkan-texture, dynamic-harmony-install]
+  lifecycle: ['render:scene-opaque', 'frame:draw-ui', 'frame:after-on-frame']
+  hooks: [harmony-postfix KSA.SuperMeshRenderSystem.RenderMainPass, starmap StarMapBeforeGui, starmap StarMapAfterOnFrame]
+  game_types: [KSA.SuperMeshRenderSystem, KSA.Program, KSA.Rendering.RenderTarget, KSA.Vehicle, KSA.Part, KSA.Camera, KSA.ModLibrary, KSA.ShaderReference, RenderCore.RenderTechnique]
+  key_paths: [gatOS.GameMod/Game/Ksa/ThugLife/ThugLifeRenderPatches.cs, gatOS.GameMod/Game/Ksa/ThugLife/ThugLifeQuadRenderer.cs,
+    gatOS.GameMod/Game/Ksa/ThugLife/ThugLifeManager.cs]
+  howto_topics:
+  - slug: draw-custom-geometry-in-scene
+    title: Draw custom geometry in KSA's 3D scene
+    note: postfix RenderMainPass inside the offscreen pass
+  - slug: vulkan-pipeline-for-offscreen-target
+    title: Build a Vulkan pipeline compatible with KSA's offscreen target
+    note: SetupGraphicsPipeline stamps dynamic-rendering formats and samples
+  - slug: attach-visual-to-part
+    title: Attach a visual to a vessel part
+    note: ego-space model matrix from GetMatrixAsmb2Ego
+- id: mods/gatos/features/vehicle-and-eva-paint
+  title: Vehicle and EVA paint
+  category: shaders
+  submod: null
+  summary: Recolours parts by transforming the part fragment shader at compile time and packing colours into spare
+    per-instance state bits, and recolours EVA kittens with reversible material clones.
+  novelty: high
+  techniques: [harmony-prefix, harmony-postfix, glsl-shader, reflection, dynamic-harmony-install]
+  lifecycle: ['frame:prepare', 'frame:viewports', 'frame:draw-ui', 'frame:after-on-frame', 'frame:render']
+  hooks: [harmony-prefix RenderCore.ShaderModuleUtils.FromFile, harmony-postfix KSA.PartTreeRenderData.WriteState, harmony-postfix KSA.PartTreeRenderData.WriteDynamicState, reflection KSA.KittenEva._renderable, reflection KSA.KittenRenderable._characterAvatar, starmap StarMapBeforeGui, starmap StarMapAfterOnFrame]
+  game_types: [RenderCore.ShaderModuleUtils, KSA.ShaderReference, KSA.PartTreeRenderData, KSA.Program, KSA.Part, KSA.PartModelDynamicModule, KSA.KittenEva, KSA.KittenRenderable, KSA.GpuMaterialSystem, KSA.GpuObjectSystem]
+  key_paths: [gatOS.Paint/PaintShaderTransform.cs, gatOS.GameMod/Game/Ksa/Paint/PartPaintPatches.cs, gatOS.GameMod/Game/Ksa/Paint/PaintManager.cs,
+    gatOS.GameMod/Game/Ksa/Paint/EvaPaintBridge.cs]
+  howto_topics:
+  - slug: modify-game-shaders-in-memory
+    title: Modify a game shader without touching files
+    note: prefix ShaderModuleUtils.FromFile, FromString with transformed source
+  - slug: per-instance-data-via-state-bits
+    title: Pass per-part data to shaders
+    note: OR into PartTreeRenderData StateBitFlags via writer postfixes
+  - slug: recolor-kittens
+    title: Recolour EVA kitten materials
+    note: clone materials via GpuMaterialSystem and swap MaterialIndices
+  - slug: force-renderer-rebuild
+    title: Force KSA to rebuild the renderer
+    note: Program.RendererRebuildNeeded = true
+- id: mods/gatos/features/programmable-camera-director
+  title: Programmable camera director
+  category: camera
+  submod: null
+  summary: Owns the main camera by installing a FixedController subclass through a reflected protected setter and
+    composing poses from tracks, overrides and a baseline inside the viewport pass.
+  novelty: high
+  techniques: [reflection, harmony-prefix, harmony-postfix, controller-subclass]
+  lifecycle: ['frame:viewports']
+  hooks: [harmony-prefix KSA.GameViewport.OnFrame, harmony-postfix KSA.GameViewport.OnFrame, reflection KSA.GameViewport.FixedController,
+    reflection KSA.ViewportBase.Mode]
+  game_types: [KSA.GameViewport, KSA.ViewportBase, KSA.FixedController, KSA.Camera, KSA.CameraMode, KSA.Program,
+    KSA.KittenEva, KSA.IFollowable]
+  key_paths: [gatOS.GameMod/Game/Ksa/Camera/CameraPoseController.cs, gatOS.GameMod/Game/Ksa/Camera/ViewportSeam.cs,
+    gatOS.GameMod/Game/Ksa/Camera/CameraDirector.cs, gatOS.SimFs/Camera/CameraState.cs]
+  howto_topics:
+  - slug: take-control-of-the-camera
+    title: Take control of KSA's main camera
+    note: FixedController subclass applies the pose in phase
+  - slug: cinematic-camera-tracks
+    title: Play cinematic camera tracks
+    note: splines, easing, three-layer compositor
+  - slug: set-protected-properties
+    title: Set a protected-set game property
+    note: 'GetSetMethod(nonPublic: true) once, invoke'
+- id: mods/gatos/features/synthetic-camera-follow-anchor
+  title: Synthetic camera follow anchor
+  category: camera
+  submod: null
+  summary: Implements IFollowable on a mod-owned object that re-resolves a vessel, part, body or held point on every
+    call, so the stock camera follows it and every pose is an offset sampled in the engine's own frame pass.
+  novelty: high
+  techniques: [custom-followable]
+  lifecycle: ['frame:viewports']
+  hooks: [harmony-prefix KSA.GameViewport.OnFrame]
+  game_types: [KSA.IFollowable, KSA.Camera, KSA.FixedController, KSA.OrbitController, KSA.OrbitView, KSA.WreckageMarker,
+    KSA.GameViewport]
+  key_paths: [gatOS.GameMod/Game/Ksa/Camera/CameraFollowable.cs, gatOS.GameMod/Game/Ksa/Camera/CameraDirector.cs]
+  howto_topics:
+  - slug: camera-follow-arbitrary-point
+    title: Make the stock camera follow a point that is not a vehicle
+    note: implement IFollowable, stable OrbitView, non-zero MeanRadius
+  - slug: change-camera-follow-target-without-jump
+    title: Change the camera's follow target or tidal locking without moving the view
+    note: SetFollow teleports and can change control; pass changeControl false and restore PositionEcl
+  - slug: floating-origin-safe-camera-offsets
+    title: Keep camera placement precise at orbital speed
+    note: express poses as offsets from a followed object resolved in the same call
+- id: mods/gatos/features/fmod-audio-playback
+  title: FMOD audio playback
+  category: audio
+  submod: null
+  summary: Plays user-uploaded clips through the game's FMOD system and channel groups with in-memory sounds, main-thread
+    channel tracking and deferred sound release.
+  novelty: medium
+  techniques: [fmod-audio, command-queue]
+  lifecycle: ['frame:viewports', 'frame:draw-ui', 'frame:after-on-frame', 'frame:post-render', 'thread:background']
+  hooks: [harmony-prefix KSA.GameViewport.OnFrame, starmap StarMapBeforeGui, starmap StarMapAfterOnFrame]
+  game_types: [KSA.GameAudio, Brutal.FmodApi.FmodSystem, Brutal.FmodApi.Sound, Brutal.FmodApi.Channel, KSA.ChannelGroupType]
+  key_paths: [gatOS.GameMod/Game/Ksa/Actuators/AudioActuator.cs, gatOS.SimFs/Audio/AudioStore.cs]
+  howto_topics:
+  - slug: play-sound-from-code
+    title: Play a sound from code through KSA's FMOD
+    note: GameAudio.System.TryCreateSound(OpenMemory) + TryPlaySound
+  - slug: use-game-channel-groups
+    title: Respect the player's volume settings
+    note: GameAudio.GetChannelGroup(Sfx/Music/Ui)
+- id: mods/gatos/features/modmenu-entry-with-fallback-menu
+  title: ModMenu entry with a fallback menu
+  category: ui
+  submod: null
+  summary: Draws the same menu through ModMenu's ModMenuEntry attribute or, when ModMenu is absent, a Harmony postfix
+    on KSA's empty Program.DrawProgramMenusHook.
+  novelty: high
+  techniques: [imgui-menu, imgui-window, harmony-postfix, starmap-lifecycle]
+  lifecycle: ['startup:all-mods-loaded', 'frame:draw-ui']
+  hooks: [starmap StarMapAllModsLoaded, harmony-postfix KSA.Program.DrawProgramMenusHook, starmap StarMapAfterGui]
+  game_types: [KSA.Program, KSA.ModLibrary, KSA.IGameViewportLifecycle]
+  key_paths: [gatOS.GameMod/Game/Mod.Game.cs]
+  howto_topics:
+  - slug: add-menu-without-modmenu
+    title: Add a menu-bar menu without ModMenu
+    note: postfix Program.DrawProgramMenusHook
+  - slug: optional-modmenu-integration
+    title: Integrate with ModMenu optionally
+    note: ModLibrary.Find("ModMenu") to avoid double menus
+- id: mods/gatos/features/qcow2-overlay-guest-disks
+  title: qcow2 overlay guest disks
+  category: persistence
+  submod: null
+  summary: Keeps a pristine versioned base image and stores guest changes in a per-profile qcow2 overlay with version-pinned
+    boots, grow-only resize, a PID lock and reset.
+  novelty: medium
+  techniques: [process-hosting, background-thread]
+  lifecycle: ['thread:background']
+  hooks: ['thread:background VmHost.BootAsync']
+  game_types: []
+  key_paths: [gatOS.Vm/DiskManager.cs, gatOS.Vm/DiskLock.cs, gatOS.Vm/GatOsPaths.cs]
+  howto_topics:
+  - slug: mod-user-data-folder
+    title: Store mod user data outside the install folder
+    note: My Games/Kitten Space Agency/mods/<mod>
+  - slug: copy-on-write-disk-images
+    title: Ship an immutable image with user-writable overlays
+    note: qemu-img create -b with relative backing path
+- id: mods/gatos/features/toml-config-seeded-template
+  title: TOML config seeded from a shipped template
+  category: persistence
+  submod: null
+  summary: Ships a commented gatos.default.toml, seeds a live gatos.toml in the data folder once, deserializes with
+    Tomlyn, clamps bad values with warnings and saves atomically off the main thread.
+  novelty: medium
+  techniques: [toml-config, background-thread]
+  lifecycle: ['startup:all-mods-loaded', 'thread:background']
+  hooks: [starmap StarMapAllModsLoaded]
+  game_types: []
+  key_paths: [gatOS.GameMod/Configuration/GatOsConfig.cs, gatOS.GameMod/Configuration/AtomicFile.cs, gatOS.GameMod/Configuration/gatos.default.toml]
+  howto_topics:
+  - slug: mod-config-file
+    title: Give a mod a config file that survives updates
+    note: template in install folder, live copy in data folder
+  - slug: tolerant-config-loading
+    title: Load config without failing on bad values
+    note: clamp and warn; never overwrite an unparseable file
+- id: mods/gatos/features/alpine-guest-image
+  title: Alpine guest image pipeline
+  category: testing-and-tooling
+  submod: null
+  summary: Builds a minimal Alpine root filesystem with busybox init supervisors, static committed SSH keys and
+    a manifest boot contract, smoke-boots it in QEMU and publishes it as a pinned release the mod build fetches.
+  novelty: medium
+  techniques: [process-hosting, ci-pipeline]
+  lifecycle: ['thread:background']
+  hooks: []
+  game_types: []
+  key_paths: [guest/build-image.sh, guest/rootfs-overlay/etc/inittab, guest/fetch-guest.sh, .github/workflows/guest-image.yml]
+  howto_topics:
+  - slug: ship-a-linux-guest-with-a-mod
+    title: Ship a Linux guest image with a mod
+    note: direct kernel boot artifacts plus a manifest contract
+  - slug: minimal-busybox-init-guest
+    title: Build a minimal guest with busybox init supervisors
+    note: respawned sshd, guest agent and mount supervisors
+- id: mods/gatos/features/build-deploy-and-ci
+  title: Build, deploy and CI
+  category: testing-and-tooling
+  submod: null
+  summary: An MSBuild target deploys the complete mod folder on every build without deleting user config; NUnit
+    suites run game-free with opt-in real-VM tests; CI tests under KVM and publishes per-OS zips.
+  novelty: medium
+  techniques: [msbuild-conditions, ci-pipeline, headless-tests]
+  lifecycle: []
+  hooks: []
+  game_types: []
+  key_paths: [Directory.Build.props, gatOS.GameMod/gatOS.GameMod.csproj, gatOS.Vm.Tests/TestEnv.cs, .github/workflows/build.yml,
+    .github/workflows/mod-release.yml]
+  howto_topics:
+  - slug: deploy-mod-on-build
+    title: Deploy a mod folder automatically on build
+    note: AfterBuild copy target, exclude loader-provided DLLs
+  - slug: opt-in-integration-tests
+    title: Gate slow integration tests behind an environment variable
+    note: Assert.Ignore unless GATOS_IT=1
+- id: mods/gatos/features/ksa-anchor-churn-tracking
+  title: KSA anchor churn tracking
+  category: testing-and-tooling
+  submod: null
+  summary: Annotates every KSA binding with a KsaAnchor attribute (member, file, date, version, risk), degrades
+    per accessor at runtime, and keeps a scope catalog and upgrade playbook for new game builds.
+  novelty: high
+  techniques: [custom-attribute, health-latch, upgrade-playbook]
+  lifecycle: ['frame:viewports', 'frame:draw-ui']
+  hooks: []
+  game_types: []
+  key_paths: [gatOS.GameMod/Game/Ksa/KsaAnchor.cs, gatOS.GameMod/Game/Ksa/KsaHealth.cs, scope/FULL_SCOPE.md, .agents/skills/upgrade-ksa/SKILL.md]
+  howto_topics:
+  - slug: survive-ksa-updates
+    title: Keep a mod working across KSA updates
+    note: annotated binding sites, changelog scan, decomp diff
+  - slug: degrade-gracefully-on-api-drift
+    title: Degrade one feature instead of crashing on API drift
+    note: per-accessor health latches

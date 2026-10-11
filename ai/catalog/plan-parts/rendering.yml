@@ -1,0 +1,1461 @@
+category: rendering
+description: Drawing things the game does not draw by itself - ImGui overlays on the sky and world, custom Vulkan passes, textures, meshes, lights, particles, plumes and decals - plus the Vulkan resource discipline that keeps those additions alive across frames, resizes and shutdown.
+topics:
+  # ---------------------------------------------------------------- overlays on the sky and world (ImGui)
+  - slug: choose-a-draw-list-for-world-overlays
+    title: Choose the ImGui draw list for sky and world overlays
+    summary: Every 2D overlay on the 3D view (constellation lines, brackets, measurement lines, map markers, gunner sights) is an ImGui draw list written after the game has computed the camera. The choice of window versus background, foreground or per-viewport list decides whether the overlay sits under panels, receives clicks, follows a torn-off monitor and survives the HUD being hidden.
+    game_types: [KSA.ImGuiHelper, KSA.Program, KSA.IViewport, KSA.ViewportRegistry]
+    engine_pointers:
+      - current/decomp/KSA/ImGuiHelper.cs GetOverlayDrawList
+      - current/decomp/KSA/Program.cs OnDrawUiViewports (StarMapAfterGui postfix point)
+      - current/decomp/KSA/ViewportRegistry.cs GameViews and MainViewport
+    lifecycle: [frame:draw-ui]
+    approaches:
+      - n: 1
+        title: Transparent NoInputs full-viewport window and its window draw list
+        mod: ohmystars
+        features:
+          - mods/ohmystars/features/sky-overlay-lines-and-labels
+          - mods/ksarmory/features/world-anchored-screen-markers
+          - mods/compendium/features/body-pointer-overlay
+        technique: imgui-drawlist
+        note: A window sized to the main viewport with zero background alpha and NoDecoration/NoInputs/NoNav flags, drawn from StarMapAfterGui. Clicks fall through to the game; the overlay is z-ordered like a window, so it can land over or under panels. Compare the three mods' flag sets.
+      - n: 2
+        title: ImGuiHelper.GetOverlayDrawList (main-viewport background list)
+        mod: ksa-measuretools
+        features:
+          - mods/ksa-deltavmap/features/map-mode-transfer-overlay
+        technique: imgui-drawlist
+        note: The stock helper returns the background draw list for the main viewport, the same list the stock body labels and Transfer Planner markers use, so content sits under every window. Only meaningful for the main viewport; other viewports return the window list. Includes the try/catch-once-per-type guard that keeps a projection bug from breaking the frame.
+      - n: 3
+        title: Pick the draw list per view (background, clipped window, platform-viewport foreground)
+        mod: ksarmory
+        features: [mods/ksarmory/features/gunner-sight-overlay]
+        technique: imgui-drawlist
+        note: When a camera feed can be the main view, a mod-drawn camera window or a torn-off window on another monitor, resolve per frame which list reaches that picture and which camera projects into it.
+    related: [project-world-positions-to-screen, keep-overlays-updating-when-hud-hidden, draw-markers-and-annotations-on-world-objects]
+    borrowed_from:
+      - mods/ksa-deltavmap/features/map-mode-transfer-overlay
+      - mods/ksarmory/features/world-anchored-screen-markers
+      - mods/ksarmory/features/gunner-sight-overlay
+      - mods/compendium/features/body-pointer-overlay
+
+  - slug: project-world-positions-to-screen
+    title: Project world and sky positions to screen pixels
+    summary: Turn a position in the game's frames into an ImGui screen coordinate, including the cases the engine call does not handle for you - behind the camera, off the edge, inside the viewport's pixel offset and far-away directions that are not real points.
+    game_types: [KSA.Camera, KSA.IViewport, KSA.Program, KSA.GalacticPlane]
+    engine_pointers:
+      - current/decomp/KSA/Camera.cs EgoToScreen, EclToScreen, EgoToClip, IsPointWithinFov, GetPositionEgo
+      - current/decomp/KSA/Universe.cs DrawGalacticGrid (stock reference for skipping NaN and clipping)
+    lifecycle: [frame:draw-ui]
+    approaches:
+      - n: 1
+        title: Ego-space direction times a sphere radius, then Camera.EgoToScreen plus viewport origin
+        mod: ohmystars
+        features: [mods/ohmystars/features/sky-overlay-lines-and-labels]
+        technique: sky-projection
+        note: Sky directions have no distance, so they are placed on the same 19.5-unit camera-centred sphere the star sprites use; NaN results (behind the camera) are skipped and the ImGui main viewport origin is added. Straight screen segments between projected endpoints are exact great circles under perspective.
+      - n: 2
+        title: Body-fixed or orbit-relative anchors lifted to ecliptic, then Camera.EclToScreen
+        mod: ksarmory
+        features:
+          - mods/ksarmory/features/world-anchored-screen-markers
+          - mods/ksa-deltavmap/features/map-mode-transfer-overlay
+        technique: imgui-drawlist
+        note: Real points are projected through the viewport's own camera; constant-pixel-size brackets, a crossed variant when the target is behind a planet and an edge arrow when it is off-screen. Map mode computes parent CCE positions from Orbit and lifts them with GetPositionEclFromCce.
+      - n: 3
+        title: Clip-space edge clamp for off-screen and behind-camera targets
+        mod: compendium
+        features:
+          - mods/compendium/features/body-pointer-overlay
+          - mods/ohmystars/features/star-pointer
+        technique: imgui-drawlist
+        note: IsPointWithinFov first, otherwise EgoToClip divided by w with the sign flipped for w<0 and scaled to the viewport rectangle. This is the reusable core of a pointer to anything not currently visible.
+    related: [choose-a-draw-list-for-world-overlays, draw-lines-on-the-sky, occlude-overlays-behind-bodies, choose-ecl-or-ego-positions-for-rendering]
+    borrowed_from:
+      - mods/ksarmory/features/world-anchored-screen-markers
+      - mods/ksa-deltavmap/features/map-mode-transfer-overlay
+      - mods/compendium/features/body-pointer-overlay
+      - mods/ohmystars/features/star-pointer
+
+  - slug: draw-lines-on-the-sky
+    title: Draw lines and labels on the sky
+    summary: Draw constellation lines, boundary polylines and star names on KSA's sky from catalog data, sitting under panels and tracking the camera, including great-circle lines and small circles that stay correct under perspective.
+    game_types: [KSA.Camera, KSA.Universe, KSA.GalacticPlane, KSA.InstancedStarTechnique, Brutal.ImGuiApi.ImGui]
+    engine_pointers:
+      - current/decomp/KSA/Universe.cs DrawGalacticGrid
+      - current/decomp/KSA/GalacticPlane.cs EquatorialToEcliptic
+      - current/decomp/KSA/InstancedStarTechnique.cs
+    lifecycle: [startup:all-mods-loaded, frame:draw-ui]
+    approaches:
+      - n: 1
+        title: ImGui window draw list from StarMapAfterGui with ego-space sky directions
+        mod: ohmystars
+        features: [mods/ohmystars/features/sky-overlay-lines-and-labels]
+        technique: imgui-drawlist
+        note: Catalog RA/Dec to ecliptic, times 19.5, projected per segment, drawn into a NoInputs full-screen window. Cover gnomonic projection (straight lines are great circles), subdividing small circles, per-segment culling and label placement.
+    related: [project-world-positions-to-screen, draw-a-sky-coordinate-grid, convert-sky-coordinates-to-the-game-frame, occlude-overlays-behind-bodies, choose-a-draw-list-for-world-overlays]
+    borrowed_from: []
+
+  - slug: draw-a-sky-coordinate-grid
+    title: Draw a celestial or galactic coordinate grid on the sky
+    summary: Draw a labelled RA/Dec grid without cluttering the screen, built lazily as short arcs, frustum-culled, occluded by bodies and with first-come label overlap rejection.
+    game_types: [KSA.Universe, KSA.Camera]
+    engine_pointers:
+      - current/decomp/KSA/Universe.cs DrawGalacticGrid (stock grid command to compare with)
+    lifecycle: [frame:draw-ui]
+    approaches:
+      - n: 1
+        title: One-degree arcs, clip-space frustum cull and CalcTextSize label rectangles
+        mod: ohmystars
+        features: [mods/ohmystars/features/ra-dec-grid]
+        technique: imgui-drawlist
+        note: Lazy arc build, 15 percent inflated clip-space test, per-segment occlusion, centred chart labels and a per-frame list of drawn rectangles for declutter. Reusable for any labelled screen overlay.
+    related: [draw-lines-on-the-sky, occlude-overlays-behind-bodies]
+    borrowed_from: []
+
+  - slug: convert-sky-coordinates-to-the-game-frame
+    title: Convert RA/Dec and galactic coordinates to KSA's ecliptic frame
+    summary: Catalog data is in equatorial or galactic coordinates but the game draws and aims in ecliptic axes; apply the same J2000 obliquity rotation the engine uses and align it to the sky sphere.
+    game_types: [KSA.GalacticPlane, KSA.Camera]
+    engine_pointers:
+      - current/decomp/KSA/GalacticPlane.cs EquatorialToEcliptic
+    lifecycle: [startup:all-mods-loaded, frame:draw-ui]
+    approaches:
+      - n: 1
+        title: J2000 obliquity rotation about X, then the 19.5 star sphere
+        mod: ohmystars
+        features: [mods/ohmystars/features/sky-overlay-lines-and-labels]
+        technique: sky-projection
+        note: Matches GalacticPlane.EquatorialToEcliptic; the same direction feeds both overlay drawing and orient-to-star targets, so one conversion path is shared.
+    related: [draw-lines-on-the-sky, project-world-positions-to-screen]
+    borrowed_from: [mods/ohmystars/features/stellarium-sky-cultures]
+
+  - slug: occlude-overlays-behind-bodies
+    title: Hide ImGui overlays behind planets and vessels
+    summary: ImGui overlays have no depth buffer, so a constellation line or marker would show through a planet. A CPU ray-sphere test against the bodies between the camera and each overlay point restores the occlusion.
+    game_types: [KSA.Camera, KSA.IOrbiter, KSA.IParentBody, KSA.StellarBody, KSA.Vehicle]
+    engine_pointers:
+      - current/decomp/KSA/Camera.cs GetPositionEgo
+      - current/decomp/KSA/IOrbiter.cs Parent
+    lifecycle: [frame:draw-ui]
+    approaches:
+      - n: 1
+        title: Per-frame ego-space sphere list and ray test per overlay point
+        mod: ohmystars
+        features: [mods/ohmystars/features/overlay-occlusion-by-bodies]
+        technique: cpu-occlusion
+        note: Bodies by MeanRadius and vehicles by bounding sphere, walked from the camera-followed object up to the root via IOrbiter.Parent and down via IParentBody.Children. Covers the cost trade-offs and the spheres to skip.
+    related: [draw-a-sky-coordinate-grid, project-world-positions-to-screen]
+    borrowed_from: []
+
+  - slug: draw-markers-and-annotations-on-world-objects
+    title: Draw markers, brackets and measurement annotations on world objects
+    summary: Put a bracket on a craft, a lock cue on a contact, a measurement line with a plated label on a hull or a transfer-window gizmo in the map view, using projected points on an ImGui draw list rather than Vulkan.
+    game_types: [KSA.Camera, KSA.IViewport, KSA.ImGuiHelper, KSA.Vehicle]
+    engine_pointers:
+      - current/decomp/KSA/TransferPlanner.cs (stock parent/target alignment marker)
+      - current/decomp/KSA/ImGuiHelper.cs GetOverlayDrawList
+    lifecycle: [frame:draw-ui]
+    approaches:
+      - n: 1
+        title: Constant-pixel-size brackets, cues and bars projected from craft and contact positions
+        mod: ksarmory
+        features: [mods/ksarmory/features/world-anchored-screen-markers]
+        technique: imgui-drawlist
+        note: Four overlays (system markers, lock cue, chase HUD, part health bars) sharing one projection pattern, edge arrows for off-screen targets, crossed marks for occluded targets, clickable hover labels.
+      - n: 2
+        title: Lines, curves, rings and plated labels for measurements
+        mod: ksa-measuretools
+        features:
+          - mods/ksa-measuretools/features/overlay-drawlist-rendering
+          - mods/ksa-measuretools/features/circle-and-face-angle-tools
+        technique: imgui-drawlist
+        note: Background list, 3D construction plane and ring overlays drawn as projected polylines; one-shot try/catch-per-exception-type; gate on view mode.
+      - n: 3
+        title: Map-mode markers and gizmos for future positions
+        mod: ksa-deltavmap
+        features:
+          - mods/ksa-deltavmap/features/map-mode-transfer-overlay
+          - mods/ksa-advancedflightcomputer/features/multi-pass-preview-rendering
+        technique: imgui-drawlist
+        note: Markers on the destination's real orbit at window open, phase angle and ejection arms, apsis/node/SOI markers on the viewport overlay list. Only valid while the viewport is in Map mode.
+    related: [choose-a-draw-list-for-world-overlays, project-world-positions-to-screen, draw-extra-orbit-lines-with-the-game-line-renderer]
+    borrowed_from:
+      - mods/ksarmory/features/world-anchored-screen-markers
+      - mods/ksa-measuretools/features/overlay-drawlist-rendering
+      - mods/ksa-measuretools/features/circle-and-face-angle-tools
+      - mods/ksa-deltavmap/features/map-mode-transfer-overlay
+
+  - slug: point-at-an-offscreen-target
+    title: Draw a pointer line from a window to a body or star, even off screen
+    summary: Help the player find a selected body or star by drawing a line from the nearest corner of the mod window to the target, clamped to the screen edge when the target is outside the field of view or behind the camera.
+    game_types: [KSA.Camera, KSA.Program]
+    engine_pointers:
+      - current/decomp/KSA/Camera.cs IsPointWithinFov, EgoToClip, EgoToScreen
+    lifecycle: [frame:draw-ui]
+    approaches:
+      - n: 1
+        title: Previous-frame window rectangle plus edge-clamped projection (body target)
+        mod: compendium
+        features: [mods/compendium/features/body-pointer-overlay]
+        technique: imgui-drawlist
+        note: Captures the window rectangle during the window draw and consumes it next frame; one or two lines from the nearest corners; rainbow colour mode.
+      - n: 2
+        title: Same technique for a catalog star on the sky sphere
+        mod: ohmystars
+        features: [mods/ohmystars/features/star-pointer]
+        technique: imgui-drawlist
+        note: Target is ApplyAlignment(direction) times 19.5 or the central star's ego position; shows the camera-behind w<0 handling.
+    related: [project-world-positions-to-screen, choose-a-draw-list-for-world-overlays]
+    borrowed_from: [mods/compendium/features/body-pointer-overlay, mods/ohmystars/features/star-pointer]
+
+  - slug: draw-extra-orbit-lines-with-the-game-line-renderer
+    title: Draw extra predicted orbits with the game's orbit-line renderer
+    summary: Preview several candidate trajectories at once in the 3D and map views using the game's own line instances so they look and clip like stock orbits, with dimmed per-pass colours and a cache for expensive previews.
+    game_types: [KSA.FlightPlan, KSA.OrbitalTransfers]
+    engine_pointers:
+      - current/decomp/KSA/FlightPlan.cs AddLineInstances
+      - current/decomp/KSA/TransferPlanner.cs
+    lifecycle: [frame:draw-ui, frame:pre-render, render:orbit-lines]
+    approaches:
+      - n: 1
+        title: FlightPlan.AddLineInstances per plan with dimmed colours, postfix hook and quantized cache keys
+        mod: ksa-advancedflightcomputer
+        features: [mods/ksa-advancedflightcomputer/features/multi-pass-preview-rendering]
+        technique: harmony-postfix
+        note: One FlightPlan per planned pass, dimmed colours, apsis/node/SOI markers on the viewport overlay list; previews cached behind quantized input keys.
+    related: [draw-markers-and-annotations-on-world-objects]
+    borrowed_from: [mods/ksa-advancedflightcomputer/features/planner-preview-trajectories]
+
+  # ---------------------------------------------------------------- reference frames and anchoring
+  - slug: choose-ecl-or-ego-positions-for-rendering
+    title: Choose ecliptic or camera-relative (ego) positions and epochs for rendering
+    summary: Ecl positions keep the 29.8 km/s orbital carrier and move hundreds of metres per frame; ego positions are camera-relative translations of Ecl. Pick the right frame and sample instant or an overlay will lag, jitter or drift from the craft it should hug.
+    game_types: [KSA.Camera, KSA.Vehicle, KSA.GizmosRenderer, KSA.PartModel]
+    engine_pointers:
+      - current/decomp/KSA/Camera.cs GetPositionEgo, EclToEgo
+      - current/decomp/KSA/Vehicle.cs GetMatrixAsmb2Ego
+      - current/decomp/KSA/GizmosRenderer.cs
+    lifecycle: [frame:draw-ui, frame:apply-solvers, frame:render]
+    approaches:
+      - n: 1
+        title: Two-instant draw anchor against GetPositionEgo
+        mod: ksagolf
+        features: [mods/ksagolf/features/frame-epoch-draw-anchor]
+        technique: reference-frames
+        note: Pair the craft's rendered Ego position sampled this frame with Ecl offsets measured against the same-instant platform sample, so overlays do not slide 500 m per frame.
+      - n: 2
+        title: Anchor to the engine's own render position and add travel since launch
+        mod: ksarmory
+        features:
+          - mods/ksarmory/features/gizmo-world-overlays
+          - mods/ksarmory/features/rounds-as-hidden-launcher-subparts
+        technique: ego-anchor
+        note: Gizmos and projectile subparts placed relative to where the engine draws the launcher, with Ego a pure translation of Ecl; shows when to use Ecl at GetElapsedTime versus the rendered sample.
+    related: [draw-world-space-gizmos, keep-effects-fixed-to-a-rotating-body, anchor-rendered-objects-to-parts-and-terrain]
+    borrowed_from: [mods/ksarmory/features/ecliptic-frames-and-epochs]
+
+  - slug: keep-effects-fixed-to-a-rotating-body
+    title: Keep an effect or mesh fixed to a rotating planet
+    summary: A point in space above the ground drifts away from the ground as the planet turns; anchor effects, meshes and emitters in the body-fixed frame and convert to the render frame at draw time.
+    game_types: [KSA.Celestial, KSA.ExplosionSystem, KSA.ParticleEmitter, KSA.StaticMeshRenderable]
+    engine_pointers:
+      - current/decomp/KSA/ExplosionSystem.cs SpawnPreset (BubbleOrigin)
+      - current/decomp/KSA/Celestial.cs (body-fixed frame helpers)
+    lifecycle: [frame:draw-ui, frame:celestials, frame:pre-render, frame:render]
+    approaches:
+      - n: 1
+        title: Explosion presets with a BubbleOrigin fixed in the body frame
+        mod: ksarmory
+        features: [mods/ksarmory/features/ksa-explosions-from-a-point]
+        technique: body-fixed-anchor
+        note: Anchored to the ground the burst happened over rather than the target craft; ambient pressure fed to the pressure-gated stages.
+      - n: 2
+        title: Pooled emitters re-anchored to the celestial's rotating frame every frame
+        mod: ksarmory
+        features: [mods/ksarmory/features/pooled-particle-emitters]
+        technique: emitter-reanchoring
+        note: Re-point following emitters each frame so smoke stays on the rotating body.
+      - n: 3
+        title: Body-fixed mesh with Ccf-to-Cce rotation and body position at draw time
+        mod: ksagolf
+        features: [mods/ksagolf/features/mod-mesh-draw-hook]
+        technique: runtime-mesh-draw
+        note: Course pieces and ball are stored body-fixed and turned into per-viewport ego transforms in the draw hook.
+    related: [choose-ecl-or-ego-positions-for-rendering, spawn-particle-effects, draw-mod-meshes-with-the-engine-renderers]
+    borrowed_from: []
+
+  - slug: draw-world-space-gizmos
+    title: Draw world-space lines and spheres with GizmosRenderer
+    summary: Use the game's own gizmo renderer for debug-style world overlays (radar cones, track markers, trails, placement markers) that are depth-tested, scale with the scene and need no Vulkan code.
+    game_types: [KSA.GizmosRenderer, KSA.Program]
+    engine_pointers:
+      - current/decomp/KSA/GizmosRenderer.cs ResetInstances and instance adders
+      - current/decomp/KSA/Program.cs (gizmo pass order in Render)
+    lifecycle: [frame:draw-ui, render:scene-opaque, render:gizmos]
+    approaches:
+      - n: 1
+        title: Submit spheres and lines from the StarMap GUI postfix between reset and render
+        mod: ksarmory
+        features: [mods/ksarmory/features/gizmo-world-overlays]
+        technique: gizmo-draw
+        note: Radar cones, track markers, trails, shell streaks, placement markers anchored to the engine's render position of the platform.
+      - n: 2
+        title: Gizmos next to a moving craft using a frame-epoch anchor
+        mod: ksagolf
+        features: [mods/ksagolf/features/frame-epoch-draw-anchor]
+        technique: gizmo-drawing
+        note: Submitted between GizmosRenderer.ResetInstances and the render; anchored with the craft's rendered Ego position this frame.
+    related: [choose-ecl-or-ego-positions-for-rendering, draw-markers-and-annotations-on-world-objects]
+    borrowed_from: []
+
+  - slug: anchor-rendered-objects-to-parts-and-terrain
+    title: Anchor rendered objects to parts, cloth or terrain and follow them every frame
+    summary: A sticker, quad or billboard that must stay on a moving craft needs an anchor that survives staging, docking, inflation, planet rotation and floating-origin shifts, re-resolved every frame rather than cached as a world position.
+    game_types: [KSA.Part, KSA.Vehicle, KSA.PartTree, KSA.Camera]
+    engine_pointers:
+      - current/decomp/KSA/Vehicle.cs GetMatrixAsmb2Ego
+      - current/decomp/KSA/Part.cs
+    lifecycle: [frame:draw-ui, frame:render]
+    approaches:
+      - n: 1
+        title: Part-local, cloth-barycentric or geodetic anchors with double-precision composition
+        mod: unscience
+        features: [mods/unscience/features/graffiti-decal-anchoring]
+        technique: double-precision-transforms
+        note: Stable ids re-resolved each frame and a decal-to-ego box recomposed in double precision; follows staging, parachute inflation and planet rotation.
+      - n: 2
+        title: Part transform times user offset in ego space, or a view-space billboard
+        mod: purrtty
+        features: [mods/purrtty/features/anchor-quad-to-part-or-camera]
+        technique: vulkan-pipeline
+        note: Follows the same Part object by reference identity through decoupling and docking; camera-fixed billboard variant for HUD-like quads.
+      - n: 3
+        title: Attach a quad via the part's ego matrix
+        mod: gatos
+        features: [mods/gatos/features/thug-life-world-space-quad]
+        technique: harmony-postfix
+        note: Ego-space model matrix from GetMatrixAsmb2Ego computed in the render hook.
+    related: [choose-ecl-or-ego-positions-for-rendering, project-decals-onto-scene-geometry, draw-a-textured-quad-in-the-world]
+    borrowed_from: [mods/ksa-measuretools/features/live-body-relative-anchors, mods/ksa-measuretools/features/part-anchor-rehoming]
+
+  # ---------------------------------------------------------------- custom Vulkan passes and pipelines
+  - slug: insert-a-custom-pass-into-render-game
+    title: Insert a custom Vulkan pass into KSA's frame
+    summary: KSA records one frame as a sequence of scene, resolve, bloom and composite stages. A mod can hook a stage boundary with a Harmony postfix or prefix, or rewrite RenderGame, to record its own draws or dispatches where depth, colour and light are in the state it needs.
+    game_types: [KSA.Program, KSA.SuperMeshRenderSystem, KSA.Rendering.RenderTarget, KSA.SunbloomRenderer]
+    engine_pointers:
+      - current/decomp/KSA/Program.cs RenderGame
+      - current/decomp/KSA/SuperMeshRenderSystem.cs RenderMainPass, RenderTranslucencyPass
+      - current/decomp/KSA.Rendering/RenderTarget.cs ResolveAttachments
+      - current/decomp/KSA/SunbloomRenderer.cs Render
+      - current/decomp/KSA/CommandBufferEx.cs
+    lifecycle: [frame:render, render:scene-opaque, render:translucency, render:grid, render:bloom, render:post-process]
+    approaches:
+      - n: 1
+        title: Postfix RenderTarget.ResolveAttachments (post-resolve window)
+        mod: unscience
+        features:
+          - mods/unscience/features/graffiti-projected-decal-pass
+          - mods/gatos/features/sticker-projected-decals
+        technique: harmony-postfix
+        note: The window KSA's GridPass uses after the main view resolves; depth is sampleable. Filter to the main viewport.
+      - n: 2
+        title: Postfix SuperMeshRenderSystem.RenderMainPass (inside the offscreen opaque pass)
+        mod: unscience
+        features:
+          - mods/unscience/features/thug-life-textured-quad-render-pass
+          - mods/gatos/features/thug-life-world-space-quad
+        technique: harmony-postfix
+        note: Draws land in the already-open MSAA scene pass, depth-tested; pipeline must match the scene target formats and sample count.
+      - n: 3
+        title: Postfix SuperMeshRenderSystem.RenderTranslucencyPass with tracked barriers
+        mod: purrtty
+        features: [mods/purrtty/features/draw-after-translucency-pass-postfix]
+        technique: harmony-postfix
+        note: Reopens a dynamic-rendering scope over the scene attachments after atmosphere, clouds and plumes so translucent mod content composites last.
+      - n: 4
+        title: Prefix SunbloomRenderer.Render to dispatch compute on the HDR scene
+        mod: ksarmory
+        features:
+          - mods/ksarmory/features/compute-pass-before-bloom
+          - mods/ksastructures/features/underground-dark-compute-pass
+        technique: harmony-prefix
+        note: A public method handing over the command buffer with scene colour in General layout and depth sampled, before bloom and tonemap, so results bloom and grade with the scene. See the dedicated compute-pass topic for the shader side.
+      - n: 5
+        title: Transpile Program.RenderGame around the swapchain render pass
+        mod: shaderextensions
+        features:
+          - mods/shaderextensions/features/rendergame-render-pass-transpiler
+          - mods/shaderextensions/features/pre-imgui-post-processing
+          - mods/shaderextensions/features/post-imgui-global-post-shaders
+        technique: harmony-transpiler
+        note: Dynamic-rendering passes are illegal inside the legacy swapchain render pass, so the mod rewrites the BeginRenderPass/End call sites in RenderGame to record before and after it.
+    related: [draw-a-textured-quad-in-the-world, project-decals-onto-scene-geometry, modify-the-hdr-scene-with-a-compute-pass, build-a-vulkan-pipeline-for-the-scene-target, capture-rendered-frames]
+    borrowed_from:
+      - mods/ksarmory/features/compute-pass-before-bloom
+      - mods/ksastructures/features/underground-dark-compute-pass
+      - mods/shaderextensions/features/rendergame-render-pass-transpiler
+      - mods/shaderextensions/features/pre-imgui-post-processing
+      - mods/shaderextensions/features/post-imgui-global-post-shaders
+
+  - slug: build-a-vulkan-pipeline-for-the-scene-target
+    title: Build a Vulkan pipeline compatible with KSA's scene render target
+    summary: A pipeline recorded inside KSA's scene pass must match its colour and depth formats, sample count and dynamic-rendering setup, and for offscreen work of the mod's own needs a render-pass-less pipeline. Several routes exist, from the game's own pipeline helper to a hand-built one.
+    game_types: [KSA.Program, RenderCore.ShaderModuleUtils, RenderCore.SimpleVkMesh]
+    engine_pointers:
+      - current/decomp/KSA/Program.cs OffscreenTarget SetupGraphicsPipeline
+      - current/decomp/KSA/CommandBufferEx.cs PipelineBarrier2
+    lifecycle: [frame:render, render:scene-opaque, render:translucency]
+    approaches:
+      - n: 1
+        title: Program.OffscreenTarget.SetupGraphicsPipeline, created lazily
+        mod: unscience
+        features:
+          - mods/unscience/features/thug-life-textured-quad-render-pass
+          - mods/gatos/features/thug-life-world-space-quad
+        technique: vulkan-pipeline
+        note: The helper stamps dynamic-rendering formats and sample count; create lazily once render targets exist and rebuild after renderer rebuilds.
+      - n: 2
+        title: Hand-built dynamic-rendering pipeline reusing UnlitMeshVert with premultiplied alpha
+        mod: purrtty
+        features: [mods/purrtty/features/world-space-quad-pipeline-custom-shader]
+        technique: vulkan-pipeline
+        note: Custom premultiplied-alpha fragment shader, depth test against the scene, translucency-pass compatible.
+      - n: 3
+        title: Private colour/depth targets with a standalone dynamic-rendering pipeline
+        mod: unscience
+        features: [mods/unscience/features/pebbles-workshop-offscreen-preview]
+        technique: vulkan-pipeline
+        note: Not drawing into the scene at all, so the pipeline is free-standing; contrasts with approaches 1 and 2.
+    related: [insert-a-custom-pass-into-render-game, compile-glsl-at-runtime, draw-a-textured-quad-in-the-world, handle-renderer-rebuilds]
+    borrowed_from: []
+
+  - slug: compile-glsl-at-runtime
+    title: Compile GLSL at runtime with the game's includes
+    summary: Mods that draw with their own shaders can compile GLSL from embedded strings or generated files at runtime using the game's shader utilities, including its Global and Core shader libraries, without shipping SPIR-V.
+    game_types: [RenderCore.ShaderModuleUtils, KSA.ShaderReference]
+    engine_pointers:
+      - current/decomp/RenderCore/ShaderModuleUtils.cs FromString, FromFile
+    lifecycle: [startup:all-mods-loaded, frame:render]
+    approaches:
+      - n: 1
+        title: ShaderModuleUtils.FromString with a NUL-terminated debug path and game includes
+        mod: gatos
+        features: [mods/gatos/features/sticker-projected-decals]
+        technique: glsl-shader
+        note: Includes the game's shader library; debug path must be NUL-terminated or the compiler misreads it.
+      - n: 2
+        title: Embedded fragment/vertex source for a quad or preview pipeline
+        mod: purrtty
+        features:
+          - mods/purrtty/features/world-space-quad-pipeline-custom-shader
+          - mods/unscience/features/pebbles-workshop-offscreen-preview
+        technique: glsl-shader
+        note: Small self-contained shaders compiled when the pipeline is first built; includes tangent-free derivative normal mapping in the preview shader.
+      - n: 3
+        title: Generate an include file at immediate load and let KSA compile .comp assets
+        mod: ksarmory
+        features:
+          - mods/ksarmory/features/core-shader-library-include
+          - mods/ksastructures/features/core-shader-library-include
+        technique: glsl-shader
+        note: The mod writes Shaders/Content/*.glsl with absolute includes of the install's Global library at StarMapImmediateLoad so ordinary shader assets can include it.
+    related: [build-a-vulkan-pipeline-for-the-scene-target, modify-the-hdr-scene-with-a-compute-pass]
+    borrowed_from:
+      - mods/ksarmory/features/core-shader-library-include
+      - mods/ksastructures/features/core-shader-library-include
+
+  - slug: modify-the-hdr-scene-with-a-compute-pass
+    title: Paint into or rescale the HDR scene image with a compute pass
+    summary: From the pre-bloom hook a mod can read the scene colour and depth and write straight back into it, drawing depth-aware rings, holes and tracers, relighting or darkening areas, all without a graphics pipeline.
+    game_types: [KSA.SunbloomRenderer, KSA.Rendering.ComputePipelineWrapper, KSA.ShaderReference]
+    engine_pointers:
+      - current/decomp/KSA/SunbloomRenderer.cs Render
+      - current/decomp/KSA.Rendering/ComputePipelineWrapper.cs
+    lifecycle: [frame:render, render:bloom]
+    approaches:
+      - n: 1
+        title: Depth-reading compute dispatches for rings, holes, tracers and relighting
+        mod: ksarmory
+        features:
+          - mods/ksarmory/features/compute-pass-before-bloom
+          - mods/ksarmory/features/depth-painted-ground-rings
+          - mods/ksarmory/features/compute-shell-tracers
+          - mods/ksarmory/features/fireball-light-injection
+        technique: vulkan-pipeline
+        note: KSA compiles the mod's .comp files as Shader assets and ComputePipelineWrapper builds the pipelines; one prefix on the public method is the only patch. Rings lie on terrain by measuring from the depth buffer.
+      - n: 2
+        title: In-place rescale using KSA's light pre-pass images
+        mod: ksastructures
+        features: [mods/ksastructures/features/underground-dark-compute-pass]
+        technique: vulkan-pipeline
+        note: Priority.First prefix builds a compute wrapper over colour, depth and light pre-pass images and rescales each pixel by the share of light that did not come from ambient.
+    related: [insert-a-custom-pass-into-render-game, compile-glsl-at-runtime, project-decals-onto-scene-geometry]
+    borrowed_from:
+      - mods/ksarmory/features/compute-pass-before-bloom
+      - mods/ksarmory/features/depth-painted-ground-rings
+      - mods/ksarmory/features/compute-shell-tracers
+      - mods/ksarmory/features/fireball-light-injection
+      - mods/ksastructures/features/underground-dark-compute-pass
+
+  - slug: draw-a-textured-quad-in-the-world
+    title: Draw a textured quad attached to a part or the camera
+    summary: Put an image, sticker, screen or pixel sprite into the 3D scene as a world-space quad with depth testing, tied to a part transform or a view-space billboard.
+    game_types: [KSA.SuperMeshRenderSystem, KSA.Program, KSA.Part, RenderCore.SimpleVkTexture]
+    engine_pointers:
+      - current/decomp/KSA/SuperMeshRenderSystem.cs RenderMainPass, RenderTranslucencyPass
+      - current/decomp/KSA/Vehicle.cs GetMatrixAsmb2Ego
+    lifecycle: [frame:render, render:scene-opaque, render:translucency, frame:draw-ui]
+    approaches:
+      - n: 1
+        title: Opaque pixel quads with stock UnlitMesh shaders inside the offscreen scene pass
+        mod: unscience
+        features:
+          - mods/unscience/features/thug-life-textured-quad-render-pass
+          - mods/unscience/features/thug-life-procedural-texture
+        technique: vulkan-pipeline
+        note: The stock unlit shader always writes alpha, so the sprite is emitted as one small quad per opaque texel; ego matrix computed per frame; pipeline built lazily.
+      - n: 2
+        title: A single textured quad via the same hook with its own pipeline setup
+        mod: gatos
+        features: [mods/gatos/features/thug-life-world-space-quad]
+        technique: vulkan-pipeline
+        note: Same RenderMainPass postfix, different buffer and texture plumbing; attached via part ego matrix; patches installed on demand.
+      - n: 3
+        title: Premultiplied-alpha translucent quad after the translucency pass
+        mod: purrtty
+        features:
+          - mods/purrtty/features/world-space-quad-pipeline-custom-shader
+          - mods/purrtty/features/draw-after-translucency-pass-postfix
+          - mods/purrtty/features/anchor-quad-to-part-or-camera
+        technique: vulkan-pipeline
+        note: Custom shader, correct blend state, part or camera anchor; plus click focus via ray picking against world quads.
+    related: [insert-a-custom-pass-into-render-game, build-a-vulkan-pipeline-for-the-scene-target, anchor-rendered-objects-to-parts-and-terrain, upload-an-image-as-a-vulkan-texture, put-a-live-screen-on-a-part]
+    borrowed_from: [mods/purrtty/features/ray-pick-focus-for-world-quads]
+
+  - slug: draw-mod-meshes-with-the-engine-renderers
+    title: Draw your own meshes through the engine's mesh renderers
+    summary: Instead of a bespoke pipeline, hand the game your meshes as StaticMeshRenderables, extra part-model instances or private buffers inside the static-object pipeline so lighting, shadows and culling come for free.
+    game_types: [KSA.StaticMeshRenderable, KSA.SuperMeshRenderSystem, KSA.PartModel, KSA.StaticObjectRenderer, KSA.PartModelRenderer]
+    engine_pointers:
+      - current/decomp/KSA/SuperMeshRenderSystem.cs ClearBuckets
+      - current/decomp/KSA/StaticMeshRenderable.cs
+      - current/decomp/KSA/StaticObjectRenderer.cs UpdateRenderData
+      - current/decomp/KSA/PartModelRenderer.cs UpdateRenderData
+      - current/decomp/KSA/PartModel.cs AddInstance
+    lifecycle: [startup:all-mods-loaded, frame:render, render:scene-opaque, render:shadows, render:prepass]
+    approaches:
+      - n: 1
+        title: Submit StaticMeshRenderables after ClearBuckets for every viewport
+        mod: ksagolf
+        features: [mods/ksagolf/features/mod-mesh-draw-hook]
+        technique: runtime-mesh-draw
+        note: Postfix SuperMeshRenderSystem.ClearBuckets(IViewport); earlier draws are discarded; per-viewport ego transforms; secondary views first and only the main view casts cascade shadows.
+      - n: 2
+        title: Own vertex/index/material buffers drawn by the static-object pipeline
+        mod: unscience
+        features: [mods/unscience/features/sphinx-static-object-render-hooks]
+        technique: vulkan-buffer
+        note: Postfixes on StaticObjectRenderer.UpdateRenderData and the private WriteCommandsColor/WriteCommandsPrePass; per-viewport, per-frame matrix slices.
+      - n: 3
+        title: Extra part-model instances at any matrix, per viewport
+        mod: ksarmory
+        features: [mods/ksarmory/features/round-body-draw-hooks]
+        technique: part-model-instancing
+        note: Prefix on PartModelRenderer.UpdateRenderData adds shells and rounds as extra instances of the engine's own part meshes; also covers drawing a launcher past the pixel cull.
+      - n: 4
+        title: Clone interleaved part meshes into private SimpleVkMeshes
+        mod: unscience
+        features: [mods/unscience/features/rocky-mcrock-face-interleaved-mesh-clone]
+        technique: vulkan-buffer
+        note: Reuse part geometry in another renderer (ring pipeline) by sharing HostPrimitives and uploading a standalone mesh.
+    related: [add-invisible-shadow-casters, grow-game-gpu-buffers-for-runtime-content, choose-ecl-or-ego-positions-for-rendering, render-planetary-rings-with-custom-textures]
+    borrowed_from: []
+
+  - slug: add-invisible-shadow-casters
+    title: Make static objects cast sun and lamp shadows with invisible casters
+    summary: Static objects never enter a shadow pass; add depth-only caster meshes to the SuperMesh shadow pool so a building, roof or pillar blocks sunlight and lamp light without drawing a second mesh.
+    game_types: [KSA.SuperMeshRenderSystem, KSA.StaticMeshRenderable, KSA.ShadowRenderable, KSA.SuperMeshShadowCasterProvider]
+    engine_pointers:
+      - current/decomp/KSA/SuperMeshShadowCasterProvider.cs
+      - current/decomp/KSA/StaticMeshRenderable.cs ShadowRenderablePool
+      - current/decomp/KSA/ShadowRenderable.cs
+    lifecycle: [startup:all-mods-loaded, frame:render, render:shadows]
+    approaches:
+      - n: 1
+        title: Append ShadowRenderables from a prefix on PrepareShadowCasters or AddShadowRenderables
+        mod: ksastructures
+        features: [mods/ksastructures/features/invisible-shadow-casters]
+        technique: harmony-prefix
+        note: Casters come from a GLB loaded as GltfFile, built as StaticMeshRenderables that are never drawn; must run before the first shadow consumer each frame; includes lamp atlas versus sun cascades.
+    related: [add-dynamic-lights-to-the-world, draw-mod-meshes-with-the-engine-renderers]
+    borrowed_from: []
+
+  - slug: capture-rendered-frames
+    title: Capture rendered frames from KSA
+    summary: Grab the finished scene for screenshots, streaming or automated visual testing without stalling the GPU, by recording a copy in the frame command buffer and reading it back when the staging slot is reused, or by driving KSA's own screenshot system.
+    game_types: [KSA.Program, KSA.ScreenshotCapture, Core.Renderer]
+    engine_pointers:
+      - current/decomp/KSA/Program.cs RenderGame (final End)
+      - current/decomp/KSA/ScreenshotCapture.cs
+      - current/decomp/Core/Renderer.cs ExtentOverride
+    lifecycle: [frame:render, frame:post-render, thread:background]
+    approaches:
+      - n: 1
+        title: Transpiler before the final End(), blit into per-slot staging buffers, readback on slot reuse
+        mod: gatos
+        features: [mods/gatos/features/screen-stream-frame-capture]
+        technique: harmony-transpiler
+        note: No stall; encoder runs on a background thread with the Kitty graphics protocol and a fixed image id.
+      - n: 2
+        title: Drive KSA's ScreenshotCapture for clean, scripted frames
+        mod: ksagolf
+        features: [mods/ksagolf/features/visual-testing-captures]
+        technique: reflection
+        note: UI-free warm-up, per-image JSON manifest, series spaced in sim seconds or frames; account for Renderer.ExtentOverride on high-resolution captures.
+    related: [render-part-thumbnails-at-runtime, insert-a-custom-pass-into-render-game, handle-renderer-rebuilds]
+    borrowed_from: [mods/ksagolf/features/visual-testing-captures]
+
+  - slug: render-part-thumbnails-at-runtime
+    title: Render part thumbnails at runtime with KSA's thumbnail pipeline
+    summary: Runtime-loaded parts have no pre-rendered thumbnail; render one with the game's thumbnail viewport framing, submit with a private command pool and read the image back for the editor.
+    game_types: [KSA.Rendering.ThumbnailCreator, KSA.Rendering.Thumbnails.ThumbnailDynamic, KSA.PartThumbnailViewport]
+    engine_pointers:
+      - current/decomp/KSA.Rendering/ThumbnailCreator.cs
+      - current/decomp/KSA.Rendering.Thumbnails/ThumbnailDynamic.cs
+      - current/decomp/KSA/PartThumbnailViewport.cs
+    lifecycle: [frame:draw-ui, frame:pre-render]
+    approaches:
+      - n: 1
+        title: ThumbnailCreator framing plus ThumbnailDynamic per-frame submit, two parts per frame
+        mod: unscience
+        features: [mods/unscience/features/parts-now-thumbnail-generation]
+        technique: offscreen-viewport
+        note: Shares the offscreen viewport with the hover preview, submits before OnPreRender, private transient command pool with fence wait, GPU image readback.
+    related: [capture-rendered-frames, submit-your-own-vulkan-commands, grow-game-gpu-buffers-for-runtime-content]
+    borrowed_from: []
+
+  # ---------------------------------------------------------------- ImGui and textures
+  - slug: show-an-image-in-imgui
+    title: Show a PNG or runtime-generated image in an ImGui window
+    summary: Decode or build pixels, upload them as a Vulkan texture, register with the ImGui Vulkan backend and draw with ImGui.Image or a draw list, then update, evict and release the texture without crashing a frame in flight.
+    game_types: [RenderCore.SimpleVkTexture, Brutal.TextureApi.TextureLoader, KSA.ImGuiBackendVulkanImpl, RenderCore.TextureAsset]
+    engine_pointers:
+      - current/decomp/RenderCore/SimpleVkTexture.cs
+      - current/decomp/KSA/ImGuiBackendVulkanImpl.cs AddTexture, RemoveTexture
+      - current/decomp/Brutal.VulkanApi.Abstractions/StagingPool.cs
+    lifecycle: [startup:immediate-load, frame:draw-ui, render:imgui]
+    approaches:
+      - n: 1
+        title: One static PNG decoded to TextureAsset, uploaded once
+        mod: compendium
+        features: [mods/compendium/features/logo-image-as-imgui-texture]
+        technique: vulkan-texture
+        note: TextureAsset to SimpleVkTexture via a staging pool that submits and waits on dispose, point sampler, AddTexture, ImGui.Image; RemoveTexture before Dispose.
+      - n: 2
+        title: Many changing images with in-place refresh and LRU eviction
+        mod: purrtty
+        features: [mods/purrtty/features/kitty-graphics-as-imgui-vulkan-textures]
+        technique: vulkan-texture
+        note: CPU RGBA upload, same-size refresh in place, LRU eviction under the shared descriptor pool cap, RemoveTexture first and destroy image frames later.
+    related: [upload-an-image-as-a-vulkan-texture, free-vulkan-resources-safely, render-a-vulkan-scene-offscreen-into-imgui]
+    borrowed_from: []
+
+  - slug: upload-an-image-as-a-vulkan-texture
+    title: Upload an image or procedural pixels as a GPU texture
+    summary: Load PNG or KTX bytes, or generate pixels in code, into a SimpleVkTexture with mip levels and a sampler, and expose it to shaders through a bindless slot.
+    game_types: [RenderCore.SimpleVkTexture, Brutal.TextureApi.TextureLoader, KSA.BindlessTextures, RenderCore.Systems.BindlessTextureLibrary]
+    engine_pointers:
+      - current/decomp/Brutal.TextureApi/TextureLoader.cs LoadFromMemory
+      - current/decomp/RenderCore.Systems/BindlessTextureLibrary.cs SetTexture
+      - current/decomp/RenderCore/SimpleVkTexture.cs
+    lifecycle: [frame:draw-ui, frame:viewports]
+    approaches:
+      - n: 1
+        title: Decode with the game's TextureLoader and re-point an existing bindless slot
+        mod: gatos
+        features: [mods/gatos/features/clutter-texture-override]
+        technique: vulkan-texture
+        note: TextureLoader.LoadFromMemory plus SimpleVkTexture; the old image retired after frames in flight.
+      - n: 2
+        title: Mip-mapped library textures claimed into Program.BindlessTextures, hot-swapped on rescan
+        mod: unscience
+        features: [mods/unscience/features/graffiti-bindless-decal-textures]
+        technique: vulkan-texture
+        note: Shader needs only a uint index; changed files are re-uploaded and the old texture destroyed safely.
+      - n: 3
+        title: Procedural ASCII pixel art to an R8G8B8A8 texture with a staging upload
+        mod: unscience
+        features: [mods/unscience/features/thug-life-procedural-texture]
+        technique: vulkan-texture
+        note: Nearest-neighbour sampler for pixel art; shows the staging-upload steps without any decoder.
+    related: [replace-a-game-texture-at-runtime, show-an-image-in-imgui, free-vulkan-resources-safely, draw-a-textured-quad-in-the-world]
+    borrowed_from: []
+
+  - slug: replace-a-game-texture-at-runtime
+    title: Replace a game texture or model texture with a user PNG at runtime
+    summary: Swap what an existing material samples, either by re-pointing the bindless slot the game already uses or by rebuilding a mod-owned mesh resource with a PNG override and live UV remap.
+    game_types: [RenderCore.Systems.BindlessTextureLibrary, KSA.TextureReference, RenderCore.SimpleVkTexture]
+    engine_pointers:
+      - current/decomp/RenderCore.Systems/BindlessTextureLibrary.cs SetTexture
+      - current/decomp/KSA/TextureReference.cs
+    lifecycle: [frame:viewports, frame:draw-ui, frame:render]
+    approaches:
+      - n: 1
+        title: BindlessTextureLibrary.SetTexture on the stock slot with deferred destruction
+        mod: gatos
+        features: [mods/gatos/features/clutter-texture-override]
+        technique: bindless-slot-swap
+        note: Decode with game loaders, re-point the slot, retire the old image after MaxFramesInFlight + 1 frames.
+      - n: 2
+        title: PNG override rebuilds the mod mesh's private resource; UV scale/offset re-uploads the vertex buffer
+        mod: unscience
+        features: [mods/unscience/features/sphinx-uv-texture-overrides]
+        technique: vulkan-texture
+        note: Vertices kept in managed memory so repeated edits do not accumulate error; the whole private resource is rebuilt before the swap.
+    related: [upload-an-image-as-a-vulkan-texture, free-vulkan-resources-safely, give-mod-objects-a-private-material-buffer]
+    borrowed_from: []
+
+  - slug: render-imgui-into-a-texture
+    title: Render ImGui UI into a Vulkan texture for use in the 3D world
+    summary: Run a second ImGui context and a second Vulkan ImGui backend on a mod-owned render pass so a whole UI (a terminal, a dashboard) becomes an image that can be shown in the scene or in another window.
+    game_types: [KSA.ImGuiBackendVulkanImpl, Brutal.ImGuiApi.ImGui, RenderCore.SimpleVkTexture]
+    engine_pointers:
+      - current/decomp/KSA/ImGuiBackendVulkanImpl.cs
+    lifecycle: [startup:all-mods-loaded, frame:draw-ui]
+    approaches:
+      - n: 1
+        title: Secondary ImGui context sharing the game's atlas, second backend, fence-ring submission
+        mod: purrtty
+        features: [mods/purrtty/features/offscreen-imgui-context-render-to-texture]
+        technique: imgui-window
+        note: Mod command pool, fence ring and locked queue submit; shows how to keep context switching safe.
+    related: [put-a-live-screen-on-a-part, submit-your-own-vulkan-commands, render-a-vulkan-scene-offscreen-into-imgui]
+    borrowed_from: []
+
+  - slug: render-a-vulkan-scene-offscreen-into-imgui
+    title: Render your own Vulkan scene offscreen and show it in an ImGui window
+    summary: Draw a mesh into private colour and depth images with a dynamic-rendering pipeline, submit with a fence from the start of the GUI phase and show the colour image in an ImGui window, as an editor preview.
+    game_types: [RenderCore.SimpleVkTexture, KSA.ImGuiBackendVulkanImpl]
+    engine_pointers:
+      - current/decomp/KSA/ImGuiBackendVulkanImpl.cs AddTexture
+    lifecycle: [frame:draw-ui, render:imgui]
+    approaches:
+      - n: 1
+        title: Private images, runtime GLSL, fenced submit from StarMapBeforeGui
+        mod: unscience
+        features: [mods/unscience/features/pebbles-workshop-offscreen-preview]
+        technique: vulkan-pipeline
+        note: Replacing or freeing images ImGui still references is done in BeforeGui with WaitIdle; derivative normal mapping in the shader.
+    related: [render-imgui-into-a-texture, build-a-vulkan-pipeline-for-the-scene-target, free-vulkan-resources-safely, render-part-thumbnails-at-runtime]
+    borrowed_from: []
+
+  - slug: put-a-live-screen-on-a-part
+    title: Put a live, interactive screen or camera feed on a part
+    summary: Show a changing image on a monitor mesh in the 3D world, either by re-pointing the part material's bindless texture at a viewport's colour image or by painting an ImGui texture onto a projected quad, or by rendering a UI to a texture and placing it as a world quad.
+    game_types: [KSA.Part, KSA.IViewport, RenderCore.Systems.BindlessTextureLibrary, KSA.Rendering.RenderTarget]
+    engine_pointers:
+      - current/decomp/RenderCore.Systems/BindlessTextureLibrary.cs SetTexture
+      - current/decomp/KSA/ViewportRegistry.cs
+      - current/decomp/KSA/Vehicle.cs GetMatrixAsmb2Ego
+    lifecycle: [frame:draw-ui, frame:celestials, frame:after-on-frame, frame:render]
+    approaches:
+      - n: 1
+        title: BindlessTextures.SetTexture on the monitor's material to a secondary viewport's colour image
+        mod: ksastructures
+        features: [mods/ksastructures/features/viewport-image-on-monitor]
+        technique: vulkan-texture
+        note: Re-point on viewport Generation changes, restore when the feed ends; borrows a spare viewport.
+      - n: 2
+        title: Project the part's screen corners and paint the ImGui texture with AddImageQuad strips
+        mod: ksastructures
+        features: [mods/ksastructures/features/viewport-image-on-monitor]
+        technique: imgui-drawlist
+        note: Corners projected through the part's Asmb2Ego matrix and EclToScreen; no Vulkan pipeline, but no depth occlusion.
+      - n: 3
+        title: ImGui rendered to a texture and drawn as a world-space quad
+        mod: purrtty
+        features:
+          - mods/purrtty/features/offscreen-imgui-context-render-to-texture
+          - mods/purrtty/features/world-space-quad-pipeline-custom-shader
+          - mods/purrtty/features/ray-pick-focus-for-world-quads
+        technique: vulkan-pipeline
+        note: Fully interactive terminal in the world with ray-pick focus.
+    related: [render-imgui-into-a-texture, draw-a-textured-quad-in-the-world, anchor-rendered-objects-to-parts-and-terrain]
+    borrowed_from: [mods/purrtty/features/ray-pick-focus-for-world-quads]
+
+  # ---------------------------------------------------------------- Vulkan resource discipline
+  - slug: submit-your-own-vulkan-commands
+    title: Record and submit your own Vulkan work outside the game's frame command buffer
+    summary: One-shot uploads, offscreen renders and ImGui-to-texture need command buffers the game does not own; pick the pool, fence and queue lock so they neither stall nor auto-submit half-recorded work.
+    game_types: [RenderCore.StagingPool, Brutal.VulkanApi, KSA.Program]
+    engine_pointers:
+      - current/decomp/Brutal.VulkanApi.Abstractions/StagingPool.cs
+      - current/decomp/KSA/Program.cs (Render and OnPreRender order)
+    lifecycle: [frame:draw-ui, frame:dispatch-solvers, frame:pre-render]
+    approaches:
+      - n: 1
+        title: Private one-shot command buffer and fence; StagingPool only for memory
+        mod: unscience
+        features: [mods/unscience/features/pebbles-asset-upload-submission]
+        technique: vulkan-buffer
+        note: A StagingPool submits half-recorded work on dispose, so use it only for memory; publish after the fence and free after DeviceWaitIdle.
+      - n: 2
+        title: Mod command pool, fence ring and locked queue submit
+        mod: purrtty
+        features: [mods/purrtty/features/offscreen-imgui-context-render-to-texture]
+        technique: vulkan-pipeline
+        note: Per-frame ring of fences; submit under the engine's queue lock.
+      - n: 3
+        title: Private transient pool for readback and thumbnails
+        mod: unscience
+        features: [mods/unscience/features/parts-now-thumbnail-generation]
+        technique: offscreen-viewport
+        note: Fence wait and readback at a safe point before OnPreRender.
+    related: [free-vulkan-resources-safely, render-part-thumbnails-at-runtime, render-imgui-into-a-texture]
+    borrowed_from: []
+
+  - slug: free-vulkan-resources-safely
+    title: Free mod-owned Vulkan resources without device loss
+    summary: The GPU may still read an image or buffer for several frames after the mod stops referencing it; stop recording first, free after frames in flight or WaitIdle, and never touch the destroyed device at game exit.
+    game_types: [RenderCore.SimpleVkTexture, KSA.ImGuiBackendVulkanImpl, KSA.Program]
+    engine_pointers:
+      - current/decomp/KSA/ImGuiBackendVulkanImpl.cs RemoveTexture
+      - current/decomp/KSA/Program.cs (MaxFramesInFlight and shutdown order)
+    lifecycle: [frame:draw-ui, frame:render, frame:prepare]
+    approaches:
+      - n: 1
+        title: Stop recording now, free two frames later after WaitIdle; nullable images; no device work in unload
+        mod: purrtty
+        features:
+          - mods/purrtty/features/vulkan-resource-teardown-discipline
+          - mods/purrtty/features/kitty-graphics-as-imgui-vulkan-textures
+        technique: vulkan-texture
+        note: Rebuilds targets in place on live resize and treats StarMapUnload as no-device territory.
+      - n: 2
+        title: Retire by MaxFramesInFlight + 1 frames
+        mod: gatos
+        features: [mods/gatos/features/clutter-texture-override]
+        technique: deferred-destruction
+        note: Counter-based retirement of replaced textures with no explicit idle.
+      - n: 3
+        title: Publish new GPU resources after a fence, retire old ones after WaitIdle
+        mod: unscience
+        features:
+          - mods/unscience/features/pebbles-asset-upload-submission
+          - mods/unscience/features/sphinx-uv-texture-overrides
+          - mods/unscience/features/pebbles-workshop-offscreen-preview
+        technique: vulkan-buffer
+        note: Buffer and image swaps while frames are in flight; ImGui-referenced images handled in BeforeGui.
+    related: [handle-renderer-rebuilds, show-an-image-in-imgui, submit-your-own-vulkan-commands]
+    borrowed_from: []
+
+  - slug: handle-renderer-rebuilds
+    title: Recreate mod render targets when KSA rebuilds its renderer
+    summary: KSA recreates swapchain-sized targets on resize, MSAA changes and high-resolution screenshots; mod pipelines and images tied to those extents must be rebuilt at the same point or they render into stale targets.
+    game_types: [KSA.Program, Core.Renderer, KSA.Rendering.RenderTarget]
+    engine_pointers:
+      - current/decomp/KSA/Program.cs RebuildRenderer
+      - current/decomp/Core/Renderer.cs ExtentOverride
+    lifecycle: [frame:prepare, frame:render, frame:post-render]
+    approaches:
+      - n: 1
+        title: Postfix Program.RebuildRenderer plus a first-frame schedule and per-frame extent check
+        mod: shaderextensions
+        features: [mods/shaderextensions/features/renderer-rebuild-hook]
+        technique: harmony-postfix
+        note: Rebuild is called from PrepareFrame, Render, PostRender and ScreenshotCapture; ExtentOverride must be honoured.
+      - n: 2
+        title: Rebuild targets in place on a live size change
+        mod: purrtty
+        features: [mods/purrtty/features/vulkan-resource-teardown-discipline]
+        technique: vulkan-texture
+        note: Stops recording, rebuilds when the size changes, frees the old after frames in flight.
+      - n: 3
+        title: Re-create the private material pipeline on the renderer-rebuild event
+        mod: unscience
+        features: [mods/unscience/features/pebbles-private-clutter-materials]
+        technique: vulkan-pipeline
+        note: Private buffers and pipeline variants re-created after rebuild.
+    related: [free-vulkan-resources-safely, build-a-vulkan-pipeline-for-the-scene-target, capture-rendered-frames]
+    borrowed_from: []
+
+  - slug: grow-game-gpu-buffers-for-runtime-content
+    title: Reserve or grow game GPU buffers for content added at runtime
+    summary: The game sizes its shared mesh buffer and star instance buffer at load. Runtime meshes or more stars need headroom reserved before the buffer is created, or reflective re-creation while frames are in flight.
+    game_types: [KSA.DeviceMeshInterleaved, KSA.ModLibrary, KSA.InstancedStarTechnique]
+    engine_pointers:
+      - current/decomp/KSA/DeviceMeshInterleaved.cs Shared
+      - current/decomp/KSA/InstancedStarTechnique.cs CreateInstanceBuffer
+    lifecycle: [startup:starmap-before-main, startup:all-mods-loaded, frame:draw-ui]
+    approaches:
+      - n: 1
+        title: Inflate DeviceMeshInterleaved.Shared before ModLibrary.Bind sizes the buffer
+        mod: unscience
+        features: [mods/unscience/features/parts-now-mesh-headroom-reservation]
+        technique: vulkan-buffer
+        note: Size counters inflated at AllModsLoaded and the bump cursor rewound on the first frame so runtime meshes get valid ranges; includes runtime mesh loading constraints.
+      - n: 2
+        title: Reflective re-creation of an instance buffer with a constructor argument prefix
+        mod: ohmystars
+        features: [mods/ohmystars/features/star-instance-restyle-patch]
+        technique: harmony-prefix
+        note: ref int __4 on a manually patched constructor grows capacity; readonly fields and protected CreateInstanceBuffer reached by reflection, mindful of frames in flight.
+    related: [restyle-background-stars, draw-mod-meshes-with-the-engine-renderers, free-vulkan-resources-safely]
+    borrowed_from: []
+
+  - slug: restyle-background-stars
+    title: Change the size and colour of the background stars
+    summary: Rewrite each star sprite instance as the game builds the star technique, to resize, recolour or thin the sky.
+    game_types: [KSA.InstancedStarTechnique, KSA.Program]
+    engine_pointers:
+      - current/decomp/KSA/InstancedStarTechnique.cs AddInstance
+    lifecycle: [startup:starmap-before-main, startup:all-mods-loaded]
+    approaches:
+      - n: 1
+        title: StarMapBeforeMain prefix on AddInstance rewrites size and colour bytes
+        mod: ohmystars
+        features: [mods/ohmystars/features/star-instance-restyle-patch]
+        technique: harmony-prefix
+        note: Skip adds when the buffer is full; pair with buffer growth for more stars.
+    related: [grow-game-gpu-buffers-for-runtime-content, draw-lines-on-the-sky]
+    borrowed_from: []
+
+  - slug: give-mod-objects-a-private-material-buffer
+    title: Give mod-built render objects a private material buffer
+    summary: Redirect the game's material lookup to a private per-object buffer only while the mod constructs its own objects, so replacing a material does not alter the shared one for stock content.
+    game_types: [KSA.ClutterRenderer, KSA.Program]
+    engine_pointers:
+      - current/decomp/KSA/Program.cs (material system access)
+    lifecycle: [frame:dispatch-solvers]
+    approaches:
+      - n: 1
+        title: Thread-static construction context scopes transpiler and prefix redirection
+        mod: unscience
+        features: [mods/unscience/features/pebbles-private-clutter-materials]
+        technique: harmony-transpiler
+        note: Swaps in a source-colour fragment variant too; patches active only inside the mod's own construction.
+    related: [replace-a-game-texture-at-runtime, handle-renderer-rebuilds]
+    borrowed_from: []
+
+  # ---------------------------------------------------------------- lights
+  - slug: add-dynamic-lights-to-the-world
+    title: Add dynamic spot and point lights to the world from a mod
+    summary: KSA clears its light list every frame; a mod submits its own Light instances at the right moment (after ClearLights, before sorting and shadow assignment) for headlights, lamps, flashes and fireballs, and budgets which ones cast shadows.
+    game_types: [KSA.Rendering.Lighting.Light, KSA.Rendering.Lighting.ILightSystem, KSA.Rendering.Lighting.ClusteredLightSystem, KSA.Program, KSA.PartTree]
+    engine_pointers:
+      - current/decomp/KSA.Rendering.Lighting/ILightSystem.cs CreateLightInstance, ClearLights
+      - current/decomp/KSA.Rendering.Lighting/Light.cs CreateSpotLight
+      - current/decomp/KSA.Rendering.Lighting/LightDebug.cs
+    lifecycle: [frame:lights, frame:pre-render, frame:render]
+    approaches:
+      - n: 1
+        title: Postfix PartTree.UpdateRenderData per craft with CreateSpotLight
+        mod: ksacars
+        features: [mods/ksacars/features/headlights-as-spotlights]
+        technique: harmony-postfix
+        note: Runs after ClearLights and before the light upload, once per craft; toggled by Part.LightSwitch / Vehicle.ToggleLights.
+      - n: 2
+        title: Per-viewport CreateLightInstance from an UpdateStaticObjectRenderData postfix, with a shadow-caster budget
+        mod: ksastructures
+        features: [mods/ksastructures/features/garage-spot-lights]
+        technique: dynamic-lights
+        note: Flag the nearest lamps up to MaxShadowCasters, leave slots for parts and exhaust.
+      - n: 3
+        title: Push a point light through the public LightDebug list
+        mod: ksarmory
+        features: [mods/ksarmory/features/fireball-light-injection]
+        technique: dynamic-lights
+        note: The only list the engine re-reads after clearing; plus a compute dispatch for pixels the light pre-pass dropped beyond 3.16 km.
+    related: [add-invisible-shadow-casters, control-part-light-color-and-state, modify-the-hdr-scene-with-a-compute-pass]
+    borrowed_from: [mods/ksarmory/features/fireball-light-injection]
+
+  - slug: control-part-light-color-and-state
+    title: "Control part lights from code: state, colour, intensity and beam angles"
+    summary: Switch the lights on stock light parts and vehicle lamps, recolour them, set intensity and narrow or widen spotlight cones, for one instance without affecting the shared template, and build grids of such lights as pixels.
+    game_types: [KSA.LightModule, KSA.PowerConsumer, KSA.PartTemplate, KSA.Vehicle]
+    engine_pointers:
+      - current/decomp/KSA/LightModule.cs
+      - current/decomp/KSA/PowerConsumer.cs LightIsActive
+      - current/decomp/KSA/Vehicle.cs ToggleLights
+    lifecycle: [frame:viewports, frame:draw-ui, frame:pre-render, physics:vehicle-solver]
+    approaches:
+      - n: 1
+        title: Reflection write to the shared PartTemplate light components plus LightIsActive
+        mod: unscience
+        features: [mods/unscience/features/zippo-light-control]
+        technique: reflection
+        note: Template-level write versus per-instance Template swap; switching on takes effect after the next vehicle step and needs power; origin ledger for restore.
+      - n: 2
+        title: Clone the shared template per instance and set cone angles
+        mod: gatos
+        features: [mods/gatos/features/light-cone-control]
+        technique: template-unsharing
+        note: Lower the inner angle too, CreateSpotLight swaps inner/outer, plus clamp and falloff floor findings.
+      - n: 3
+        title: Runtime light-part grids powered through battery connections
+        mod: unscience
+        features: [mods/unscience/features/its-so-shiny-light-part-grids]
+        technique: runtime-part-creation
+        note: Toggle pixels via PowerConsumer.LightIsActive; one template write per PartTemplate recolours the grid.
+    related: [animate-part-lights, add-dynamic-lights-to-the-world]
+    borrowed_from: []
+
+  - slug: animate-part-lights
+    title: Animate part light colour, intensity and spread over time
+    summary: Run repeating colour cycles, intensity fades and spotlight sweeps on one light or a whole vessel using eased transitions, without fighting the game's own keyframe actuators or leaving state behind when the mod lets go.
+    game_types: [KSA.LightModule, KSA.PartTemplate, KSA.EasingHelper]
+    engine_pointers:
+      - current/decomp/KSA/LightModule.cs
+    lifecycle: [frame:draw-ui, frame:render, event:save, event:load]
+    approaches:
+      - n: 1
+        title: Bounded queue of eased single-step transitions per light instance
+        mod: unscience
+        features: [mods/unscience/features/zippo-light-animation-queue]
+        technique: inter-mod-api
+        note: Uses UI-frame delta time; re-captures live start values when the template changes; exposed through a static API instance.
+      - n: 2
+        title: Disco channels via private Template copies and actuator claiming
+        mod: unscience
+        features: [mods/unscience/features/zippo-disco-party-lights]
+        technique: runtime-template-swap
+        note: Colour, assembly-actuation and spread channels; owner-guarded restore and per-instance module template override.
+    related: [control-part-light-color-and-state]
+    borrowed_from: []
+
+  # ---------------------------------------------------------------- particles, explosions, plumes
+  - slug: spawn-particle-effects
+    title: Spawn particle effects and explosions from a mod
+    summary: Take emitters from the engine's fixed pool, either from XML-declared ParticleEmitter assets or built in C#, anchor them, return them correctly, and fire the game's own explosion presets where no vehicle hosts the burst.
+    game_types: [KSA.Rendering.Particles.ParticleEmitter, KSA.Rendering.Particles.ParticleEmitterReference, KSA.ExplosionSystem, KSA.Rendering.Particles.EmitterSpawnPresets]
+    engine_pointers:
+      - current/decomp/KSA.Rendering.Particles/ParticleEmitter.cs
+      - current/decomp/KSA.Rendering.Particles/ParticleEmitterReference.cs
+      - current/decomp/KSA.Rendering.Particles/EmitterSpawnPresets.cs
+      - current/decomp/KSA/ExplosionSystem.cs SpawnPreset
+    lifecycle: [startup:asset-load, frame:viewports, frame:pre-render, render:particles]
+    approaches:
+      - n: 1
+        title: XML ParticleEmitter assets taken by id from the engine pool
+        mod: ksarmory
+        features: [mods/ksarmory/features/pooled-particle-emitters]
+        technique: pooled-resource
+        note: Kill() before handing an emitter back, bounded acquire, re-anchor each frame while following.
+      - n: 2
+        title: ParticleEmitterReference built in C# with SpawnMode.Burst
+        mod: gatos
+        features: [mods/gatos/features/face-particle-bursts]
+        technique: particle-emitter
+        note: EmitterPool.Get + InitializeEmitter + AddEmitter, pool of 1024, update in OnPreRender.
+      - n: 3
+        title: ExplosionSystem presets with a body-fixed origin
+        mod: ksarmory
+        features: [mods/ksarmory/features/ksa-explosions-from-a-point]
+        technique: engine-explosion-preset
+        note: Preset chosen by fireball size, real ambient pressure for pressure-gated stages.
+    related: [keep-effects-fixed-to-a-rotating-body, draw-exhaust-plumes-without-an-engine, lay-volumetric-smoke-trails]
+    borrowed_from: []
+
+  - slug: draw-exhaust-plumes-without-an-engine
+    title: Draw KSA's volumetric rocket plume without a real engine
+    summary: Reuse the game's volumetric exhaust renderer for flames from a mod-owned thrust source (a car exhaust, a prop flame, a pyrotechnic) by building VolumetricExhaustInstances and plume data yourself, including the plume physics so it reacts to altitude.
+    game_types: [KSA.VolumetricExhaustInstance, KSA.VolumetricExhaustRenderer, KSA.PlumeData, KSA.RocketNozzle, KSA.Vehicle]
+    engine_pointers:
+      - current/decomp/KSA/VolumetricExhaustInstance.cs
+      - current/decomp/KSA/VolumetricExhaustRenderer.cs AddInstance
+      - current/decomp/KSA/PlumeData.cs Compute
+      - current/decomp/KSA/RocketNozzle.cs UpdatePlumeData
+      - current/decomp/KSA/Vehicle.cs AddVolumetricExhaustInstances
+    lifecycle: [frame:pre-render, render:exhaust]
+    approaches:
+      - n: 1
+        title: Template-based instances with RocketNozzle.ComputePlumeData and mod gas numbers
+        mod: ksacars
+        features: [mods/ksacars/features/exhaust-plumes-without-engine]
+        technique: harmony-postfix
+        note: Camera-relative float positions; must be submitted between UpdateFrameData and the render; UpdateState transients for ignite and shutdown.
+      - n: 2
+        title: Postfix AddVolumetricExhaustInstances with an isentropic nozzle model
+        mod: unscience
+        features:
+          - mods/unscience/features/pyro-volumetric-exhaust-plumes
+          - mods/unscience/features/pyro-isentropic-nozzle-model
+        technique: harmony-postfix
+        note: Exit Mach from area ratio, isentropic expansion, PlumeData.Compute, so the plume reacts to ambient pressure and throttle.
+    related: [edit-exhaust-and-cloud-templates-live, lay-volumetric-smoke-trails, spawn-particle-effects]
+    borrowed_from: [mods/unscience/features/pyro-scoped-exhaust-look-override]
+
+  - slug: edit-exhaust-and-cloud-templates-live
+    title: Edit exhaust plume and cloud templates live
+    summary: Reproduce the game's hidden Volumetric Exhausts and cloud debug editors, writing template values, propagating them to live instances and resetting to pristine values.
+    game_types: [KSA.VolumetricExhaustTemplate, KSA.VolumetricExhaustRenderer, KSA.PlanetRenderer]
+    engine_pointers:
+      - current/decomp/KSA/VolumetricExhaustRenderer.cs
+    lifecycle: [frame:draw-ui, frame:pre-render, render:exhaust]
+    approaches:
+      - n: 1
+        title: Template editor with propagation to instances and nozzles
+        mod: unscience
+        features: [mods/unscience/features/pyro-exhaust-template-editor]
+        technique: reflection
+        note: Absorption, emission, noise, length and quality values written and pushed to every instance and engine nozzle, with save sidecar.
+      - n: 2
+        title: Reflect into private editor fields and replay each editor's apply sequence
+        mod: gatos
+        features: [mods/gatos/features/fx-editor-reflection]
+        technique: reflection
+        note: OnSettingsChanged + RecomputeVolumetricExhaustLimits; clouds via UpdateStaticData + PopulatePlanets; capture pristine value on first write for reset.
+    related: [draw-exhaust-plumes-without-an-engine]
+    borrowed_from: []
+
+  - slug: lay-volumetric-smoke-trails
+    title: Lay volumetric smoke trails behind projectiles and flares
+    summary: Submit trail emitter states to the game's volumetric trail renderer each frame so burning rounds and flares leave billowing smoke fixed in the body frame.
+    game_types: [KSA.PlumeTrailEmitterState, KSA.VolumetricTrailRenderer]
+    engine_pointers:
+      - current/decomp/KSA/PlumeTrailEmitterState.cs
+      - current/decomp/KSA/VolumetricTrailRenderer.cs
+    lifecycle: [frame:draw-ui, frame:celestials, frame:pre-render, render:atmosphere]
+    approaches:
+      - n: 1
+        title: One PlumeTrailEmitterState cursor per source via a reflected renderer field
+        mod: ksarmory
+        features: [mods/ksarmory/features/trail-renderer-smoke]
+        technique: volumetric-trail-emitter
+        note: Reflect once, warn once, degrade; isFlowing passed by the caller bypasses the nozzle gate.
+    related: [draw-exhaust-plumes-without-an-engine, keep-effects-fixed-to-a-rotating-body]
+    borrowed_from: []
+
+  # ---------------------------------------------------------------- decals and painting
+  - slug: project-decals-onto-scene-geometry
+    title: Project decals onto vessels, terrain and clutter
+    summary: Draw an image, a sticker or a damage mark onto arbitrary surfaces by reconstructing the scene position from the depth buffer and drawing a box or fullscreen pass in the post-resolve window, or by using the terrain's own decal modifiers.
+    game_types: [KSA.Rendering.RenderTarget, KSA.DecalModifierReference, KSA.TerrainReference]
+    engine_pointers:
+      - current/decomp/KSA.Rendering/RenderTarget.cs ResolveAttachments
+      - current/decomp/KSA/DecalModifierReference.cs
+    lifecycle: [frame:render, render:grid, render:bloom]
+    approaches:
+      - n: 1
+        title: Unit-cube decal volumes with reverse-Z depth reconstruction
+        mod: unscience
+        features:
+          - mods/unscience/features/graffiti-projected-decal-pass
+          - mods/unscience/features/graffiti-bindless-decal-textures
+        technique: vulkan-pipeline
+        note: One cube per decal; fragment shader rebuilds scene position and projects the texture; texture index through the bindless table.
+      - n: 2
+        title: Sticker pass after resolve with runtime GLSL including the game library
+        mod: gatos
+        features: [mods/gatos/features/sticker-projected-decals]
+        technique: vulkan-pipeline
+        note: Same hook as approach 1, patches installed only while stickers exist.
+      - n: 3
+        title: Procedural bullet holes painted by compute from depth, stored in the struck subpart's frame
+        mod: ksarmory
+        features: [mods/ksarmory/features/bullet-hole-decals]
+        technique: vulkan-pipeline
+        note: No texture or decal mesh; the hole follows the sub-part through the engine's draw matrix and the dented skin's real surface.
+      - n: 4
+        title: Engine terrain DecalModifier deserialized from XML in code
+        mod: ksastructures
+        features: [mods/ksastructures/features/terrain-decal-pits]
+        technique: xml-asset
+        note: Not a render pass, terrain modifiers dig pits so the drawn ground, colliders and height queries all follow; must happen while the game is still loading.
+    related: [pick-a-surface-point-under-the-cursor, anchor-rendered-objects-to-parts-and-terrain, insert-a-custom-pass-into-render-game]
+    borrowed_from: [mods/ksarmory/features/bullet-hole-decals, mods/ksastructures/features/terrain-decal-pits]
+
+  - slug: pick-a-surface-point-under-the-cursor
+    title: Pick a surface point on a part, cloth or terrain from the cursor
+    summary: Turn a click into a surface anchor by casting the cursor ray against vessel meshes, parachute cloth, kittens and terrain, then storing the hit in the right local frame, as an armed one-shot placement mode.
+    game_types: [KSA.Cursor, KSA.Part, KSA.Camera, KSA.Celestial]
+    engine_pointers:
+      - current/decomp/KSA/Cursor.cs GetEgoRay
+      - current/decomp/KSA/Part.cs RayCastEgo
+    lifecycle: [frame:draw-ui, frame:input]
+    approaches:
+      - n: 1
+        title: Armed placement mode casting against cloth triangles, view meshes, kitten sphere and a CPU terrain march
+        mod: unscience
+        features: [mods/unscience/features/graffiti-decal-placement-picking]
+        technique: raycast-picking
+        note: Cursor.GetEgoRay, Part.RayCastEgo, then terrain stepping; a one-shot ImGui click mode.
+      - n: 2
+        title: Ray.RaycastWatertight plus terrain march and bisection
+        mod: gatos
+        features: [mods/gatos/features/sticker-projected-decals]
+        technique: raycast-picking
+        note: Same goal with the engine's watertight ray cast against parts and a bisected terrain hit.
+    related: [project-decals-onto-scene-geometry, anchor-rendered-objects-to-parts-and-terrain]
+    borrowed_from:
+      - mods/ksa-measuretools/features/part-mesh-raycast-picking
+      - mods/ksagolf/features/cursor-picking-and-terrain-ray
+      - mods/ksarmory/features/cursor-ray-world-click-tools
+
+  - slug: paint-vessel-parts-with-custom-colours
+    title: Recolour vessel parts and kittens with a patched part shader
+    summary: Tint, multiply or replace the colour of individual part instances, part types or whole vessels by packing colour into per-instance state bits and compiling a modified fragment shader, leaving glass and heat glow intact.
+    game_types: [KSA.PartModelDynamic, KSA.ShaderReference, KSA.PartTreeRenderData]
+    engine_pointers:
+      - current/decomp/KSA/PartModelDynamic.cs AddInstance
+      - current/decomp/KSA/PartTreeRenderData.cs
+    lifecycle: [startup:all-mods-loaded, frame:render, frame:draw-ui]
+    approaches:
+      - n: 1
+        title: 7:7:7 colour in the unused StateBitFlag high bits plus a patched MeshIndirect.frag
+        mod: unscience
+        features:
+          - mods/unscience/features/humble-arteest-vehicle-paint-shader-patch
+          - mods/unscience/features/humble-arteest-kitten-color
+        technique: glsl-shader
+        note: Ten-line decode snippet compiled in place of the stock file; Multiply, Tint, Replace; kitten colour via the material system.
+      - n: 2
+        title: Shader transform at compile time with packed colours and runtime masters
+        mod: gatos
+        features: [mods/gatos/features/vehicle-and-eva-paint]
+        technique: glsl-shader
+        note: Global, per-template, per-vessel or per-instance scope; restores stock rendering when disabled; also covers EVA suit, fur, visor.
+    related: [tint-emissive-glow-per-part, project-decals-onto-scene-geometry]
+    borrowed_from:
+      - mods/unscience/features/humble-arteest-vehicle-paint-shader-patch
+      - mods/unscience/features/humble-arteest-kitten-color
+      - mods/gatos/features/vehicle-and-eva-paint
+
+  - slug: tint-emissive-glow-per-part
+    title: Give a part or subpart a coloured emissive glow or override engine heat glow
+    summary: Drive KSA's emissive and temperature channels per instance - coloured lenses on a car, custom engine heat colour - by editing instance data just before it is appended to the frame's lists.
+    game_types: [KSA.PartTreeRenderData, KSA.PartModelDynamic, KSA.PartModelRenderer]
+    engine_pointers:
+      - current/decomp/KSA/PartTreeRenderData.cs WriteState
+      - current/decomp/KSA/PartModelDynamic.cs AddInstance
+    lifecycle: [frame:pre-render, frame:render]
+    approaches:
+      - n: 1
+        title: ADD_EMISSIVE_COLOR state bit and instance colour in a postfix on WriteState
+        mod: ksacars
+        features: [mods/ksacars/features/coloured-emissive-lenses]
+        technique: harmony-postfix
+        note: Reflection into private batch arrays, disabled automatically if the target moves; red-channel mask and bit meanings in MeshIndirect.frag; lens triangles split from a GLB mesh by UV region.
+      - n: 2
+        title: Prefix on PartModelDynamic.AddInstance rewrites Temperature and TfiThickness
+        mod: unscience
+        features: [mods/unscience/features/humble-arteest-engine-emissive]
+        technique: harmony-prefix
+        note: Reuses the game's own ENABLE_TEMPERATURE heat lookup and thin-film path; unsafe struct reinterpret.
+    related: [paint-vessel-parts-with-custom-colours]
+    borrowed_from: [mods/ksacars/features/coloured-emissive-lenses]
+
+  # ---------------------------------------------------------------- part, subpart and vehicle visibility
+  - slug: hide-parts-or-subparts-from-rendering
+    title: Hide part meshes or subparts without removing them
+    summary: Remove a window pane, a model or a missile from the picture while the part stays in the vessel, either by filtering instance lists, by scaling a subpart to nothing or by moving it out of the way.
+    game_types: [KSA.PartTreeRenderData, KSA.Part, KSA.PartModelModule]
+    engine_pointers:
+      - current/decomp/KSA/PartTreeRenderData.cs Compose, ComposeDynamic, ComposeGlass
+      - current/decomp/KSA/Part.cs ResetCachedPosMatrixValues
+    lifecycle: [frame:render, frame:draw-ui]
+    approaches:
+      - n: 1
+        title: Shared prefix/postfix pair on Compose records instance ranges and removes hidden models
+        mod: unscience
+        features:
+          - mods/unscience/features/lib-part-render-filter
+          - mods/unscience/features/kitchen-sink-capsule-glass
+        technique: harmony-prefix
+        note: Several owners share one patch; the filter edits the appended range before upload.
+      - n: 2
+        title: Scale a subpart to nothing until it is fired or needed
+        mod: ksarmory
+        features: [mods/ksarmory/features/rounds-as-hidden-launcher-subparts]
+        technique: scale-to-hide
+        note: Pre-declared subpart seated or shrunk each frame; transform written from the mod simulation.
+      - n: 3
+        title: Pose or hide subparts from StarMapAfterGui
+        mod: ksacars
+        features: [mods/ksacars/features/pose-subparts-at-runtime]
+        technique: starmap-lifecycle
+        note: Write Part.PositionParentAsmb/Asmb2ParentAsmb/Scale and reset cached matrices; latch the work so it runs when the HUD is hidden.
+    related: [animate-subparts-from-code, show-iva-interiors-from-outside, keep-overlays-updating-when-hud-hidden]
+    borrowed_from: []
+
+  - slug: animate-subparts-from-code
+    title: Animate a part's subparts from code
+    summary: Move wheels, steering wheels, arms, iris blades or launched missiles every frame by writing the parent-relative subpart transform and resetting the cached matrices, independent of the part's own keyframe animation.
+    game_types: [KSA.Part, KSA.SubPart]
+    engine_pointers:
+      - current/decomp/KSA/Part.cs PositionParentAsmb, Asmb2ParentAsmb, ResetCachedPosMatrixValues
+    lifecycle: [frame:draw-ui, frame:after-on-frame, frame:celestials]
+    approaches:
+      - n: 1
+        title: Write transforms and reset caches from StarMapAfterGui with a frame latch
+        mod: ksacars
+        features: [mods/ksacars/features/pose-subparts-at-runtime]
+        technique: starmap-lifecycle
+        note: Wheels, coil-overs, steering wheel, iris blades; FrameLatch with a StarMapAfterOnFrame fallback when the HUD is hidden.
+      - n: 2
+        title: Projectiles as hidden launcher subparts placed at the simulated position
+        mod: ksarmory
+        features:
+          - mods/ksarmory/features/rounds-as-hidden-launcher-subparts
+          - mods/ksarmory/features/articulated-mount-subparts
+        technique: subpart-transform-write
+        note: Transform in Ego relative to the tube plus travel since launch; sim/render split.
+    related: [hide-parts-or-subparts-from-rendering, choose-ecl-or-ego-positions-for-rendering]
+    borrowed_from: [mods/ksarmory/features/articulated-mount-subparts]
+
+  - slug: show-iva-interiors-from-outside
+    title: Show IVA interiors from the exterior camera
+    summary: The cabin model normally draws only in IVA; flip the template's Internal flag with an owner-counted requirement, or hide window meshes, so the interior shows from outside the capsule and in the editor.
+    game_types: [KSA.PartModelModule, KSA.PartTreeRenderData]
+    engine_pointers:
+      - current/decomp/KSA/PartModelModule.cs Template.Internal
+    lifecycle: [frame:render, frame:draw-ui, editor:render]
+    approaches:
+      - n: 1
+        title: Owner-counted Template.Internal requirement with Compose prefix and finalizer
+        mod: unscience
+        features:
+          - mods/unscience/features/lib-iva-force-render
+          - mods/unscience/features/kitchen-sink-capsule-glass
+        technique: harmony-finalizer
+        note: Flips the shared flag on loaded and newly constructed models; kitchen sink combines it with hiding the window meshes.
+      - n: 2
+        title: Flip Template.Internal from a lazily installed dedicated Harmony instance
+        mod: gatos
+        features: [mods/gatos/features/scale-and-force-render-cheats]
+        technique: harmony-prefix
+        note: Dedicated Harmony id, unpatch on last use.
+    related: [hide-parts-or-subparts-from-rendering, keep-vessels-rendered-at-any-distance]
+    borrowed_from: []
+
+  - slug: render-kitten-equipment-in-the-right-order
+    title: Render parts attached to an EVA kitten in the right order
+    summary: Equipment parts that belong to a kitten's backpack tree need to run through the vehicle render path before the shared instance lists are uploaded, or they vanish or flicker.
+    game_types: [KSA.PartModelRenderer, KSA.Vehicle, KSA.KittenRenderable]
+    engine_pointers:
+      - current/decomp/KSA/PartModelRenderer.cs UpdateRenderData
+      - current/decomp/KSA/KittenRenderable.cs
+    lifecycle: [frame:render]
+    approaches:
+      - n: 1
+        title: Prefix on PartModelRenderer.UpdateRenderData calls the patched Vehicle.UpdateRenderData nonvirtually
+        mod: unscience
+        features: [mods/unscience/features/iron-man-equipment-render-ordering]
+        technique: harmony-prefix
+        note: Priority.First prefix skips the duplicate call; dynamic method for the nonvirtual call.
+    related: [hide-parts-or-subparts-from-rendering]
+    borrowed_from: []
+
+  - slug: keep-vessels-rendered-at-any-distance
+    title: Keep a vessel or kitten rendered at any distance
+    summary: KSA culls vehicles that project below one pixel or past a render radius. Override the cull so a distant ship, a projectile launcher or a scaled-up vessel still draws.
+    game_types: [KSA.Vehicle, KSA.PartModelRenderer, KSA.PartTreeRenderData]
+    engine_pointers:
+      - current/decomp/KSA/Vehicle.cs GetWorldMatrix, UpdateRenderData, IsLargeEnoughToRender
+    lifecycle: [frame:render, frame:draw-ui, frame:pre-render]
+    approaches:
+      - n: 1
+        title: Skip-original prefixes on GetWorldMatrix and UpdateRenderData
+        mod: unscience
+        features: [mods/unscience/features/i-feel-seen-render-distance-override]
+        technique: harmony-prefix
+        note: Rebuilds the native result without the distance gate, resolved by name for resilience.
+      - n: 2
+        title: Replace the sub-pixel cull with a prefix that reproduces the body
+        mod: gatos
+        features: [mods/gatos/features/scale-and-force-render-cheats]
+        technique: harmony-prefix
+        note: Installed lazily so the cost is only paid while enabled.
+      - n: 3
+        title: Postfix UpdateRenderData asks the pixel test again for a launcher
+        mod: ksarmory
+        features: [mods/ksarmory/features/round-body-draw-hooks]
+        technique: harmony-postfix
+        note: Draw only what is needed while rounds fly.
+      - n: 4
+        title: Call-site transpilers enlarge the cull radius
+        mod: unscience
+        features: [mods/unscience/features/godzilla-visual-scaling]
+        technique: harmony-transpiler
+        note: Guarded rewrites of the IsLargeEnoughToRender call so a scaled vessel is still culled sanely.
+    related: [visually-scale-a-vessel, show-iva-interiors-from-outside]
+    borrowed_from: []
+
+  - slug: visually-scale-a-vessel
+    title: Scale how a vessel or kitten is drawn without changing physics
+    summary: Resize the drawn parts of a vessel or EVA kitten around its live centre of mass, either with draw-matrix patches or by recursively setting Part.Scale, while leaving colliders and mass alone.
+    game_types: [KSA.Part, KSA.Vehicle, KSA.PartTreeRenderData]
+    engine_pointers:
+      - current/decomp/KSA/Part.cs Scale
+      - current/decomp/KSA/Vehicle.cs GetWorldMatrix
+    lifecycle: [frame:render, frame:prepare, frame:viewports]
+    approaches:
+      - n: 1
+        title: Part-tree draw-matrix patches and a GetWorldMatrix postfix about the centre of mass
+        mod: unscience
+        features:
+          - mods/unscience/features/godzilla-visual-scaling
+          - mods/unscience/features/godzilla-vessel-scaling
+        technique: harmony-transpiler
+        note: Visual channel separate from the collider channel; also enlarges the render cull radius.
+      - n: 2
+        title: Recursive Part.Scale and avatar Core.Scale cheats
+        mod: gatos
+        features: [mods/gatos/features/scale-and-force-render-cheats]
+        technique: harmony-prefix
+        note: Simple route that also affects what the game believes about the part.
+    related: [keep-vessels-rendered-at-any-distance]
+    borrowed_from: [mods/unscience/features/godzilla-vessel-scaling]
+
+  # ---------------------------------------------------------------- celestial render helpers
+  - slug: render-planetary-rings-with-custom-textures
+    title: Render planetary rings with generated textures and meshes
+    summary: Build ring band and control textures procedurally in code, bind them through the game's TextureReference pipeline, and swap ring meshes and parameters on a ringed body at runtime.
+    game_types: [KSA.PlanetaryRingsReference, KSA.TextureReference, RenderCore.Mesh.SimpleVkMesh]
+    engine_pointers:
+      - current/decomp/KSA/PlanetaryRingsReference.cs
+      - current/decomp/KSA/TextureReference.cs
+      - current/decomp/KSA.Rendering.Rings.Rendering/PlanetaryRingsRenderer.cs
+    lifecycle: [frame:prepare, frame:draw-ui, render:atmosphere, render:scene-opaque]
+    approaches:
+      - n: 1
+        title: Procedural 2048x1 band textures wrapped in a TextureReference subclass
+        mod: unscience
+        features:
+          - mods/unscience/features/bloomin-onion-painted-ring-textures
+          - mods/unscience/features/bloomin-onion-runtime-planetary-rings
+        technique: reflection
+        note: Private TextureAsset seeded by reflection so the game binds the texture and bindless handle itself.
+      - n: 2
+        title: Swap LOD meshes and ring parameters from the public XML-backed reference tree
+        mod: unscience
+        features:
+          - mods/unscience/features/rocky-mcrock-face-ring-asset-swap
+          - mods/unscience/features/rocky-mcrock-face-interleaved-mesh-clone
+        technique: reflection
+        note: Cloned SimpleVkMesh for the ring pipeline; asset catalog of ModLibrary meshes.
+    related: [upload-an-image-as-a-vulkan-texture, draw-mod-meshes-with-the-engine-renderers]
+    borrowed_from:
+      - mods/unscience/features/bloomin-onion-runtime-planetary-rings
+      - mods/unscience/features/rocky-mcrock-face-ring-asset-swap
+
+  - slug: keep-overlays-updating-when-hud-hidden
+    title: Run per-frame render work when the HUD is hidden
+    summary: StarMapAfterGui is skipped when DrawUI is false, so subpart poses, light submissions and other per-frame render work must latch to a frame counter with a StarMapAfterOnFrame fallback.
+    game_types: [KSA.Program]
+    engine_pointers:
+      - current/decomp/KSA/Program.cs OnDrawUiViewports, OnFrame
+    lifecycle: [frame:draw-ui, frame:after-on-frame]
+    approaches:
+      - n: 1
+        title: FrameLatch with AfterGui and AfterOnFrame fallback
+        mod: ksacars
+        features: [mods/ksacars/features/pose-subparts-at-runtime]
+        technique: starmap-lifecycle
+        note: Run once per frame from whichever hook fires first.
+    related: [animate-subparts-from-code, choose-a-draw-list-for-world-overlays]
+    borrowed_from: []

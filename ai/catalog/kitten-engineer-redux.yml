@@ -1,0 +1,293 @@
+mod: kitten-engineer-redux
+repo: Kitten-Engineer-Redux
+ref: d5786a0e75203a18a96936fb3537220d44b7a18b
+summary: >-
+  Kitten Engineer Redux (BarneyTheGod / BarneyCompiler) is a small StarMap mod in the style of Kerbal
+  Engineer Redux. A Harmony postfix on VehicleEditor.OnDrawUi adds an editor panel with delta-v, mass,
+  part count and a per-stage table read from the game's staging simulator (PartTree.PerformanceSequences,
+  recomputed synchronously when dirty) or from a custom rocket-equation estimate at a chosen altitude.
+  A postfix on Vehicle.OnDrawUi, filtered to the controlled vehicle in the main viewport, draws a flight
+  HUD with configurable stat tiles, threshold alerts, live thrust and TWR, fuel gauges, orbit readouts,
+  a suicide-burn calculator, a Hohmann planner and a 0.25 s telemetry history graph with CSV export.
+  The UI is a custom draw-list widget kit with pop-out sections and a draw-list chart; settings autosave
+  to JSON in Documents; a menu registers with ModMenu or falls back to a postfix on the empty
+  Program.DrawProgramMenusHook. mod.toml carries only a name and relies on StarMap's default entry
+  assembly; a hand-made release zip under dist/ lags the source.
+features:
+  - id: mods/kitten-engineer-redux/features/editor-panel-injection
+    title: Editor panel injected into the vehicle editor
+    category: ui
+    submod: null
+    summary: >-
+      Postfix on VehicleEditor.OnDrawUi draws an analysis window each editor frame from
+      EditingSpace.Parts, PartTree mass properties and the home body's gravity and atmosphere.
+    novelty: medium
+    techniques: [harmony-postfix, imgui-window, imgui-drawlist]
+    lifecycle: [frame:draw-ui, editor:draw-ui]
+    hooks: ["harmony-postfix KSA.VehicleEditor.OnDrawUi"]
+    game_types: [KSA.VehicleEditor, KSA.VehicleEditingSpace, KSA.PartTree, KSA.OffsetMassProperties, KSA.Universe, KSA.CelestialSystem, KSA.IParentBody, KSA.Astronomical, KSA.PhysicalAtmosphereReference, KSA.GameViewport, KSA.Program]
+    key_paths: [Patch_EditorPanel.cs, EditorPanel.cs, MassAnalyzer.cs, EnvironmentHelpers.cs]
+    howto_topics:
+      - slug: add-a-panel-to-the-vehicle-editor
+        title: Add a panel to the vehicle editor
+        note: postfix VehicleEditor.OnDrawUi; read EditingSpace.Parts; only draws while the editor exists
+      - slug: read-craft-mass-in-the-editor
+        title: Read dry, propellant and wet mass of the craft being built
+        note: PartTree.ComputeInertMassPropertiesAsmb + ComputePropellantMassPropertiesAsmb, as the editor does at launch
+  - id: mods/kitten-engineer-redux/features/native-stage-performance-readout
+    title: Native stage performance readout
+    category: vehicles-and-parts
+    submod: null
+    summary: >-
+      Reads SequencePerformance results (delta-v, thrust, Isp, masses, phases, propellants) and derives
+      burn time, TWR against a chosen g and max TWR from phases; falls back to a vacuum estimate while
+      the list is dirty (editor recomputes it synchronously; in flight only the game's worker does,
+      while the Sequence or EngineControl gauge canvas is enabled, which is the default).
+    novelty: high
+    techniques: [game-simulator-reuse]
+    lifecycle: [frame:draw-ui, editor:draw-ui]
+    hooks: ["harmony-postfix KSA.VehicleEditor.OnDrawUi", "harmony-postfix KSA.Vehicle.OnDrawUi"]
+    game_types: [KSA.PartTree, KSA.SequencePerformanceList, KSA.SequencePerformance, KSA.SequencePhaseInfo, KSA.SequencePropellantInfo, KSA.SequenceList, KSA.Sequence, KSA.EngineController, KSA.Part, KSA.SequencePerformanceJob, KSA.PhysicsBubble, KSA.ResourceGroups, KSA.GaugeCanvas]
+    key_paths: [SequenceAnalyzer.cs, StageListView.cs]
+    howto_topics:
+      - slug: read-stage-delta-v-from-the-staging-simulator
+        title: Read per-stage delta-v from the game's staging simulator
+        note: PartTree.PerformanceSequences; pair by index with SequenceList.Sequences; Volatile-published array
+      - slug: sequence-performance-cache-freshness
+        title: Know when the staging simulator's results are fresh
+        note: editor job queued after draw-UI only while dirty; flight recompute on a vehicle-solver worker while the Sequence or EngineControl gauge canvas is enabled (default on); double-buffered publish
+  - id: mods/kitten-engineer-redux/features/custom-stage-delta-v-estimator
+    title: Custom stage delta-v estimator
+    category: vehicles-and-parts
+    submod: null
+    summary: >-
+      Per-stage rocket equation: jettison decoupler subtrees, sum engine thrust/flow via
+      RocketControllerData.ComputeFromCores at a pressure, claim reachable tanks once via ConsumptionOrder.
+    novelty: medium
+    techniques: [stage-model-recompute]
+    lifecycle: [frame:draw-ui, editor:draw-ui]
+    hooks: ["harmony-postfix KSA.VehicleEditor.OnDrawUi", "harmony-postfix KSA.Vehicle.OnDrawUi"]
+    game_types: [KSA.PartTree, KSA.SequenceList, KSA.Sequence, KSA.Part, KSA.ModuleList, KSA.Decoupler, KSA.InertMass, KSA.Tank, KSA.Mole, KSA.Liquid, KSA.Solid, KSA.EngineController, KSA.RocketControllerData, KSA.RocketCore, KSA.PlumbedCore, KSA.ResourceManager, KSA.FlowOrder, KSA.Constants]
+    key_paths: [SequenceAnalyzer.cs, MassHelpers.cs, FlowHelpers.cs]
+    howto_topics:
+      - slug: walk-tanks-an-engine-can-reach
+        title: Find the tanks an engine can draw from
+        note: PlumbedCore.ResourceManager.ConsumptionOrder (FlowOrder<Tank> levels)
+      - slug: estimate-stage-delta-v-yourself
+        title: Estimate stage delta-v without the staging simulator
+  - id: mods/kitten-engineer-redux/features/flight-hud-controlled-vehicle-postfix
+    title: Flight HUD on the controlled vehicle
+    category: ui
+    submod: null
+    summary: >-
+      Postfix on Vehicle.OnDrawUi filtered to Program.MainViewport and Program.ControlledVehicle builds a
+      per-frame data record (orbit, live nozzle thrust, ComputeActiveThrust, TWR, mass, acceleration) and
+      draws a sectioned HUD.
+    novelty: medium
+    techniques: [harmony-postfix, imgui-window, imgui-drawlist]
+    lifecycle: [frame:draw-ui]
+    hooks: ["harmony-postfix KSA.Vehicle.OnDrawUi"]
+    game_types: [KSA.Vehicle, KSA.Program, KSA.Universe, KSA.CelestialSystem, KSA.GameViewport, KSA.PartTree, KSA.EngineController, KSA.RocketNozzle, KSA.PhysicsEnvironment, KSA.SequenceList]
+    key_paths: [Patch_FlightHud.cs, FlightHud.cs, ActiveEngineThrust.cs]
+    howto_topics:
+      - slug: draw-a-hud-for-the-controlled-vehicle
+        title: Draw a HUD for the controlled vehicle
+        note: Vehicle.OnDrawUi postfix vs StarMapAfterGui; filter secondary viewports; declare IGameViewport
+      - slug: harmony-postfix-parameter-binding
+        title: Bind original arguments in a Harmony postfix by name
+        note: Harmony 2.4.2 emits a plain ldarg with no type check for reference types; declare the exact parameter type
+  - id: mods/kitten-engineer-redux/features/hud-widgets-and-threshold-alerts
+    title: HUD stat tiles and threshold alerts
+    category: ui
+    submod: null
+    summary: >-
+      Player-ordered stat tiles and per-metric threshold rules evaluated once per frame against a shared
+      context, shown as banner, outlined tiles, warning rows and a graph threshold line.
+    novelty: low
+    techniques: [imgui-drawlist, imgui-window, json-config]
+    lifecycle: [frame:draw-ui]
+    hooks: ["harmony-postfix KSA.Vehicle.OnDrawUi"]
+    game_types: [Brutal.ImGuiApi.ImGui]
+    key_paths: [HudWidgets.cs, HudAlerts.cs, PanelKit.cs]
+    howto_topics:
+      - slug: threshold-alerts-in-an-imgui-hud
+        title: Threshold alerts in an ImGui HUD
+  - id: mods/kitten-engineer-redux/features/suicide-burn-calculator
+    title: Suicide-burn calculator
+    category: flight-and-orbits
+    submod: null
+    summary: >-
+      Closed-form burn altitude, duration and countdown from radar altitude, surface velocity,
+      active-engine thrust at live pressure and averaged gravity; note GetNearSurfaceRadius is atmosphere top.
+    novelty: medium
+    techniques: [flight-math]
+    lifecycle: [frame:draw-ui]
+    hooks: ["harmony-postfix KSA.Vehicle.OnDrawUi"]
+    game_types: [KSA.Vehicle, KSA.Orbit, KSA.IParentBody, KSA.Astronomical, KSA.AtmosphericBody, KSA.PhysicsEnvironment, KSA.EngineController, KSA.RocketControllerData]
+    key_paths: [SuicideBurnCalculator.cs, ActiveEngineThrust.cs]
+    howto_topics:
+      - slug: compute-a-suicide-burn
+        title: Compute a suicide-burn (hoverslam) start altitude
+        note: radar altitude via Vehicle.GetRadarAltitude; avoid GetNearSurfaceRadius for ground gravity
+  - id: mods/kitten-engineer-redux/features/orbit-readouts-and-hohmann-estimate
+    title: Orbit readouts and Hohmann estimate
+    category: flight-and-orbits
+    submod: null
+    summary: >-
+      Apsides, period, apsis and node countdowns (Orbit.GetRemainingTimeTo), eccentricity vector, surface
+      velocity split, lat/lon via GetCci2Ccf/GetLlaFromCcf, plus a coplanar Hohmann estimate.
+    novelty: low
+    techniques: [flight-math]
+    lifecycle: [frame:draw-ui]
+    hooks: ["harmony-postfix KSA.Vehicle.OnDrawUi"]
+    game_types: [KSA.Vehicle, KSA.Orbit, KSA.StateVectors, KSA.IParentBody, KSA.TrueAnomaly, KSA.UniverseTime, KSA.Universe, KSA.Constants]
+    key_paths: [OrbitSummary.cs, OrbitPlanner.cs]
+    howto_topics:
+      - slug: derive-orbit-readouts-from-state-vectors
+        title: Derive orbit readouts from a vehicle's state vectors
+        note: CCI frame; surface velocity = v - omega x r; time to node via GetRemainingTimeTo(TrueAnomaly); next periapsis of an open orbit can be in the past
+      - slug: vehicle-latitude-longitude
+        title: Get a vehicle's latitude and longitude
+        note: PositionCci.Transform(Parent.GetCci2Ccf()) then GetLlaFromCcf
+      - slug: hohmann-transfer-estimate
+        title: Estimate a Hohmann transfer to a circular altitude
+  - id: mods/kitten-engineer-redux/features/telemetry-history-and-csv-export
+    title: Telemetry history and CSV export
+    category: external-io
+    submod: null
+    summary: >-
+      Six metrics sampled every 0.25 s of wall-clock player time from the HUD draw into 720-entry shifted
+      arrays, reset on vehicle change, exported to CSV in Documents.
+    novelty: low
+    techniques: [telemetry-sampling, csv-export]
+    lifecycle: [frame:draw-ui]
+    hooks: ["harmony-postfix KSA.Vehicle.OnDrawUi"]
+    game_types: [KSA.Program, KSA.Vehicle, KSA.App, KSA.Constants]
+    key_paths: [TelemetryHistory.cs, FlightHud.cs]
+    howto_topics:
+      - slug: sample-telemetry-at-a-fixed-interval
+        title: Sample flight telemetry at a fixed interval
+        note: Program.GetPlayerTime is wall clock (Stopwatch); Universe.GetElapsedTime is sim time
+      - slug: export-telemetry-to-csv
+        title: Export telemetry to CSV
+  - id: mods/kitten-engineer-redux/features/draw-list-line-graph
+    title: Draw-list line graph
+    category: ui
+    submod: null
+    summary: >-
+      Time-series chart on ImDrawList with nice-number ticks, time axis, fill, extrema markers, dashed
+      threshold and hover crosshair, without ImPlot.
+    novelty: medium
+    techniques: [imgui-drawlist]
+    lifecycle: [frame:draw-ui]
+    hooks: ["harmony-postfix KSA.Vehicle.OnDrawUi"]
+    game_types: [Brutal.ImGuiApi.ImGui, Brutal.ImGuiApi.ImDrawListPtr]
+    key_paths: [GraphView.cs]
+    howto_topics:
+      - slug: draw-a-chart-with-imdrawlist
+        title: Draw a time-series chart with ImDrawList
+  - id: mods/kitten-engineer-redux/features/draw-list-widget-kit
+    title: Draw-list widget kit with pop-out sections
+    category: ui
+    submod: null
+    summary: >-
+      Hand-laid-out rows, tiles, gauges, toggles and buttons on the window draw list with InvisibleButton
+      hit-testing and a Dummy for content size; collapsible sections that pop out into their own windows.
+    novelty: medium
+    techniques: [imgui-drawlist, imgui-window]
+    lifecycle: [frame:draw-ui, editor:draw-ui]
+    hooks: ["harmony-postfix KSA.Vehicle.OnDrawUi", "harmony-postfix KSA.VehicleEditor.OnDrawUi"]
+    game_types: [Brutal.ImGuiApi.ImGui, Brutal.ImGuiApi.ImDrawListPtr, KSA.GameViewport]
+    key_paths: [PanelKit.cs, SectionHost.cs, StageListView.cs]
+    howto_topics:
+      - slug: custom-drawn-imgui-widgets
+        title: Build custom-drawn ImGui widgets with InvisibleButton
+      - slug: pop-out-imgui-sections
+        title: Let panel sections pop out into their own windows
+      - slug: theme-an-imgui-window
+        title: Theme an ImGui window with runtime-editable colours
+  - id: mods/kitten-engineer-redux/features/modmenu-entry-with-standalone-fallback
+    title: ModMenu entry with a standalone menu fallback
+    category: ui
+    submod: null
+    summary: >-
+      ModMenuEntry (ModMenu.Attributes 1.0.2) with an active-flag property name; fallback postfix on the
+      empty Program.DrawProgramMenusHook, inside the game's own "Menu Bar" window between BeginMenuBar
+      and EndMenuBar, using IGameViewportLifecycle.SetMenuBarInUse to defeat auto-hide.
+    novelty: low
+    techniques: [harmony-postfix, imgui-menu, inter-mod-api]
+    lifecycle: [frame:draw-ui]
+    hooks: ["harmony-postfix KSA.Program.DrawProgramMenusHook", "modmenu ModMenuEntry"]
+    game_types: [KSA.Program, KSA.IGameViewportLifecycle, KSA.GameViewport]
+    key_paths: [ModMenuIntegration.cs, StandaloneMenu.cs, MenuContent.cs]
+    howto_topics:
+      - slug: add-a-menu-with-modmenu-fallback
+        title: Add a menu that uses ModMenu when present and the game menu bar otherwise
+        note: compare attribute active-flag (KER) with ModLibrary.Find("ModMenu") (gatOS)
+  - id: mods/kitten-engineer-redux/features/json-settings-autosave
+    title: JSON settings with autosave
+    category: persistence
+    submod: null
+    summary: >-
+      System.Text.Json settings in Documents, loaded on first UI frame, re-serialised every 2 s and
+      written only on change; late-constructed UI sections apply saved state on registration.
+    novelty: low
+    techniques: [json-config]
+    lifecycle: [frame:draw-ui, editor:draw-ui]
+    hooks: ["harmony-postfix KSA.Vehicle.OnDrawUi", "harmony-postfix KSA.VehicleEditor.OnDrawUi"]
+    game_types: [Brutal.Logging.DefaultCategory]
+    key_paths: [SettingsStore.cs, SectionHost.cs]
+    howto_topics:
+      - slug: persist-mod-settings-as-json
+        title: Persist mod settings as JSON with autosave
+  - id: mods/kitten-engineer-redux/features/dist-zip-and-post-build-deploy
+    title: Minimal mod.toml, post-build deploy and release zip
+    category: getting-started
+    submod: null
+    summary: >-
+      One-line mod.toml relying on StarMap's default EntryAssembly (the manifest id, i.e. the folder
+      name), post-build copy of the DLL and ModMenu.Attributes.dll, hand-committed release zip (v0.5.2
+      vs v0.5.7 source); StarMapUnload runs after StarMap's id-less UnpatchAll.
+    novelty: low
+    techniques: [msbuild-post-build-copy, starmap-lifecycle]
+    lifecycle: [startup:all-mods-loaded]
+    hooks: ["starmap StarMapAllModsLoaded", "starmap StarMapUnload"]
+    game_types: [KSA.ModLibrary]
+    key_paths: [mod.toml, KittenEngineerRedux.csproj, Mod.cs, dist/KittenEngineerRedux.zip]
+    howto_topics:
+      - slug: minimal-mod-toml
+        title: The smallest mod.toml StarMap accepts
+        note: without [StarMap], EntryAssembly defaults to the manifest id (folder name, not the name key); a missing DLL is skipped silently
+      - slug: clean-up-on-unload
+        title: Clean up when the game shuts down
+        note: StarMapUnload runs after StarMapCore.DeInit has removed every Harmony patch; only non-Harmony cleanup matters there
+      - slug: ship-third-party-dlls-with-a-mod
+        title: Ship a third-party DLL next to your mod
+        note: StarMap ModAssemblyLoadContext falls back to AssemblyDependencyResolver in the mod folder
+  - id: mods/kitten-engineer-redux/features/live-engine-thrust-and-twr
+    title: Live and rated engine thrust with TWR
+    category: vehicles-and-parts
+    submod: null
+    summary: >-
+      Actual thrust and flow from applied RocketNozzleState.Performance of active engines; rated thrust
+      from Vehicle.ComputeActiveThrust (skips dry engines) or RocketControllerData.ComputeFromCores at a
+      pressure; TWR against G*M/r^2 and pressure from PhysicalAtmosphereReference at any altitude.
+    novelty: medium
+    techniques: [engine-performance-readout, flight-math]
+    lifecycle: [frame:draw-ui, editor:draw-ui]
+    hooks: ["harmony-postfix KSA.Vehicle.OnDrawUi", "harmony-postfix KSA.VehicleEditor.OnDrawUi"]
+    game_types: [KSA.PartTree, KSA.EngineController, KSA.EngineControllerState, KSA.RocketCore, KSA.Rocket, KSA.RocketNozzle, KSA.RocketNozzleState, KSA.RocketPerformance, KSA.RocketControllerData, KSA.SolidMotor, KSA.Vehicle, KSA.PhysicsEnvironment, KSA.IParentBody, KSA.Astronomical, KSA.PhysicalAtmosphereReference, KSA.Constants]
+    key_paths: [ActiveEngineThrust.cs, EnvironmentHelpers.cs, FlightHud.cs]
+    howto_topics:
+      - slug: read-live-engine-thrust
+        title: Read live engine thrust and mass flow
+        note: PartTree.RocketNozzles.GetModulesAndStates(core.Rocket.Nozzles) -> State.Performance; values applied at frame:apply-solvers
+      - slug: engine-thrust-at-ambient-pressure
+        title: Compute engine thrust and mass flow at a given ambient pressure
+        note: RocketControllerData.ComputeFromCores or EngineController.VacuumData; solid motors depend on current grain
+      - slug: thrust-to-weight-ratio
+        title: Compute thrust-to-weight ratio against local gravity
+        note: Vehicle.ComputeActiveThrust vs live nozzle thrust; g = G*M/(R+h)^2
+      - slug: atmospheric-pressure-at-altitude
+        title: Get atmospheric pressure at an arbitrary altitude
+        note: Astronomical.GetAtmosphereReference().Physical.GetAtmosphericPressureAtAltitude; Height for the top

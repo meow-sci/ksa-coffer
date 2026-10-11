@@ -1,0 +1,808 @@
+mod: ksacars
+repo: KSACars
+ref: 1f0a84f623ef7a8edb0792d5c46c0fecfc2abd7f
+summary: >-
+  KSACars ("Fast & Purrious", LaurensDeV, MIT) adds two driveable cars to KSA, a beach buggy and a
+  flying 1976 Cadillac Eldorado, as single parts declared in XML with their own GLB art, PBR
+  textures, seats and EVA doors. KSA has no wheels, so a StarMap code mod simulates per-wheel
+  spring-dampers, friction-circle tyres, a drive force, a cosmetic gearbox and rocket lift, hover,
+  boost and downforce, reading terrain under each hub in the planet-fixed frame and writing one
+  linear and one angular impulse into the vehicle's kinematic state from a Harmony prefix on
+  Vehicle.PrepareWorker, the main-thread window just before the physics worker snapshots the state.
+  Nine Harmony patches add seated crew for unflown cars, spotlights, coloured emissive lenses,
+  engineless exhaust plumes, a crash veto, sprint/RCS keys, an engine HUD and an off-rails override;
+  an IAnimProcessor solves the driver kitten's arms onto the steering wheel. Tooling covers an API
+  surface read from the DLL's metadata, an assembly hash lock, headless tests of a KSA-free Sim
+  folder, a file-drop command bridge with an MCP server, and a semantic-release pipeline.
+features:
+  - id: mods/ksacars/features/mod-folder-content-and-code-mod
+    title: One folder as both a content mod and a StarMap code mod
+    category: getting-started
+    submod: null
+    summary: >-
+      One mod.toml serves KSA (name, an explicit assets list loaded by Mod.LoadAssetBundles) and
+      StarMap ([StarMap] EntryAssembly), with the XML at the folder root beside Meshes, Textures and
+      Sounds; XML paths resolve against the mod folder via Mod.GetPath, and the csproj copies content
+      and references game DLLs with Private=false.
+    novelty: medium
+    techniques: [starmap-lifecycle, toml-config, xml-asset, assembly-load-context]
+    lifecycle: [startup:asset-load, startup:immediate-load, startup:all-mods-loaded]
+    hooks: ["starmap StarMapImmediateLoad", "starmap StarMapAllModsLoaded"]
+    game_types: [KSA.Mod, KSA.ModLibrary, KSA.AssetBundle, KSA.FileReference]
+    key_paths: [src/KSACars/mod.toml, src/KSACars/KSACars.csproj, src/KSACars/Ksa/KSACarsMod.cs]
+    howto_topics:
+      - slug: content-and-code-mod-in-one-folder
+        title: Ship a content mod and a StarMap code mod from one folder
+        note: name, assets and [StarMap] EntryAssembly in one mod.toml; mod id is the folder name
+      - slug: list-asset-xml-in-mod-toml
+        title: Register asset XML files in mod.toml
+        note: no globbing; an unlisted file is silently never loaded
+      - slug: mod-relative-asset-paths
+        title: How asset paths in XML resolve
+        note: Mod.GetPath combines with the mod folder, not the XML file's folder
+  - id: mods/ksacars/features/mod-log-file
+    title: Per-mod log file, build stamp and fault limiter
+    category: getting-started
+    submod: null
+    summary: >-
+      A thread-safe, batched log file beside KSA's logs with the previous session kept, an assembly
+      metadata stamp of the KSA build compiled against versus the running build, a developer-install
+      marker file, and a fault counter that unpatches and disables the mod after ten exceptions.
+    novelty: medium
+    techniques: [starmap-lifecycle, background-thread]
+    lifecycle: [startup:immediate-load, startup:all-mods-loaded, frame:draw-ui, frame:after-on-frame, thread:background]
+    hooks: ["starmap StarMapImmediateLoad", "starmap StarMapAllModsLoaded", "starmap StarMapAfterOnFrame", "starmap StarMapAfterGui", "starmap StarMapUnload"]
+    game_types: [KSA.Vehicle, KSA.Constants]
+    key_paths: [src/KSACars/Ksa/Log.cs, src/KSACars/Ksa/Build.cs, src/KSACars/Ksa/KSACarsMod.cs, src/KSACars/KSACars.csproj]
+    howto_topics:
+      - slug: mod-log-file
+        title: Give a StarMap mod its own log file
+        note: batch writes, flush warnings immediately, timer flush, flush on unload; prefer Constants.LogsFolderPath
+      - slug: stamp-target-game-build
+        title: Record which game build a mod was compiled for
+        note: AssemblyMetadata from a lock file at build time, compared with the running KSA.dll version
+      - slug: fault-limit-hooks
+        title: Disable a mod cleanly after repeated hook exceptions
+  - id: mods/ksacars/features/frame-step-latch-and-car-registry
+    title: Once-per-frame car step from two StarMap hooks, with a registry of the mod's craft
+    category: getting-started
+    submod: null
+    summary: >-
+      KSACarsMod.StepOnce runs from StarMapAfterGui (before the render) and falls back to
+      StarMapAfterOnFrame when DrawUI is false; a two-method FrameLatch lets the first caller win and
+      is released in a finally on the frame postfix, which Harmony runs on every return of OnFrame. The
+      step rebuilds a census from Universe.CurrentSystem.All (Program.VehiclesInFrame is cleared in
+      PostRender) and syncs a Dictionary<Vehicle, Entry> that the main-thread patches look up.
+    novelty: medium
+    techniques: [starmap-lifecycle]
+    lifecycle: [frame:draw-ui, frame:after-on-frame]
+    hooks: ["starmap StarMapAfterGui", "starmap StarMapAfterOnFrame"]
+    game_types: [KSA.Program, KSA.Universe, KSA.CelestialSystem, KSA.Vehicle, KSA.Part]
+    key_paths: [src/KSACars/Ksa/KSACarsMod.cs, src/KSACars/Sim/FrameLatch.cs, src/KSACars/Ksa/KsaWorld.cs, src/KSACars/Ksa/Buggies.cs]
+    howto_topics:
+      - slug: per-frame-work-with-hidden-ui
+        title: Keep per-frame mod work running when the HUD is hidden
+        note: GUI hook preferred, frame postfix fallback, latch released in a finally on the postfix
+      - slug: enumerate-vehicles-from-a-hook
+        title: Enumerate every vehicle from any StarMap hook
+        note: Universe.CurrentSystem.All; Program.VehiclesInFrame is empty after PostRender
+      - slug: track-craft-carrying-a-part
+        title: Track which craft carry your mod's part
+        note: per-frame sync into a Vehicle-keyed dictionary, dropped when disposed or the part leaves
+  - id: mods/ksacars/features/car-part-assets-glb-pbr
+    title: "Car part assets: GLB atlases, PBR materials and subparts"
+    category: assets
+    submod: null
+    summary: >-
+      Assets XML with MeshAtlas GLBs, PbrMaterial (Diffuse, Normal, AoRoughMetal, Emissive PNGs,
+      Category Vessel), one SubPart template per moving body recentred on its pivot, PartModelGlass
+      windscreens, mesh-less hidden door subparts, and Parts that instance and place them; verified
+      against AssetBundle, MeshAtlasFileReference, PartTemplate and XmlHelper's module registration.
+    novelty: medium
+    techniques: [xml-asset, glb-model]
+    lifecycle: [startup:asset-load]
+    hooks: []
+    game_types: [KSA.AssetBundle, KSA.MeshAtlasFileReference, KSA.PbrMaterialReference, KSA.TextureReference, KSA.PartTemplate, KSA.SubPartTemplate, KSA.PartInstance, KSA.TransformReference, KSA.PartModelModule, KSA.PartModelGlassModule, KSA.MeshViewModule, KSA.XmlHelper, KSA.Mod]
+    key_paths: [src/KSACars/KSACarsAssets.xml, .claude/skills/ksa-blender/SKILL.md]
+    howto_topics:
+      - slug: new-part-with-own-glb-and-textures
+        title: Define a new part with your own GLB model and PBR textures
+        note: MeshAtlas registers glTF mesh names globally, first wins; node transforms ignored
+      - slug: movable-subparts
+        title: Split a model into subparts you can move at runtime
+        note: one SubPart per moving body, exported recentred on its pivot
+      - slug: glass-subpart
+        title: Add a glass window to a part
+        note: PartModelGlass, fixed 0.75 opacity with Fresnel
+      - slug: part-xml-module-elements
+        title: Which XML elements a part template accepts
+        note: XmlHelper registers every TemplateDataBase subclass in KSA.dll by its XmlType name
+  - id: mods/ksacars/features/art-and-audio-pipeline-tooling
+    title: Art and audio pipeline tooling
+    category: assets
+    submod: null
+    summary: >-
+      Python and shell tools that read GLB bounds from accessor min/max, detect coplanar faces and
+      zero-UV triangles, dilate atlas backgrounds for mipmaps, preview GLBs in headless Blender,
+      validate XML Ids and paths against the atlases and Core, and cut engine loops from CC0
+      recordings with recorded RPMs and provenance.
+    novelty: medium
+    techniques: [glb-model, xml-asset]
+    lifecycle: []
+    hooks: []
+    game_types: [KSA.MeshAtlasFileReference]
+    key_paths: [tools/meshinfo.py, tools/model/checkmesh.py, tools/model/dilate-atlas.py, tools/model/preview-glb.py, tools/validate-parts.py, tools/check-xml.sh, tools/buggy-sounds.py, tools/eldorado-sounds.py, tools/audio/README.md]
+    howto_topics:
+      - slug: validate-part-xml-offline
+        title: Validate part XML Ids and paths before launching the game
+        note: mesh Ids against the GLB's mesh names, materials and subparts against Core
+      - slug: find-z-fighting-in-glb
+        title: Find coplanar faces in a GLB before they speckle in game
+      - slug: blender-export-for-ksa
+        title: Export Blender models for KSA parts
+        note: +X up, +Y forward, Y-up conversion off, transforms baked, mesh name = node name, _VM twins
+      - slug: engine-loops-from-recordings
+        title: Cut looping engine sounds from recordings
+  - id: mods/ksacars/features/car-part-gamedata
+    title: Car part game data
+    category: vehicles-and-parts
+    submod: null
+    summary: >-
+      GameData XML that makes a single part a drivable root craft: a new EditorTagDef with
+      RootPartWhitelist, NoFaceSnapping, a node connector, a Control command source, battery and a
+      PowerConsumer LightSwitch, a cuboid mass for yaw inertia, and colliders kept clear of the
+      ground because every non-kitten contact uses friction 0.95; merged by ModLibrary.AttachGameData.
+    novelty: medium
+    techniques: [xml-asset]
+    lifecycle: [startup:asset-load]
+    hooks: []
+    game_types: [KSA.PartGameDataReference, KSA.SubPartGameDataReference, KSA.PartTemplate, KSA.EditorTagDefinition, KSA.VehicleEditor, KSA.ControlTemplate, KSA.Control, KSA.BatteryTemplate, KSA.PowerConsumerTemplate, KSA.SolidSphereMassTemplate, KSA.SolidCuboidMassTemplate, KSA.ColliderModule, KSA.ModLibrary, KSA.NarrowPhaseCallbacks]
+    key_paths: [src/KSACars/KSACarsGameData.xml]
+    howto_topics:
+      - slug: part-as-root-of-a-craft
+        title: Let a single part start and be a whole craft
+        note: RootPartWhitelist tag, at least one connector, no surface connectors, Control module
+      - slug: custom-editor-category
+        title: Add your own editor category with EditorTagDef
+      - slug: mass-shape-and-inertia
+        title: Choose a part's mass template for the inertia you need
+      - slug: colliders-and-terrain-friction
+        title: Lay out part colliders knowing terrain friction is fixed
+        note: NarrowPhaseCallbacks.ResolveTerrainPairFriction returns 0.95 for non-kitten pairs
+  - id: mods/ksacars/features/vehicle-library-presets
+    title: Vehicle library presets
+    category: vehicles-and-parts
+    submod: null
+    summary: >-
+      A script writes each car as a one-part craft (vehicle.xml with a single RootPartRef plus
+      meta.toml) into the player's Documents Vehicles library, mirroring Core's defaultvehicles,
+      because DefaultVehicleSaves reads only Content/Core/defaultvehicles.
+    novelty: low
+    techniques: [xml-asset]
+    lifecycle: []
+    hooks: []
+    game_types: [KSA.VehicleSaveData, KSA.VehicleSaves, KSA.DefaultVehicleSaves, KSA.PartInstance, KSA.VehicleTemplate]
+    key_paths: [tools/install-testcraft.sh, src/KSACars/Ksa/CraftSpawner.cs]
+    howto_topics:
+      - slug: ship-ready-made-craft
+        title: Provide ready-made craft for a part mod
+        note: VehicleSaveData format; the user library is Documents/My Games/Kitten Space Agency/Vehicles
+  - id: mods/ksacars/features/prepareworker-impulse-injection
+    title: Inject wheel forces from a Vehicle.PrepareWorker prefix
+    category: physics
+    submod: null
+    summary: >-
+      A Harmony prefix on Vehicle.PrepareWorker, called on the main thread for every vehicle by
+      Universe.PrepareVehicleWorkers just before the worker snapshot, writes velocity and angular
+      velocity changes through GetPhysicsStatesMutable (a ref struct over the vehicle's own state),
+      wakes railed cars and also performs the unflip righting move; writes from StarMap hooks are
+      overwritten by the next ApplyVehicleSolvers.
+    novelty: high
+    techniques: [harmony-prefix, custom-physics, starmap-lifecycle]
+    lifecycle: [startup:all-mods-loaded, frame:dispatch-solvers]
+    hooks: ["starmap StarMapAllModsLoaded", "harmony-prefix KSA.Vehicle.PrepareWorker"]
+    game_types: [KSA.Vehicle, KSA.PhysicsStates, KSA.KinematicStates, KSA.Universe, KSA.SimStep, KSA.SituationEx, BepuUtilities.Symmetric3x3]
+    key_paths: [src/KSACars/Ksa/PhysicsHook.cs, src/KSACars/Ksa/Buggies.cs, src/KSACars/Sim/Righting.cs]
+    howto_topics:
+      - slug: apply-custom-forces-to-a-vehicle
+        title: Apply custom forces or impulses to a vehicle each physics step
+        note: prefix Vehicle.PrepareWorker; write Kinematic.VelocityPhys and AngularVelocityPhys
+      - slug: why-starmap-hook-writes-are-lost
+        title: Why vehicle state written from StarMap hooks does not stick
+        note: ApplyVehicleSolvers overwrites _kinematicStates; the worker snapshot is taken before the GUI pass
+      - slug: reposition-or-rotate-a-vehicle-in-place
+        title: Rotate or lift a vehicle in place (unflip)
+        note: write PositionPhys, Body2Phys and zero the velocities in the same window
+  - id: mods/ksacars/features/wheel-suspension-tyre-model
+    title: Wheel, suspension and tyre model
+    category: physics
+    submod: null
+    summary: >-
+      Per-wheel spring-damper sized from each wheel's static weight share with anti-roll bars, roll
+      damping and bump stops; a friction-circle tyre that spends grip on side force first; a
+      grip-limited steering lock; a linear drive force fading to top speed; air drag; and a cosmetic
+      gearbox and RPM for sound, all summed into one impulse per frame in KSA-free code.
+    novelty: high
+    techniques: [custom-physics, harmony-prefix]
+    lifecycle: [frame:dispatch-solvers]
+    hooks: ["harmony-prefix KSA.Vehicle.PrepareWorker"]
+    game_types: [KSA.Vehicle]
+    key_paths: [src/KSACars/Sim/BuggyDrive.cs, src/KSACars/Sim/BuggyProfile.cs, src/KSACars/Ksa/Buggies.cs, tests/KSACars.Tests/BuggyDriveTests.cs]
+    howto_topics:
+      - slug: raycast-wheel-suspension
+        title: Simulate wheels and suspension without a wheel module
+        note: springs hold the hull above colliders that only touch in a crash
+      - slug: friction-circle-tyre
+        title: A stable friction-circle tyre for a per-frame impulse model
+        note: cancel a share of side slip per step; clamp drive to the remaining circle
+      - slug: speed-limited-steering
+        title: Limit steering lock by speed and grip
+  - id: mods/ksacars/features/terrain-contact-under-wheels
+    title: Terrain contact under each wheel
+    category: physics
+    submod: null
+    summary: >-
+      Reads the craft's physics state in the planet-fixed frame (PhysicsStates.GetStatesCcf), puts
+      each hub in Ccf, and samples Celestial.GetTerrainHeightFromDirCce with accurate:true, which
+      selects bicubic sampling and evaluates the procedural terrain modifiers; ground velocity is
+      plain Ccf velocity.
+    novelty: high
+    techniques: [custom-physics, harmony-prefix]
+    lifecycle: [frame:dispatch-solvers]
+    hooks: ["harmony-prefix KSA.Vehicle.PrepareWorker"]
+    game_types: [KSA.Celestial, KSA.PhysicsStates, KSA.Vehicle, KSA.IParentBody, KSA.AtmosphereReference, KSA.TerrainPatch, KSA.BubbleTerrainGrid, KSA.TerrainImpactFinder]
+    key_paths: [src/KSACars/Ksa/Buggies.cs, src/KSACars/Ksa/TerrainHeights.cs, src/KSACars/Sim/ITerrainHeights.cs, src/KSACars/Ksa/KsaWorld.cs]
+    howto_topics:
+      - slug: query-terrain-height
+        title: Query terrain height under a point
+        note: GetTerrainHeightFromDirCcf/Cce; accurate toggles bicubic and procedural modifiers
+      - slug: planet-fixed-frame-for-ground-contact
+        title: Use the planet-fixed frame and physics state for ground contact
+        note: analytic orbit positions are metres off for landed craft; Ecl carries ~29.8 km/s
+  - id: mods/ksacars/features/rocket-lift-hover-boost-downforce
+    title: Rocket lift, hover, boost and downforce as velocity deltas
+    category: physics
+    submod: null
+    summary: >-
+      Adds lift thrust with an airborne attitude hold, a hover that cancels gravity, a boost and a
+      downforce as velocity and spin deltas in the Vehicle.PrepareWorker prefix, gated by 0.1 s iris
+      hatches; the hold and hover braking are written as the share of the step covered, so long warp
+      steps cannot overshoot.
+    novelty: high
+    techniques: [harmony-prefix, custom-physics, reflection]
+    lifecycle: [frame:dispatch-solvers, frame:draw-ui]
+    hooks: ["harmony-prefix KSA.Vehicle.PrepareWorker", "reflection KSA.Vehicle._manualControlInputs", "reflection KSA.Vehicle._engineFlags", "starmap StarMapAfterGui"]
+    game_types: [KSA.Vehicle, KSA.PhysicsStates, KSA.KinematicStates, KSA.Universe, KSA.SimStep, KSA.ManualControlInputs, KSA.EngineFlags]
+    key_paths: [src/KSACars/Sim/Lift.cs, src/KSACars/Sim/Hover.cs, src/KSACars/Sim/Boost.cs, src/KSACars/Sim/Downforce.cs, src/KSACars/Sim/Hatch.cs, src/KSACars/Ksa/Buggies.cs]
+    howto_topics:
+      - slug: apply-custom-thrust-to-a-vehicle
+        title: Apply custom thrust or forces to a vehicle each physics step
+        note: write VelocityPhys/AngularVelocityPhys in the PrepareWorker prefix
+      - slug: warp-stable-custom-forces
+        title: Keep custom forces stable under time warp
+        note: use (1 - exp(-k dt)) shares and per-step caps instead of spring-damper forces
+      - slug: hover-controller
+        title: Make a craft hover at constant height
+  - id: mods/ksacars/features/scoop-colliders-and-loose-clutter
+    title: Switchable scoop colliders and rocks that come loose
+    category: physics
+    submod: null
+    summary: >-
+      Moves stowed collider boxes out of the hull at runtime by writing ColliderModule.PositionPartAsmb
+      and Collider2PartAsmb and setting NeedsColliderUpdate, hides unused blade subparts at scale
+      0.001, and loosens ground clutter by lowering BubbleClutterStatics.DisplaceEnergyPerKg, enabling
+      GroundClutterCollisions and scaling ClutterObjectTemplate.MassKg with a 400 ms collisions-off
+      rebuild; a rock coming loose has not been seen in game.
+    novelty: high
+    techniques: [custom-physics, bepu-physics, xml-asset, starmap-lifecycle]
+    lifecycle: [startup:asset-load, frame:draw-ui, frame:after-on-frame, frame:dispatch-solvers, physics:bepu]
+    hooks: ["starmap StarMapAfterGui", "starmap StarMapAfterOnFrame"]
+    game_types: [KSA.ColliderModule, KSA.ColliderTemplate, KSA.ModuleBase, KSA.ConstraintSim, KSA.Vehicle, KSA.KeyframeAnimationModule, KSA.BubbleClutterStatics, KSA.PhysicsBubble, KSA.Universe, KSA.GameSettings, KSA.ClutterObjectTemplate, KSA.ClutterEcotypeReference, KSA.ClutterEcotypePhysicalData, KSA.GroundClutterRenderer, KSA.PlanetRenderer, KSA.Part]
+    key_paths: [src/KSACars/Ksa/Buggies.cs, src/KSACars/Ksa/KsaWorld.cs, src/KSACars/Sim/BuggyProfile.cs, src/KSACars/KSACarsGameData.xml]
+    howto_topics:
+      - slug: move-colliders-at-runtime
+        title: Move or toggle a part's colliders at runtime
+        note: declare stowed boxes in XML; write PositionPartAsmb and NeedsColliderUpdate like KeyframeAnimationModule does
+      - slug: hide-a-subpart
+        title: Hide a subpart without removing it
+        note: scale it to 0.001 inside the hull, because a subpart has no visibility switch
+      - slug: interact-with-ground-clutter
+        title: Make ground clutter collide and be pushed
+        note: GroundClutterCollisions setting, DisplaceEnergyPerKg, mass read only when a static is built
+  - id: mods/ksacars/features/launch-pad-surface-contact
+    title: Launch pad surface contact
+    category: celestials
+    submod: null
+    summary: >-
+      Rebuilds each launch pad's box and cylinder colliders from LandmarkReference/StaticObjectTemplate
+      data, posed like ConstraintSim.UpdateStaticObjectCollider (up/east/north axes, GroundOffset,
+      300 m range), and drops a ray from each wheel hub onto them so wheels stand on the pad deck the
+      height field does not know about.
+    novelty: high
+    techniques: [custom-physics, harmony-prefix]
+    lifecycle: [frame:dispatch-solvers]
+    hooks: ["harmony-prefix KSA.Vehicle.PrepareWorker"]
+    game_types: [KSA.Celestial, KSA.CelestialTemplate, KSA.LandmarkReference, KSA.LocationReference, KSA.StaticObject, KSA.StaticObjectTemplate, KSA.StaticSubObjectInstance, KSA.ColliderModule, KSA.BoxColliderTemplate, KSA.CylinderColliderTemplate, KSA.ConstraintSim]
+    key_paths: [src/KSACars/Ksa/LaunchPads.cs, src/KSACars/Sim/PadSurface.cs, tests/KSACars.Tests/PadSurfaceTests.cs]
+    howto_topics:
+      - slug: read-static-object-colliders
+        title: Read a static object's colliders and pose them in the planet-fixed frame
+      - slug: raycast-against-launch-pads
+        title: Find the surface of a launch pad under a point
+        note: the terrain height field contains only the levelled decal under the pad
+  - id: mods/ksacars/features/seats-and-eva-doors
+    title: Seats and EVA doors
+    category: kittens
+    submod: null
+    summary: >-
+      IVASeat entries (Position is the eye, model drawn 0.63 m below via KittenLocomotionTuning.SeatedOffset)
+      and EVADoor modules on mesh-less hidden subparts attached through SubPartGameData; KSA pairs
+      doors with seats by SeatId and allows boarding within 1 m of the door subpart's origin.
+    novelty: medium
+    techniques: [xml-asset]
+    lifecycle: [startup:asset-load, event:eva]
+    hooks: []
+    game_types: [KSA.IVASeat, KSA.EVADoor, KSA.EVADoorTemplate, KSA.KittenEva, KSA.PartTemplate, KSA.SubPartGameDataReference, KSA.KittenLocomotionTuning]
+    key_paths: [src/KSACars/KSACarsGameData.xml, src/KSACars/KSACarsAssets.xml, src/KSACars/Ksa/Buggies.cs]
+    howto_topics:
+      - slug: add-crew-seats-to-a-part
+        title: Add crew seats to a mod part
+        note: IVASeat in PartGameData; Position is the eye point
+      - slug: eva-door-on-a-part
+        title: Let kittens leave and board a part through an EVA door
+        note: EVADoor SeatId on a SubPartGameData of a mesh-less subpart within 1 m reach
+  - id: mods/ksacars/features/driver-hands-steering-ik
+    title: Driver kitten's hands on the steering wheel
+    category: kittens
+    submod: null
+    summary: >-
+      Adds a custom IAnimProcessor to the seated driver's CharacterModel.AnimProcessors (reached via
+      the private KittenRenderable._characterAvatar), nulls the seated idle clips, and in UpdateSkeleton
+      solves shoulder and elbow onto grip points on the turning rim with a law-of-cosines two-bone IK
+      in the seat-anchored kitten model space.
+    novelty: high
+    techniques: [reflection, starmap-lifecycle, two-bone-ik]
+    lifecycle: [frame:draw-ui, frame:render]
+    hooks: ["starmap StarMapAfterGui", "reflection KSA.KittenRenderable._characterAvatar", "reflection KSA.KittenRenderable._seatedIdleActionAnims"]
+    game_types: [KSA.IAnimProcessor, KSA.KittenRenderable, KSA.CharacterAvatar, KSA.AnimatedRenderable, KSA.IVASeat, KSA.Vehicle, RenderCore.Animation.Skeleton]
+    key_paths: [src/KSACars/Ksa/DriverHands.cs, src/KSACars/Sim/SteeringGrip.cs, src/KSACars/Ksa/Buggies.cs]
+    howto_topics:
+      - slug: custom-kitten-pose-ik
+        title: Pose a kitten's bones with a custom IAnimProcessor
+        note: UpdateSkeleton runs after the clip and world transforms, before skinning
+      - slug: two-bone-ik
+        title: Two-bone arm IK onto a target
+      - slug: seated-kitten-model-space
+        title: Convert part-space points into a seated kitten's model space
+        note: centimetres, seat axes, origin 0.63 m below the seat eye point
+  - id: mods/ksacars/features/seated-crew-of-unflown-craft
+    title: Seated crew of unflown cars
+    category: kittens
+    submod: null
+    summary: >-
+      A postfix on Vehicle.UpdateSeatedCrewRenderData, which KSA calls only for the controlled
+      vehicle once per rendered viewport, calls IVASeat.UpdateSeatedRenderable for every other car's
+      seats so kittens in an open car stay visible when control moves to a kitten on EVA.
+    novelty: medium
+    techniques: [harmony-postfix]
+    lifecycle: [frame:render]
+    hooks: ["harmony-postfix KSA.Vehicle.UpdateSeatedCrewRenderData"]
+    game_types: [KSA.Vehicle, KSA.IVASeat, KSA.Program, KSA.IViewport, KSA.ViewportType]
+    key_paths: [src/KSACars/Ksa/SeatedCrewHook.cs, src/KSACars/Ksa/Buggies.cs]
+    howto_topics:
+      - slug: draw-crew-of-non-controlled-craft
+        title: Draw seated kittens on craft that are not being flown
+  - id: mods/ksacars/features/pose-subparts-at-runtime
+    title: Pose subparts at runtime
+    category: rendering
+    submod: null
+    summary: >-
+      Animates wheels, arms, squashed coil-overs, the steering wheel, iris blades and scoops by
+      writing Part.PositionParentAsmb, Asmb2ParentAsmb and Scale and calling ResetCachedPosMatrixValues
+      from StarMapAfterGui, with a FrameLatch so StarMapAfterOnFrame poses instead when the UI is
+      hidden; subparts are found by their instance Id.
+    novelty: high
+    techniques: [starmap-lifecycle]
+    lifecycle: [frame:draw-ui, frame:after-on-frame]
+    hooks: ["starmap StarMapAfterGui", "starmap StarMapAfterOnFrame"]
+    game_types: [KSA.Part, KSA.Vehicle, KSA.Program, KSA.Universe]
+    key_paths: [src/KSACars/Ksa/Buggies.cs, src/KSACars/Sim/BuggyDrive.cs, src/KSACars/Sim/FrameLatch.cs, src/KSACars/Ksa/KSACarsMod.cs]
+    howto_topics:
+      - slug: animate-subparts
+        title: Animate a part's subparts from code
+        note: write the parent-relative transform and reset cached matrices
+      - slug: per-frame-work-with-hidden-ui
+        title: Run per-frame work when the UI is hidden
+        note: StarMapAfterGui is skipped when DrawUI is false; latch with a StarMapAfterOnFrame fallback
+      - slug: hide-a-subpart
+        title: Hide a subpart without removing it
+  - id: mods/ksacars/features/headlights-as-spotlights
+    title: Headlamps and tail lamps as KSA spotlights
+    category: rendering
+    submod: null
+    summary: >-
+      Submits a car's lamps as Light.CreateSpotLight instances through Program.LightSystem.CreateLightInstance
+      from a postfix on PartTree.UpdateRenderData, which runs after LightSystem.ClearLights and
+      before the light upload, once per car per viewport, kept in step with the part's own
+      PowerConsumer LightSwitch.
+    novelty: high
+    techniques: [harmony-postfix, xml-asset]
+    lifecycle: [startup:all-mods-loaded, frame:draw-ui, frame:render]
+    hooks: ["starmap StarMapAllModsLoaded", "harmony-postfix KSA.PartTree.UpdateRenderData", "starmap StarMapAfterGui"]
+    game_types: [KSA.PartTree, KSA.Vehicle, KSA.Program, KSA.Part, KSA.PowerConsumer, KSA.PowerConsumerTemplate, KSA.Rendering.Lighting.Light, KSA.Rendering.Lighting.ILightSystem, KSA.Rendering.Lighting.ClusteredLightSystem, KSA.Rendering.Lighting.ELightFlags, KSA.IViewport]
+    key_paths: [src/KSACars/Ksa/LightsHook.cs, src/KSACars/Ksa/Buggies.cs, src/KSACars/Sim/Headlights.cs, src/KSACars/KSACarsGameData.xml]
+    howto_topics:
+      - slug: add-dynamic-lights-to-a-vehicle
+        title: Add per-frame spot or point lights attached to a craft
+        note: lights from StarMap hooks are cleared before use; submit them inside PartTree.UpdateRenderData with KSA's asmb2Ego matrix
+      - slug: part-light-switch
+        title: Use a part's PowerConsumer LightSwitch as your light toggle
+        note: Part.LightSwitch, IsLightSwitchedOff, Vehicle.ToggleLights, saved with the craft
+  - id: mods/ksacars/features/coloured-emissive-lenses
+    title: Coloured emissive lenses per subpart
+    category: rendering
+    submod: null
+    summary: >-
+      Sets KSA's ADD_EMISSIVE_COLOR state bit (128) and a per-instance colour on chosen subparts
+      from a postfix on the private PartTreeRenderData.WriteState, reaching the private Batch arrays
+      by reflection and disabling itself if the target moved; Python tools split the lens triangles
+      into their own subparts by UV and paint the emissive mask.
+    novelty: high
+    techniques: [harmony-postfix, reflection, glb-model, xml-asset, glsl-shader]
+    lifecycle: [startup:all-mods-loaded, frame:render]
+    hooks: ["starmap StarMapAllModsLoaded", "harmony-postfix KSA.PartTreeRenderData.WriteState", "reflection KSA.PartTreeRenderData.Batch.StateBitFlags", "reflection KSA.PartTreeRenderData.Batch.EmissiveColors"]
+    game_types: [KSA.PartTreeRenderData, KSA.PartTree, KSA.Part, KSA.PartModel, KSA.Battery]
+    key_paths: [src/KSACars/Ksa/LensColourHook.cs, src/KSACars/Ksa/Buggies.cs, tools/model/split-lenses.py, tools/model/lens-emissive.py, tools/model/lenses/Eldorado.json]
+    howto_topics:
+      - slug: tint-emissive-per-part
+        title: Give a part or subpart a coloured emissive glow
+        note: the MeshIndirect.frag red channel is a mask; bit 7 adds the instance colour; bit 6 disables emissive
+      - slug: patch-private-method-safely
+        title: Patch a private engine method and fail safe when it moves
+        note: validate the method and field types at install and log and skip instead of crashing
+      - slug: split-glb-mesh-by-uv
+        title: Split triangles out of a GLB mesh into a new subpart by UV region
+  - id: mods/ksacars/features/exhaust-plumes-without-engine
+    title: Volumetric exhaust plumes with no engine behind them
+    category: rendering
+    submod: null
+    summary: >-
+      Builds VolumetricExhaustInstance objects from the Core template EngineAAuxiliary, sets
+      LastPlumeData from RocketNozzle.ComputePlumeData with mod-chosen gas numbers, runs UpdateState
+      transients and submits each flame with VolumetricExhaustRenderer.AddInstance from a postfix on
+      Vehicle.AddVolumetricExhaustInstances inside Program.OnPreRender.
+    novelty: high
+    techniques: [harmony-postfix]
+    lifecycle: [startup:all-mods-loaded, frame:pre-render, render:exhaust]
+    hooks: ["starmap StarMapAllModsLoaded", "harmony-postfix KSA.Vehicle.AddVolumetricExhaustInstances"]
+    game_types: [KSA.Vehicle, KSA.Program, KSA.VolumetricExhaustRenderer, KSA.VolumetricExhaustInstance, KSA.VolumetricExhaustReference, KSA.VolumetricExhaustTemplate, KSA.RocketNozzle, KSA.RocketDesign, KSA.GasProperties, KSA.GasConditions, KSA.ExhaustAxialFade, KSA.ExhaustDiamondFade, KSA.ExhaustBendTarget, KSA.Camera]
+    key_paths: [src/KSACars/Ksa/FlamesHook.cs, src/KSACars/Ksa/Buggies.cs, src/KSACars/Sim/Lift.cs]
+    howto_topics:
+      - slug: draw-rocket-plume-without-engine
+        title: Draw KSA's volumetric rocket plume at an arbitrary point
+        note: must be submitted between UpdateFrameData and the render; positions are camera-relative float3
+      - slug: custom-vfx-for-mod-thrust
+        title: Visual effects for thrust a mod applies itself
+  - id: mods/ksacars/features/engine-sound-crossfade
+    title: Engine sound from two crossfaded, re-pitched loops
+    category: audio
+    submod: null
+    summary: >-
+      Ships mono engine .wav files as Sound XML assets (SpatialSoundData, Sound ChannelId/Priority,
+      SoundFile with Loop) and plays an idle loop and a load loop together, crossfaded by throttle and
+      RPM and re-pitched every frame against the RPM each was recorded at; start and stop clips play
+      on entering and leaving the car, and the loops are cut above 4x warp.
+    novelty: high
+    techniques: [fmod-audio, xml-asset, starmap-lifecycle]
+    lifecycle: [startup:asset-load, frame:draw-ui, frame:after-on-frame, frame:post-render]
+    hooks: ["starmap StarMapAfterGui", "starmap StarMapAfterOnFrame"]
+    game_types: [KSA.GameAudio, KSA.SoundBehavior, KSA.SoundReference, KSA.SoundFileReference, KSA.SpatialSoundData, KSA.SpatialAudio, KSA.IChannel, KSA.ChannelWrapper, KSA.ModLibrary, KSA.PhysicalAtmosphereReference, KSA.Camera, KSA.AssetBundle]
+    key_paths: [src/KSACars/KSACarsSounds.xml, src/KSACars/Ksa/BuggySound.cs, src/KSACars/Ksa/SoundChannels.cs, src/KSACars/Sim/BuggyProfile.cs]
+    howto_topics:
+      - slug: ship-custom-sounds-as-xml-assets
+        title: Ship your own sounds with a mod (Sound, SoundFile, SpatialSoundData XML)
+        note: AssetBundle element names; the path is relative to the mod folder; Loop turns on FMOD looping
+      - slug: play-and-control-a-3d-sound-from-code
+        title: Play a positional sound from code and drive its pitch and volume
+        note: SoundBehavior.Play or GameAudio.PlaySound; SpatialAudio in the Ego frame; multipliers persist until set again
+      - slug: layered-engine-audio-crossfade
+        title: Crossfade layered loops by an engine parameter
+        note: idle and load layers, each pitched against the RPM it was recorded at
+  - id: mods/ksacars/features/rocket-sound-without-engine
+    title: Rocket roar from KSA's stock engine sound, with no engine
+    category: audio
+    submod: null
+    summary: >-
+      Plays Core's DefaultEngineSoundBehavior CompoundSound on a channel the mod owns, started paused,
+      and feeds it the Throttle, Distance, Pressure and Iva parameters each frame, mirroring the
+      per-nozzle branch of Vehicle.UpdateAudio; the author states it has not been listened to in game.
+    novelty: medium
+    techniques: [fmod-audio, starmap-lifecycle]
+    lifecycle: [frame:draw-ui, frame:after-on-frame, frame:post-render]
+    hooks: ["starmap StarMapAfterGui", "starmap StarMapAfterOnFrame"]
+    game_types: [KSA.GameAudio, KSA.SoundEvent, KSA.SpatialAudio, KSA.IChannel, KSA.CompoundSound, KSA.CompoundChannelWrapper, KSA.ChannelWrapper, KSA.KeyHash, KSA.Vehicle, KSA.ViewportRegistry, KSA.IGameViewport]
+    key_paths: [src/KSACars/Ksa/RocketSound.cs]
+    howto_topics:
+      - slug: reuse-stock-engine-sound
+        title: Reuse KSA's engine sound for custom thrust
+        note: SoundEvent with SoundId DefaultEngineSoundBehavior, parameters hashed with KeyHash.Make, start paused and unpause after setting them
+      - slug: drive-sound-parameters
+        title: Drive a sound's Param curves from code
+        note: SetParameter stores the value; GameAudio.UpdateAudio in PostRender maps it through the curves
+  - id: mods/ksacars/features/drive-with-flight-keys
+    title: Drive with the flight keys
+    category: ui
+    submod: null
+    summary: >-
+      Reads the craft's held ThrusterMapFlags (pitch keys as throttle and brake, yaw keys as steering,
+      roll keys as air turn), the private engine switch and throttle-key flags by reflection, and
+      patches Vehicle.OnKey and Vehicle.ProcessInput so a car hears the sprint key, the RCS key
+      toggles downforce, and Shift is stripped from other keys while boosting.
+    novelty: high
+    techniques: [harmony-prefix, harmony-postfix, reflection]
+    lifecycle: [frame:input, frame:dispatch-solvers]
+    hooks: ["harmony-prefix KSA.Vehicle.OnKey", "harmony-postfix KSA.Vehicle.OnKey", "harmony-postfix KSA.Vehicle.ProcessInput", "harmony-prefix KSA.Vehicle.PrepareWorker", "reflection KSA.Vehicle._manualControlInputs", "reflection KSA.Vehicle._engineFlags"]
+    game_types: [KSA.Vehicle, KSA.ThrusterMapFlags, KSA.ManualControlInputs, KSA.EngineFlags, KSA.InputAction, KSA.InputEvents, KSA.Input, KSA.Program, RenderCore.Input.GlfwKeyEvent]
+    key_paths: [src/KSACars/Ksa/Buggies.cs, src/KSACars/Ksa/KsaWorld.cs, src/KSACars/Ksa/BoostHook.cs]
+    howto_topics:
+      - slug: read-player-flight-input
+        title: Read the player's flight controls from a vehicle
+        note: GetThrusterFlags in the PrepareWorker window; keys are applied earlier in PrepareFrame
+      - slug: add-a-key-to-vehicle-input
+        title: Make a vehicle respond to a key it ignores
+        note: postfix OnKey to queue VehicleInputData, postfix ProcessInput to record it
+      - slug: imgui-keyboard-capture-and-flight-keys
+        title: Keep mod UI from stealing flight keys
+        note: WantCaptureKeyboard drops key events and clears held input
+  - id: mods/ksacars/features/engine-hud-for-engineless-craft
+    title: KSA's engine panel and throttle gauge for a craft with no engine
+    category: ui
+    submod: null
+    summary: >-
+      Postfixes GaugeCanvas.IsContextVisible to show the engine-control canvas and
+      Vehicle.AreAllEnginesInactive to withhold the "No active engines" alert for a flying car, and
+      writes the mod throttle into Vehicle._manualControlInputs.EngineThrottle by reflection from
+      StarMapAfterGui, after PrepareWorker's clamp and before UpdateGauges reads it.
+    novelty: medium
+    techniques: [harmony-postfix, reflection, starmap-lifecycle]
+    lifecycle: [startup:all-mods-loaded, frame:draw-ui, frame:gauges, frame:dispatch-solvers]
+    hooks: ["starmap StarMapAllModsLoaded", "harmony-postfix KSA.GaugeCanvas.IsContextVisible", "harmony-postfix KSA.Vehicle.AreAllEnginesInactive", "reflection KSA.Vehicle._manualControlInputs", "starmap StarMapAfterGui"]
+    game_types: [KSA.GaugeCanvas, KSA.GaugeVisibilityFlag, KSA.Vehicle, KSA.ManualControlInputs, KSA.FixedAlert, KSA.Alert, KSA.Program, KSA.PartTree, KSA.EngineController]
+    key_paths: [src/KSACars/Ksa/HudHook.cs, src/KSACars/Ksa/KsaWorld.cs]
+    howto_topics:
+      - slug: show-stock-gauge-canvas-conditionally
+        title: Force a stock gauge canvas visible for your craft
+        note: VisibleInContext flags; postfix IsContextVisible
+      - slug: feed-stock-hud-values
+        title: Display your own value on a stock HUD gauge
+        note: write between PrepareWorker and UpdateGauges; display only
+      - slug: suppress-stock-alert
+        title: Suppress a stock HUD alert for your craft
+  - id: mods/ksacars/features/car-panel-and-modmenu
+    title: Car panel and ModMenu entry
+    category: ui
+    submod: null
+    summary: >-
+      A closable ImGui panel drawn from StarMapAfterGui only while a car is flown, using NoNav and
+      NoFocusOnAppearing so it never takes the keyboard, applying expensive settings on slider release,
+      plus an optional ModMenu entry declared through a name-matched copy of ModMenu's attribute.
+    novelty: medium
+    techniques: [imgui-window, imgui-menu, starmap-lifecycle, inter-mod-api]
+    lifecycle: [frame:draw-ui]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: [KSA.Program, KSA.Vehicle, Brutal.ImGuiApi.ImGui, Brutal.ImGuiApi.ImGuiWindowFlags]
+    key_paths: [src/KSACars/Ksa/CarPanel.cs, src/KSACars/Ksa/ModMenuEntry.cs]
+    howto_topics:
+      - slug: modmenu-soft-dependency
+        title: Add a ModMenu entry without depending on ModMenu
+        note: copy ModMenuEntryAttribute; matched by type name
+      - slug: imgui-window-without-keyboard-focus
+        title: An ImGui window that does not steal flight keys
+  - id: mods/ksacars/features/craft-mover-mouse-pick-place
+    title: Craft mover with mouse picking and ground placement
+    category: ui
+    submod: null
+    summary: >-
+      Picks a craft by projecting all vehicles to the screen with size-based radii, builds the cursor
+      ray in framebuffer pixels, walks it against the height field to find the ground, draws gizmo rings
+      anchored with Camera.GetPositionEgo from StarMapAfterGui, and places the craft once with
+      Vehicle.TeleportToLocation (a buffered input event).
+    novelty: medium
+    techniques: [imgui-window, starmap-lifecycle]
+    lifecycle: [frame:draw-ui, frame:input]
+    hooks: ["starmap StarMapAfterGui"]
+    game_types: [KSA.Vehicle, KSA.Camera, KSA.Program, KSA.ViewportRegistry, KSA.IGameViewport, KSA.Celestial, KSA.GizmosRenderer, KSA.InputEvents]
+    key_paths: [src/KSACars/Ksa/CraftMover.cs, src/KSACars/Ksa/KsaWorld.Pointing.cs, src/KSACars/Sim/TerrainRay.cs, src/KSACars/Sim/TerrainMask.cs, src/KSACars/Sim/CursorAim.cs, src/KSACars/Sim/Picking.cs, src/KSACars/Sim/DrawAnchor.cs]
+    howto_topics:
+      - slug: mouse-ray-into-world
+        title: Turn the mouse position into a world ray
+        note: convert to camera framebuffer pixels before ScreenToEgoRay
+      - slug: raycast-terrain-height-field
+        title: Raycast against a body's terrain height field
+        note: walk the ray below the highest terrain in steps bounded by height above ground
+      - slug: draw-gizmos-on-a-craft
+        title: Draw gizmo overlays anchored to a vehicle
+        note: GetPositionEgo anchor, submit from StarMapAfterGui
+      - slug: place-craft-at-lat-lon
+        title: Move a craft to a latitude and longitude on the ground
+        note: Vehicle.TeleportToLocation, once per action
+  - id: mods/ksacars/features/keep-thrusting-craft-off-rails
+    title: Keep a craft with mod thrust off rails
+    category: patching
+    submod: null
+    summary: >-
+      Postfixes the private PhysicsBubble.KittenWantsWake, which both rails decisions ask per craft on
+      the worker, to return true for cars marked as burning in a concurrent dictionary; before pushing,
+      a coasting railed car is rebuilt with PhysicsStates.UpdateFromAnalytic and a landed one is woken
+      with TakeOffRails.
+    novelty: high
+    techniques: [harmony-postfix, reflection, custom-physics, background-thread]
+    lifecycle: [startup:all-mods-loaded, frame:dispatch-solvers, physics:vehicle-solver]
+    hooks: ["starmap StarMapAllModsLoaded", "harmony-postfix KSA.PhysicsBubble.KittenWantsWake", "harmony-prefix KSA.Vehicle.PrepareWorker"]
+    game_types: [KSA.PhysicsBubble, KSA.VehicleUpdateState, KSA.PhysicsStates, KSA.Vehicle, KSA.Situation, KSA.SituationEx, KSA.Orbit]
+    key_paths: [src/KSACars/Ksa/RailsHook.cs, src/KSACars/Ksa/Buggies.cs]
+    howto_topics:
+      - slug: prevent-on-rails
+        title: Keep a vehicle under full physics while your mod pushes it
+        note: a railed craft ignores velocity writes; answer the per-craft wake check on the worker thread
+      - slug: wake-a-railed-vehicle
+        title: Wake a railed vehicle correctly (landed vs coasting)
+        note: TakeOffRails for landed; UpdateFromAnalytic with Maneuvering for orbital
+  - id: mods/ksacars/features/crash-veto
+    title: Veto structural destruction for one kind of craft
+    category: vehicles-and-parts
+    submod: null
+    summary: >-
+      A prefix on Universe.DestroyVehicleFromEvent returns false for cars, vetoing g-load,
+      dynamic-pressure, ground, sea, collision and console explode destruction applied on the main
+      thread inside ApplyVehicleSolvers; the separate PartFailure.Detect path is closed with
+      CrashTolerance="1e12" on the car's Part.
+    novelty: medium
+    techniques: [harmony-prefix, xml-asset]
+    lifecycle: [startup:asset-load, startup:all-mods-loaded, frame:apply-solvers, frame:input, physics:vehicle-solver, event:vehicle-destroyed]
+    hooks: ["starmap StarMapAllModsLoaded", "harmony-prefix KSA.Universe.DestroyVehicleFromEvent"]
+    game_types: [KSA.Universe, KSA.VehicleDestructionEvent, KSA.PhysicsBubble, KSA.VehicleUpdateTask, KSA.PartFailure, KSA.PartFailureEvent, KSA.Part, KSA.PartTemplate, KSA.PartStructuralLimits, KSA.InputEvents]
+    key_paths: [src/KSACars/Ksa/CrashHook.cs, src/KSACars/KSACarsAssets.xml]
+    howto_topics:
+      - slug: make-vehicle-indestructible
+        title: Make a vehicle survive crashes
+        note: two destruction paths; veto one with a prefix and set CrashTolerance for the other
+      - slug: part-crash-tolerance
+        title: Set a part's crash tolerance in XML
+        note: Pascals; NaN or <=0 means derived from mass over collider volume, clamped to 0.1..100 MPa
+  - id: mods/ksacars/features/spawn-parked-craft
+    title: Spawn a saved craft parked at a latitude and longitude
+    category: vehicles-and-parts
+    submod: null
+    summary: >-
+      CraftSpawner loads a craft from DefaultVehicleSaves or the player's VehicleSaves, builds it on a
+      placeholder orbit with Vehicle.CreateVehicle inside ConstraintSim.UnlockShapesBlocking (which
+      waits out the in-flight vehicle step that holds the shape registry), adds it to the parent's
+      Children so CelestialSystem.UpdatePerFrameData reaches it, and queues TeleportToLocation; KSA's
+      own path is InputEvents.CreateVehicleData applied in the settled window.
+    novelty: high
+    techniques: [starmap-lifecycle]
+    lifecycle: [frame:after-on-frame, frame:input]
+    hooks: ["starmap StarMapAfterOnFrame"]
+    game_types: [KSA.Vehicle, KSA.VehicleSave, KSA.VehicleSaves, KSA.DefaultVehicleSaves, KSA.PartTree, KSA.Orbit, KSA.IParentBody, KSA.CelestialSystem, KSA.ConstraintSim, KSA.ShapesUnlock, KSA.VehicleUpdateTask, KSA.InputEvents]
+    key_paths: [src/KSACars/Ksa/CraftSpawner.cs, src/KSACars/Ksa/Bridge.cs, docs/KSA-MODDING-NOTES.md]
+    howto_topics:
+      - slug: spawn-vehicle-at-runtime
+        title: Spawn a vehicle from code
+        note: CreateVehicle, parent.Children.Add, UpdatePerFrameData, then TeleportToLocation
+      - slug: shape-registry-lock
+        title: Mutate physics shapes while the vehicle step may be running
+        note: UnlockShapes throws during the step; UnlockShapesBlocking waits for EndVehicleUpdate
+      - slug: load-craft-from-vehicle-library
+        title: Load a craft from the stock or player vehicle library
+        note: DefaultVehicleSaves.FindSave, VehicleSaves.Refresh and AsSpan, VehicleSave.Load
+  - id: mods/ksacars/features/file-drop-command-bridge
+    title: File-drop command bridge
+    category: testing-and-tooling
+    submod: null
+    summary: >-
+      A developer-only bridge polls JSON command files from a folder beside the log once a frame in
+      StarMapAfterOnFrame and writes JSON replies atomically; multi-frame commands step the world by
+      simulated seconds, load saves, spawn library craft at lat/lon, drive cars with held inputs,
+      seat and EVA kittens and capture screenshots through the reflected ScreenshotCapture with manifests.
+    novelty: high
+    techniques: [starmap-lifecycle, reflection, file-ipc]
+    lifecycle: [startup:all-mods-loaded, frame:after-on-frame]
+    hooks: ["starmap StarMapAllModsLoaded", "starmap StarMapAfterOnFrame", "reflection KSA.Program._screenshotCapture"]
+    game_types: [KSA.GameSaves, KSA.Universe, KSA.Vehicle, KSA.VehicleSaves, KSA.DefaultVehicleSaves, KSA.VehicleSave, KSA.Orbit, KSA.ConstraintSim, KSA.EVADoor, KSA.CrewAssignmentWindow, KSA.ScreenshotCapture, KSA.Program, KSA.Constants, KSA.Celestial]
+    key_paths: [src/KSACars/Ksa/Bridge.cs, src/KSACars/Sim/BridgeCommand.cs, src/KSACars/Ksa/CraftSpawner.cs, src/KSACars/Ksa/KsaWorld.cs]
+    howto_topics:
+      - slug: external-control-of-running-game
+        title: Control a running game from outside through a file-drop bridge
+        note: JSON in/out folders, atomic rename, one command at a time, multi-frame closures
+      - slug: scripted-screenshots
+        title: Take screenshots from a mod
+        note: ScreenshotCapture.Request with warm=N via the private Program._screenshotCapture
+      - slug: spawn-vehicle-at-runtime
+        title: Spawn a craft from the vehicle library at runtime
+        note: CreateVehicle under UnlockShapesBlocking, parent.Children.Add, TeleportToLocation
+  - id: mods/ksacars/features/ksa-mcp-server
+    title: KSA MCP server over the bridge
+    category: testing-and-tooling
+    submod: null
+    summary: >-
+      A stdlib-only Python MCP server (JSON-RPC over stdio, registered in .mcp.json) that maps tools
+      to bridge commands, launches or reuses the game, and returns screenshots inline with contact
+      sheets, GIFs and temporal-noise maps; also usable from a shell in cli mode.
+    novelty: high
+    techniques: [file-ipc, mcp-server]
+    lifecycle: []
+    hooks: []
+    game_types: []
+    key_paths: [tools/ksa-mcp/server.py, .mcp.json, tools/vis/vis.py, tools/ksa-user-dir.sh, tools/run.sh]
+    howto_topics:
+      - slug: mcp-server-for-ksa
+        title: Let an AI agent drive and screenshot KSA through MCP
+        note: wrap a file bridge in MCP tools; return images as base64 JPEG content
+  - id: mods/ksacars/features/api-surface-pinning-and-diff
+    title: API surface pinning and KSA upgrade diffing
+    category: testing-and-tooling
+    submod: null
+    summary: >-
+      Reads every KSA type and member the compiled DLL binds to from its TypeRef and MemberRef tables
+      into a committed list checked in CI, forces Harmony targets into it with never-called
+      PinTheSignature methods, locks game DLL hashes, watches the published build daily, and narrows a
+      decompiled KSA diff to the files and members the mod uses.
+    novelty: high
+    techniques: [api-surface-diff, decompile, hash-lock]
+    lifecycle: []
+    hooks: []
+    game_types: []
+    key_paths: [tools/apisurface/Program.cs, tools/api-surface.sh, docs/KSA-API-SURFACE.md, src/KSACars/Ksa/PhysicsHook.cs, ksa-assemblies.lock, tools/check-assemblies.sh, tools/ksa-api-diff.sh, tools/decompile-assemblies.sh, tools/check-ksa-version.sh, .github/workflows/ksa-version.yml, .claude/skills/upgrade-ksa/SKILL.md]
+    howto_topics:
+      - slug: track-game-api-surface
+        title: Track exactly which game APIs a mod depends on
+        note: read MemberReferences from the compiled DLL with System.Reflection.Metadata
+      - slug: pin-harmony-targets
+        title: Turn Harmony target signature changes into compile errors
+        note: a never-called method that calls the target
+      - slug: upgrade-mod-to-new-ksa-build
+        title: Upgrade a mod to a new KSA build
+        note: hash lock, decompile both builds, diff only files defining used types
+  - id: mods/ksacars/features/headless-sim-tests
+    title: Headless simulation tests and the Sim/Ksa boundary
+    category: testing-and-tooling
+    submod: null
+    summary: >-
+      Keeps all KSA-free logic in Sim/, links Sim/** into an xUnit project that references no KSA
+      assembly so the boundary enforces itself, drives the car model on a rigid-body rig with the
+      engine's mass and inertia, and runs the same checks from a pre-push hook and CI.
+    novelty: medium
+    techniques: [headless-tests, ci]
+    lifecycle: []
+    hooks: []
+    game_types: []
+    key_paths: [tests/KSACars.Tests/KSACars.Tests.csproj, tests/KSACars.Tests/BuggyDriveTests.cs, tools/check-boundary.sh, tools/test.sh, tools/check-all.sh, .githooks/pre-push, .github/workflows/ci.yml]
+    howto_topics:
+      - slug: unit-test-mod-logic-without-game
+        title: Unit test mod logic without loading KSA
+        note: link KSA-free sources wholesale into a test project with no KSA reference
+  - id: mods/ksacars/features/package-deploy-release
+    title: Build, deploy, package and release pipeline
+    category: testing-and-tooling
+    submod: null
+    summary: >-
+      Tiered resolution of the game's DLLs in Directory.Build.props with a readable error, a deploy
+      script that validates assets and writes a developer marker, a package script that refuses .pdb
+      files and foreign DLLs, and semantic-release with a draft GitHub release completed by a CI
+      packaging job and SpaceDock publishing.
+    novelty: medium
+    techniques: [ci, packaging]
+    lifecycle: []
+    hooks: []
+    game_types: []
+    key_paths: [Directory.Build.props, src/KSACars/KSACars.csproj, tools/deploy.sh, tools/package.sh, tools/run.sh, .releaserc.json, .github/workflows/release.yml, .github/workflows/spacedock.yml]
+    howto_topics:
+      - slug: build-against-game-dlls-without-committing
+        title: Build a mod against KSA's DLLs without committing them
+        note: KSA_DLL_DIR, Import/, sibling mirror, install; Private=false references
+      - slug: package-a-mod-release
+        title: Package a mod release archive safely
+        note: discover asset folders, refuse pdb and foreign DLLs
+      - slug: automate-mod-releases
+        title: Automate mod releases with semantic-release and SpaceDock
