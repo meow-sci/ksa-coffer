@@ -12,6 +12,10 @@ ksa-coffer is a documentation repository that compiles a corpus of information a
 # skills
 
 - okf - for authoring documentation in OKF format properly
+- add-mod - add a new mod repo to the corpus (checkout, bundle, review, how-to integration)
+- refresh-data - refresh the corpus after mod or game assembly updates (plan, triage, re-pin, review)
+
+Skills live in `.claude/skills/<name>/` and are mirrored identically in `.agents/skills/<name>/`; edit both.
 
 # instructions
 

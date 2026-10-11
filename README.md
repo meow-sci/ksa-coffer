@@ -29,6 +29,8 @@ node scripts/content_refresh_plan.ts --check          # exit 0 when nothing is l
 
 The plan classifies each page as *current*, *repin* (cited code unchanged; rewritten automatically with line anchors remapped), *review* (a real change overlaps a cited line range; handled by an agent with [ai/briefs/REFRESH_BRIEF.md](./ai/briefs/REFRESH_BRIEF.md)) or *unknown*, groups review work by diff hunk so each change is judged once, lists upstream code no page cites yet (possible new features) and each new game build's changelog, and flags new or removed mods. The complete step-by-step procedure is the "maintaining the corpus" section of [AGENTS.md](./AGENTS.md); the reasoning behind it is in [docs/knowledge-pipeline.md](./docs/knowledge-pipeline.md).
 
+Coding agents can run either task from a repo skill: `refresh-data` for updates and `add-mod` for onboarding a new mod (both in [.claude/skills/](./.claude/skills/), mirrored in `.agents/skills/`).
+
 ## Attribution
 
 The [attribution.yml](./attribution.yml) file contains a list of all source material of KSA game mods that have been analyzed to help compile this single combined knowledge base
