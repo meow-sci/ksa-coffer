@@ -1,0 +1,160 @@
+---
+import { getCollection } from "astro:content";
+import { BASE, readReferences } from "../lib/okf.ts";
+
+const GITHUB_BLOB = "https://github.com/meow-sci/ksa-coffer/blob/main";
+const refs = readReferences();
+const entries = await getCollection("docs");
+
+const modOf = (id: string) => id.split("/")[1];
+const topicOf = (id: string) => id.split("/").slice(0, 4).join("/");
+
+interface Acc {
+  features: number;
+  submods: number;
+  articles: Set<string>;
+  topics: Set<string>;
+}
+const acc = new Map<string, Acc>();
+const get = (mod: string) => {
+  let a = acc.get(mod);
+  if (!a) acc.set(mod, (a = { features: 0, submods: 0, articles: new Set(), topics: new Set() }));
+  return a;
+};
+const allArticles = new Set<string>();
+const allTopics = new Set<string>();
+
+for (const e of entries) {
+  const d = e.data as Record<string, any>;
+  if (d.type === "Mod Feature" && e.id.startsWith("mods/")) get(modOf(e.id)).features++;
+  else if (d.type === "Submod" && e.id.startsWith("mods/")) get(modOf(e.id)).submods++;
+  else if (d.type === "How-To" || d.type === "Game Feature") {
+    const cited = Array.isArray(d.demonstrated_by) ? d.demonstrated_by : [];
+    for (const ref of cited) {
+      const id = String(ref);
+      if (!id.startsWith("mods/")) continue;
+      const a = get(modOf(id));
+      a.topics.add(topicOf(e.id));
+      allTopics.add(topicOf(e.id));
+      if (d.type === "How-To") {
+        a.articles.add(e.id);
+        allArticles.add(e.id);
+      }
+    }
+  }
+}
+
+const rows = entries
+  .filter((e) => (e.data as any).type === "Mod")
+  .map((e) => {
+    const slug = modOf(e.id);
+    const a = get(slug);
+    const ref = refs.get(String(e.data.repo));
+    return {
+      slug,
+      title: e.data.title,
+      author: e.data.author,
+      repo: e.data.repo,
+      ref,
+      license: ref?.license || e.data.license,
+      features: a.features,
+      submods: a.submods,
+      articles: a.articles.size,
+      topics: a.topics.size,
+    };
+  })
+  .sort((a, b) => b.articles - a.articles || a.title.localeCompare(b.title));
+
+const totalFeatures = rows.reduce((n, r) => n + r.features, 0);
+const fmt = (n: number) => n.toLocaleString("en-US");
+---
+
+<h2 id="source-mods">Source mods</h2>
+<p>
+  This corpus was distilled from the open-source KSA mods below, and we are grateful to their authors. Every page links
+  its code references to the pinned commit shown here; licenses are summarized in
+  <a href="https://github.com/meow-sci/ksa-coffer/blob/main/attribution.yml"><code>attribution.yml</code></a>.
+</p>
+<div class="mod-attribution">
+  <table>
+    <thead>
+      <tr>
+        <th>Mod</th>
+        <th>Author</th>
+        <th>Source</th>
+        <th>License</th>
+        <th class="num">Features</th>
+        <th class="num">How-to articles</th>
+        <th class="num">Topics</th>
+      </tr>
+    </thead>
+    <tbody>
+      {
+        rows.map((r) => (
+          <tr>
+            <td><a href={`${BASE}mods/${r.slug}/overview/`}>{r.title}</a></td>
+            <td>{r.author}</td>
+            <td>
+              {r.ref ? (
+                <>
+                  <a href={r.ref.url}>{r.repo}</a> <a href={`${r.ref.url}/tree/${r.ref.ref}`}><code>{r.ref.ref.slice(0, 7)}</code></a>
+                </>
+              ) : (
+                r.repo
+              )}
+            </td>
+            <td>
+              {r.ref && r.ref.licenseFiles.length > 0 ? (
+                r.ref.licenseFiles.length === 1 ? (
+                  <a href={`${GITHUB_BLOB}/${r.ref.licenseFiles[0]}`}>{r.license}</a>
+                ) : (
+                  <>
+                    {r.license}{" "}
+                    {r.ref.licenseFiles.map((f, i) => (
+                      <>
+                        {i > 0 && " "}
+                        <a href={`${GITHUB_BLOB}/${f}`}>{i + 1}</a>
+                      </>
+                    ))}
+                  </>
+                )
+              ) : (
+                r.license
+              )}
+            </td>
+            <td class="num">{fmt(r.features)}{r.submods > 0 && ` + ${r.submods} submods`}</td>
+            <td class="num">{fmt(r.articles)}</td>
+            <td class="num">{fmt(r.topics)}</td>
+          </tr>
+        ))
+      }
+    </tbody>
+    <tfoot>
+      <tr>
+        <th colspan="4">All mods (distinct)</th>
+        <td class="num">{fmt(totalFeatures)}</td>
+        <td class="num">{fmt(allArticles.size)}</td>
+        <td class="num">{fmt(allTopics.size)}</td>
+      </tr>
+    </tfoot>
+  </table>
+</div>
+<p>
+  <small>
+    How-to articles and topics count the pages that cite one of the mod's features as a working example
+    (<code>demonstrated_by</code>).
+  </small>
+</p>
+
+<style>
+  .mod-attribution {
+    overflow-x: auto;
+  }
+  .num {
+    text-align: right;
+    white-space: nowrap;
+  }
+  tfoot th {
+    text-align: left;
+  }
+</style>

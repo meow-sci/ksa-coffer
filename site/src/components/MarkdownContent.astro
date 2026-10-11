@@ -1,0 +1,13 @@
+---
+import Default from "@astrojs/starlight/components/MarkdownContent.astro";
+import ModAttribution from "./ModAttribution.astro";
+
+// The root content/index.md has an empty entry id once Starlight maps it to the home route.
+const { id } = Astro.locals.starlightRoute.entry;
+const isHome = id === "" || id === "index";
+---
+
+<Default>
+  <slot />
+  {isHome && <ModAttribution />}
+</Default>

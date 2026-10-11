@@ -1,6 +1,7 @@
 # Project documentation history
 
 ## 2026-10-11
+* **Update**: Documented the home-page source mods attribution table in [Documentation site](site.md).
 * **Creation**: Added [Agent Skill build](skill.md) describing scripts/skill_build.ts, the ksa-modding skill layout under dist/skill/ and its validation.
 
 ## 2026-10-10

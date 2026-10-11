@@ -37,6 +37,7 @@ function okfLoader() {
                 actions: [
                   { text: "Browse how-to articles", link: `${BASE}howto/`, icon: "right-arrow", variant: "primary" },
                   { text: "Browse analyzed mods", link: `${BASE}mods/`, variant: "minimal" },
+                  { text: "Source mods", link: "#source-mods", variant: "minimal" },
                 ],
               },
             };
@@ -66,6 +67,9 @@ export const collections = {
         group: loose,
         topic: loose,
         demonstrated_by: loose,
+        repo: z.string().optional(),
+        author: z.string().optional(),
+        license: z.string().optional(),
       }),
     }),
   }),

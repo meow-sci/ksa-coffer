@@ -7,8 +7,23 @@ import { parse as parseYaml } from "yaml";
 /** Site base path; must match the GitHub Pages project URL. */
 export const BASE = "/ksa-coffer/";
 
-export const SITE_ROOT = fileURLToPath(new URL("../..", import.meta.url));
-export const REPO_ROOT = path.resolve(SITE_ROOT, "..");
+/**
+ * Repo root: the nearest ancestor holding pnpm-workspace.yaml and content/. Searched from this
+ * module (config time) and from the cwd, because once Astro bundles this module for rendering
+ * import.meta.url no longer points at src/lib.
+ */
+function findRepoRoot(): string {
+  for (const start of [path.dirname(fileURLToPath(import.meta.url)), process.cwd()]) {
+    for (let dir = start; ; dir = path.dirname(dir)) {
+      if (existsSync(path.join(dir, "pnpm-workspace.yaml")) && existsSync(path.join(dir, "content"))) return dir;
+      if (path.dirname(dir) === dir) break;
+    }
+  }
+  throw new Error("okf: cannot locate the repo root (pnpm-workspace.yaml + content/)");
+}
+
+export const REPO_ROOT = findRepoRoot();
+export const SITE_ROOT = path.join(REPO_ROOT, "site");
 export const CONTENT_ROOT = path.join(REPO_ROOT, "content");
 
 const ACRONYMS: Record<string, string> = { ui: "UI", io: "I/O", eva: "EVA", ksa: "KSA", api: "API", mcp: "MCP", xml: "XML", glb: "GLB", rcs: "RCS", hud: "HUD", imgui: "ImGui" };
@@ -145,4 +160,39 @@ export function buildSidebar() {
     { label: "How-to", items: howto },
     { label: "Mods", collapsed: false, items: modItems },
   ];
+}
+
+export interface RepoRef {
+  url: string; // GitHub URL without the trailing .git
+  ref: string; // pinned commit sha
+  license: string;
+  licenseFiles: string[]; // repo-relative attribution/LICENSE.<name>[-N].txt paths that exist
+}
+
+let references: Map<string, RepoRef> | undefined;
+
+/** Pinned reference repos from data/references.yml, keyed by repo name. */
+export function readReferences(): Map<string, RepoRef> {
+  if (references) return references;
+  references = new Map();
+  const root = REPO_ROOT;
+  const data = parseYaml(readFileSync(path.join(root, "data/references.yml"), "utf8")) as any;
+  const attrDir = path.join(root, "attribution");
+  const files = existsSync(attrDir) ? readdirSync(attrDir) : [];
+  for (const r of data?.repos ?? []) {
+    const name = String(r.name);
+    const re = new RegExp(`^LICENSE\\.${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(-(\\d+))?\\.txt$`);
+    const licenseFiles = files
+      .map((f) => ({ f, m: f.match(re) }))
+      .filter((x) => x.m)
+      .sort((a, b) => Number(a.m![2] ?? 0) - Number(b.m![2] ?? 0))
+      .map((x) => `attribution/${x.f}`);
+    references.set(name, {
+      url: String(r.git).replace(/\.git$/, ""),
+      ref: String(r.ref),
+      license: String(r.license ?? ""),
+      licenseFiles,
+    });
+  }
+  return references;
 }

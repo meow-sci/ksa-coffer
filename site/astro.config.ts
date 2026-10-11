@@ -19,7 +19,10 @@ export default defineConfig({
       pagination: false,
       lastUpdated: false,
       routeMiddleware: "./src/routeMiddleware.ts",
-      components: { PageTitle: "./src/components/PageTitle.astro" },
+      components: {
+        PageTitle: "./src/components/PageTitle.astro",
+        MarkdownContent: "./src/components/MarkdownContent.astro",
+      },
     }),
   ],
   markdown: {

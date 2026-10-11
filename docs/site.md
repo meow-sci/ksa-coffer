@@ -34,6 +34,7 @@ Run from the repository root after `pnpm install`.
 | Link rewrite | `site/src/plugins/remark-okf-links.ts` | Rewrites file-relative `.md` links to site routes (`index.md` maps to its directory); links leaving `content/` become GitHub blob URLs; demotes body h1 to h2 on pages without a frontmatter title |
 | Contextual sidebar | `site/src/routeMiddleware.ts` | The base sidebar lists how-to categories and groups plus the mods; the middleware expands only the current group, topic or mod |
 | Page badges | `site/src/components/PageTitle.astro` | Shows `type`, `difficulty` and non-stable `status` under the title |
+| Source mods table | `site/src/components/ModAttribution.astro`, `MarkdownContent.astro` | Home page only: one row per mod (author, pinned source commit, license file, feature count, how-to articles and topics citing the mod in `demonstrated_by`), computed from collection frontmatter joined with `data/references.yml` and `attribution/` |
 
 The base sidebar is rendered on every one of the ~2,750 pages, so it is kept small on purpose. Do not
 autogenerate the full tree into it.
