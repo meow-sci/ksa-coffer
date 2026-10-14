@@ -1,0 +1,380 @@
+mod: blasto
+repo: blasto
+ref: 21f7657c42534774001acabcf93289e9412c5242
+summary: StarMap mod that accumulates persistent body-fixed exhaust marks, blends them into private
+  terrain material pipelines, emits owned native dust and saves validated sidecar state; includes
+  live tuning and portable validation.
+features:
+  - id: mods/blasto/features/worker-nozzle-exposure-handoff
+    title: Worker nozzle exposure handoff
+    category: physics
+    submod: null
+    summary: Capture actual rocket nozzle burn intervals on vehicle workers and consume immutable
+      samples after solver results are applied
+    novelty: medium
+    techniques:
+      - harmony-postfix
+      - background-thread
+    lifecycle:
+      - physics:vehicle-solver
+      - frame:apply-solvers
+    hooks:
+      - harmony-postfix KSA.VehicleUpdateState.UpdateModules
+      - harmony-postfix KSA.Universe.ApplyVehicleSolvers
+    game_types:
+      - KSA.VehicleUpdateState
+      - KSA.RocketNozzleState
+      - KSA.Universe
+    key_paths:
+      - Blasto.GameMod/Simulation/BlastSimulation.cs
+    howto_topics:
+      - slug: sample-engine-exhaust-after-physics
+        title: Sample actual engine exhaust after physics
+      - slug: main-thread-physics-mutation-window
+        title: Use the settled main-thread physics window
+  - id: mods/blasto/features/terrain-plume-intersection
+    title: Terrain plume intersection
+    category: celestials
+    submod: null
+    summary: Intersect exhaust rays with radial terrain heights and construct a dry-surface footprint
+      from slope and biome metadata
+    novelty: medium
+    techniques:
+      - harmony-postfix
+      - custom-physics
+    lifecycle:
+      - frame:apply-solvers
+    hooks:
+      - harmony-postfix KSA.Universe.ApplyVehicleSolvers
+    game_types:
+      - KSA.Celestial
+    key_paths:
+      - Blasto.GameMod/Simulation/SurfaceProbe.cs
+      - Blasto.GameMod/Core/SurfaceIntersection.cs
+      - Blasto.GameMod/Simulation/SurfaceProfiles.cs
+      - Blasto.GameMod/Simulation/BlastSimulation.cs
+    howto_topics:
+      - slug: intersect-rays-with-terrain-height
+        title: Intersect rays with a celestial terrain height function
+      - slug: classify-dry-terrain-for-effects
+        title: Classify dry terrain for surface effects
+  - id: mods/blasto/features/persistent-exposure-site-store
+    title: Persistent exposure site store
+    category: persistence
+    submod: null
+    summary: Accumulate pressure-time exposure in bounded body-fixed sites while preserving stable
+      pattern seeds and tangent frames
+    novelty: medium
+    techniques:
+      - spatial-index
+      - immutable-snapshot
+    lifecycle:
+      - frame:apply-solvers
+    hooks:
+      - harmony-postfix KSA.Universe.ApplyVehicleSolvers
+    game_types:
+      - KSA.Universe
+    key_paths:
+      - Blasto.GameMod/Core/BlastSiteStore.cs
+      - Blasto.GameMod/Core/BlastMark.cs
+      - Blasto.GameMod/Core/Double3.cs
+      - Blasto.GameMod/Simulation/BlastSimulation.cs
+      - Blasto.GameMod/Mod.cs
+      - Blasto.GameMod/Rendering/BlastVisualMath.cs
+    howto_topics:
+      - slug: persist-body-fixed-surface-effects
+        title: Persist body-fixed surface effects
+      - slug: bounded-spatial-effect-history
+        title: Maintain bounded spatial effect history
+  - id: mods/blasto/features/private-terrain-pipeline-swap
+    title: Private terrain pipeline swap
+    category: rendering
+    submod: null
+    summary: Build guarded private terrain pipelines and substitute them only during the native terrain
+      draw with exception-safe restoration
+    novelty: high
+    techniques:
+      - harmony-postfix
+      - harmony-prefix
+      - harmony-transpiler
+      - harmony-finalizer
+      - reflection
+      - vulkan-pipeline
+    lifecycle:
+      - startup:starmap-before-main
+      - event:renderer-build
+      - frame:prepare
+      - frame:post-render
+      - render:planet
+    hooks:
+      - harmony-postfix KSA.PlanetRenderer.BuildRenderPipeline
+      - harmony-prefix KSA.PlanetRenderer.Render
+      - harmony-transpiler KSA.PlanetRenderer.Render
+      - harmony-finalizer KSA.PlanetRenderer.Render
+    game_types:
+      - KSA.PlanetRenderer
+    key_paths:
+      - Blasto.GameMod/Rendering/TerrainBlastRenderer.cs
+      - Blasto.GameMod/Rendering/TerrainAccess.cs
+      - Blasto.GameMod/Mod.cs
+      - Blasto.GameMod/Rendering/BlastRenderResources.cs
+    howto_topics:
+      - slug: guarded-native-pipeline-replacement
+        title: Replace a native pipeline with rollback
+      - slug: harmony-transpiler-call-site-swap
+        title: Swap one call inside a method with a Harmony transpiler
+  - id: mods/blasto/features/frame-viewport-terrain-buffers
+    title: Frame and viewport terrain buffers
+    category: rendering
+    submod: null
+    summary: Extend native terrain descriptors with isolated frame-view storage buffers and
+      camera-relative double-to-float packing
+    novelty: high
+    techniques:
+      - vulkan-buffer
+      - vulkan-pipeline
+      - native-interop
+    lifecycle:
+      - render:planet
+    hooks:
+      - harmony-prefix KSA.PlanetRenderer.Render
+    game_types:
+      - KSA.PlanetRenderer
+      - KSA.Celestial
+      - KSA.Camera
+      - Core.Renderer
+    key_paths:
+      - Blasto.GameMod/Rendering/BlastRenderResources.cs
+      - Blasto.GameMod/Rendering/BlastDescriptorLayout.cs
+      - Blasto.GameMod/Rendering/BlastGpuMark.cs
+      - Blasto.GameMod/Rendering/BlastVisualMath.cs
+    howto_topics:
+      - slug: per-frame-per-viewport-storage-buffers
+        title: Allocate storage buffers per frame and viewport
+      - slug: camera-relative-double-precision-effects
+        title: Pack body-fixed effects relative to the camera
+  - id: mods/blasto/features/terrain-material-shader-injection
+    title: Terrain material shader injection
+    category: shaders
+    submod: null
+    summary: Inject persistent surface marks before native terrain lighting while carrying displaced
+      positions and filtering procedural radial streaks
+    novelty: high
+    techniques:
+      - glsl-shader
+      - vulkan-pipeline
+    lifecycle:
+      - event:renderer-build
+      - render:planet
+    hooks:
+      - harmony-postfix KSA.PlanetRenderer.BuildRenderPipeline
+    game_types:
+      - KSA.ShaderReference
+      - RenderCore.Shaders.ShaderCompilerResolve
+    key_paths:
+      - Blasto.GameMod/Rendering/TerrainShaderSource.cs
+      - Blasto.GameMod/Rendering/TerrainBlastShaders.cs
+    howto_topics:
+      - slug: inject-terrain-material-before-lighting
+        title: Inject terrain material effects before lighting
+      - slug: filter-procedural-radial-streaks
+        title: Filter procedural radial streaks
+  - id: mods/blasto/features/unsigned-vulkan-limit-validation
+    title: Unsigned Vulkan limit validation
+    category: rendering
+    submod: null
+    summary: Decode signed interop representations of Vulkan limits as unsigned values before validating
+      private terrain buffer requirements
+    novelty: high
+    techniques:
+      - native-interop
+      - vulkan-buffer
+    lifecycle:
+      - event:renderer-build
+      - frame:prepare
+      - frame:post-render
+    hooks:
+      - harmony-postfix KSA.PlanetRenderer.BuildRenderPipeline
+    game_types:
+      - Brutal.VulkanApi.VkPhysicalDeviceLimits
+    key_paths:
+      - Blasto.GameMod/Rendering/TerrainGpuCapabilities.cs
+      - Blasto.GameMod/Rendering/BlastRenderResources.cs
+      - Blasto.Tests/Program.cs
+    howto_topics:
+      - slug: decode-unsigned-native-gpu-limits
+        title: Decode unsigned GPU limits from signed bindings
+  - id: mods/blasto/features/owned-surface-dust-emitters
+    title: Owned surface dust emitters
+    category: rendering
+    submod: null
+    summary: Create bounded native volumetric particle bursts anchored to a celestial surface with
+      explicit handle ownership and separate optical tuning
+    novelty: medium
+    techniques:
+      - harmony-postfix
+      - native-particles
+    lifecycle:
+      - frame:apply-solvers
+      - frame:pre-render
+      - frame:render
+      - render:particles
+    hooks:
+      - harmony-postfix KSA.Universe.ApplyVehicleSolvers
+    game_types:
+      - KSA.Rendering.Particles.ParticleEmitterReference
+      - KSA.Rendering.Particles.ParticleSystem
+      - KSA.Celestial
+      - KSA.BubbleOrigin
+    key_paths:
+      - Blasto.GameMod/Effects/LandingDust.cs
+      - Blasto.GameMod/Simulation/BlastSimulation.cs
+    howto_topics:
+      - slug: create-body-fixed-particle-bursts
+        title: Create body-fixed native particle bursts
+      - slug: own-native-particle-handles
+        title: Own native particle handles through cleanup
+  - id: mods/blasto/features/save-bound-sidecar-transactions
+    title: Save-bound sidecar transactions
+    category: persistence
+    submod: null
+    summary: Capture detached mod state alongside native saves and write an integrity-bound validated
+      sidecar with bounded recovery data
+    novelty: high
+    techniques:
+      - harmony-postfix
+      - harmony-prefix
+      - harmony-finalizer
+      - save-sidecar
+      - json-config
+    lifecycle:
+      - event:save
+      - event:load
+    hooks:
+      - harmony-postfix KSA.GameSave.Populate
+      - harmony-postfix KSA.UncompressedSave.Write
+      - harmony-prefix KSA.UncompressedSave.Load
+      - harmony-finalizer KSA.UncompressedSave.Load
+      - harmony-prefix KSA.Universe.DeserializeSave
+      - harmony-postfix KSA.Universe.DeserializeSave
+    game_types:
+      - KSA.GameSave
+      - KSA.UncompressedSave
+      - KSA.Universe
+    key_paths:
+      - Blasto.GameMod/Persistence/BlastPersistence.cs
+      - Blasto.GameMod/Persistence/BlastSaveCodec.cs
+      - Blasto.GameMod/Persistence/BlastSaveDocument.cs
+    howto_topics:
+      - slug: capture-sidecar-state-at-native-save
+        title: Capture sidecar state at the native save boundary
+      - slug: bind-sidecars-to-native-save-integrity
+        title: Bind sidecars to native save integrity
+  - id: mods/blasto/features/scene-reset-and-native-cleanup
+    title: Scene reset and native cleanup
+    category: getting-started
+    submod: null
+    summary: Separate scene state from GPU lifetime and join workers before resets or disposal so queued
+      exposure cannot leak across scenes
+    novelty: medium
+    techniques:
+      - starmap-lifecycle
+      - harmony-prefix
+      - harmony-postfix
+      - harmony-finalizer
+    lifecycle:
+      - frame:apply-solvers
+      - event:load
+      - event:game-dispose
+      - event:starmap-unload
+    hooks:
+      - harmony-prefix KSA.Universe.ApplyVehicleSolvers
+      - harmony-prefix KSA.Universe.DeserializeSave
+      - harmony-prefix KSA.Universe.LoadSystem
+      - harmony-prefix KSA.Program.Dispose
+      - harmony-prefix KSA.PlanetRenderer.Dispose
+      - starmap StarMapUnload
+    game_types:
+      - KSA.Program
+      - KSA.Universe
+      - KSA.JobSystems
+      - KSA.PlanetRenderer
+    key_paths:
+      - Blasto.GameMod/Mod.cs
+      - Blasto.GameMod/Simulation/BlastSimulation.cs
+      - Blasto.GameMod/Persistence/BlastPersistence.cs
+      - Blasto.GameMod/Rendering/BlastRenderResources.cs
+      - Blasto.GameMod/Rendering/TerrainBlastRenderer.cs
+    howto_topics:
+      - slug: reset-mod-state-between-scenes
+        title: Reset mod state between scenes
+      - slug: dispose-owned-resources-before-game-shutdown
+        title: Dispose owned resources before game shutdown
+  - id: mods/blasto/features/live-effect-tuning-and-input
+    title: Live effect tuning and input
+    category: ui
+    submod: null
+    summary: Expose validated live appearance controls and persistent scene settings through a
+      HUD-independent ImGui window with rendering diagnostics
+    novelty: medium
+    techniques:
+      - starmap-lifecycle
+      - harmony-prefix
+      - harmony-postfix
+      - imgui-window
+      - imgui-menu
+      - json-config
+    lifecycle:
+      - frame:draw-ui
+      - frame:input
+      - frame:apply-solvers
+    hooks:
+      - starmap StarMapAfterGui
+      - harmony-postfix KSA.Program.DrawProgramMenusHook
+      - harmony-prefix KSA.Program.OnDrawUiConsole
+      - harmony-prefix KSA.GameSettings.OnKeyAll
+      - harmony-prefix KSA.Universe.ApplyVehicleSolvers
+    game_types:
+      - KSA.Program
+      - KSA.GameSettings
+    key_paths:
+      - Blasto.GameMod/Mod.Ui.cs
+      - Blasto.GameMod/Mod.Tuning.cs
+      - Blasto.GameMod/Mod.cs
+      - Blasto.GameMod/Persistence/BlastSaveDocument.cs
+      - Blasto.GameMod/Mod.Diagnostics.cs
+    howto_topics:
+      - slug: uncapped-validated-imgui-tuning
+        title: Build validated ImGui tuning beyond drag ranges
+      - slug: draw-ui-with-hidden-hud
+        title: Draw mod UI with the game HUD hidden
+  - id: mods/blasto/features/offline-rendering-validation
+    title: Offline rendering validation
+    category: testing-and-tooling
+    submod: null
+    summary: Test portable production logic and exact shader transforms without the game while packaging
+      only the mod's required output files
+    novelty: medium
+    techniques:
+      - headless-tests
+      - shader-validation
+      - build-packaging
+    lifecycle:
+      - tool:build
+    hooks: []
+    game_types: []
+    key_paths:
+      - Blasto.Tests/Blasto.Tests.csproj
+      - Blasto.Tests/Program.cs
+      - scripts/validate-shaders.sh
+      - scripts/package.sh
+      - Directory.Build.props
+      - Blasto.GameMod/Blasto.GameMod.csproj
+      - VALIDATION.md
+    howto_topics:
+      - slug: headless-production-source-tests
+        title: Test portable production source without the game
+      - slug: validate-transformed-game-shaders
+        title: Validate transformed game shaders offline
+      - slug: package-only-owned-mod-assemblies
+        title: Package only owned mod assemblies

@@ -1,16 +1,57 @@
 ---
 type: Game Feature
 title: Write worker-thread-safe patches inside the vehicle solver
-description: How to share data with Harmony patches that run on vehicle worker threads per substep, without locks, allocation or exceptions
+description: Share data with per-substep vehicle solver patches through argument-only code,
+  immutable snapshots, concurrent registries and bounded worker-to-main-thread queues
 topic: write-worker-thread-safe-solver-patches
-approaches: 6
-game_types: [KSA.PhysicsStates, KSA.PhysicsBubble, KSA.VehicleUpdateTask, KSA.PhysicsEnvironment, KSA.ConstraintSim, KSA.KittenLocomotion, KSA.FlightComputer]
-lifecycle: [physics:vehicle-solver, physics:bepu, frame:dispatch-solvers, startup:asset-load, frame:draw-ui, frame:viewports, frame:celestials, frame:apply-solvers]
-demonstrated_by: [mods/ksaero/features/body-of-revolution-aerodynamics, mods/ksaero/features/stock-drag-delegate-fallback, mods/realatmospheres/features/measured-flight-atmospheres, mods/ksastructures/features/dry-volume-below-sea-level, mods/unscience/features/kitchen-sink-g-load-protection, mods/unscience/features/the-tick-vessel-indestructibility, mods/ksagolf/features/course-colliders-as-clutter, mods/ksastructures/features/first-person-kitten-view, mods/ksastructures/features/terrain-height-roof-override, mods/ksa-advancedflightcomputer/features/flight-computer-command-sink, mods/ksa-advancedflightcomputer/features/flight-computer-worker-copy-channels]
-tags: [physics, worker-thread, threading, harmony, solver, substep, concurrency, allocation-free]
+approaches: 7
+game_types:
+  - KSA.PhysicsStates
+  - KSA.PhysicsBubble
+  - KSA.VehicleUpdateTask
+  - KSA.PhysicsEnvironment
+  - KSA.ConstraintSim
+  - KSA.KittenLocomotion
+  - KSA.FlightComputer
+  - KSA.VehicleUpdateState
+  - KSA.RocketNozzleState
+  - KSA.Universe
+lifecycle:
+  - physics:vehicle-solver
+  - physics:bepu
+  - frame:dispatch-solvers
+  - startup:asset-load
+  - frame:draw-ui
+  - frame:viewports
+  - frame:celestials
+  - frame:apply-solvers
+demonstrated_by:
+  - mods/ksaero/features/body-of-revolution-aerodynamics
+  - mods/ksaero/features/stock-drag-delegate-fallback
+  - mods/realatmospheres/features/measured-flight-atmospheres
+  - mods/ksastructures/features/dry-volume-below-sea-level
+  - mods/unscience/features/kitchen-sink-g-load-protection
+  - mods/unscience/features/the-tick-vessel-indestructibility
+  - mods/ksagolf/features/course-colliders-as-clutter
+  - mods/ksastructures/features/first-person-kitten-view
+  - mods/ksastructures/features/terrain-height-roof-override
+  - mods/ksa-advancedflightcomputer/features/flight-computer-command-sink
+  - mods/ksa-advancedflightcomputer/features/flight-computer-worker-copy-channels
+  - mods/blasto/features/worker-nozzle-exposure-handoff
+tags:
+  - physics
+  - worker-thread
+  - threading
+  - harmony
+  - solver
+  - substep
+  - concurrency
+  - allocation-free
 category: physics
 group: solver
-generated: { by: claude-code/sonnet-5.5, at: 2026-10-10T22:26:55Z }
+generated:
+  by: codex/gpt-6
+  at: 2026-10-14T01:54:13Z
 status: stable
 repos:
   - name: KSAero
@@ -31,6 +72,9 @@ repos:
   - name: KSA-AdvancedFlightComputer
     git: https://github.com/Maximilian-Nesslauer/KSA-AdvancedFlightComputer.git
     ref: 77c0ccf5608e49c459eec72c3a56d0b30d62da63
+  - name: blasto
+    git: git@github.com:meow-sci/blasto.git
+    ref: 21f7657c42534774001acabcf93289e9412c5242
 game:
   build: 2026.10.10.5554
   git: git@github.com:meow-sci/ksa-game-assemblies.git
@@ -40,40 +84,46 @@ sources:
     repo: ksa-game-assemblies
     path: current/decomp/KSA/Universe.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/Universe.cs
-    title: "KSA.Universe (decompiled, build 2026.10.10.5554)"
+    title: KSA.Universe (decompiled, build 2026.10.10.5554)
   - id: ksa-vehicleupdatetask
     repo: ksa-game-assemblies
     path: current/decomp/KSA/VehicleUpdateTask.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/VehicleUpdateTask.cs
-    title: "KSA.VehicleUpdateTask (decompiled, build 2026.10.10.5554)"
+    title: KSA.VehicleUpdateTask (decompiled, build 2026.10.10.5554)
   - id: ksa-physicsbubble
     repo: ksa-game-assemblies
     path: current/decomp/KSA/PhysicsBubble.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/PhysicsBubble.cs
-    title: "KSA.PhysicsBubble (decompiled, build 2026.10.10.5554)"
+    title: KSA.PhysicsBubble (decompiled, build 2026.10.10.5554)
   - id: ksa-physicsstates
     repo: ksa-game-assemblies
     path: current/decomp/KSA/PhysicsStates.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/PhysicsStates.cs
-    title: "KSA.PhysicsStates (decompiled, build 2026.10.10.5554)"
+    title: KSA.PhysicsStates (decompiled, build 2026.10.10.5554)
   - id: ksa-constraintsim
     repo: ksa-game-assemblies
     path: current/decomp/KSA/ConstraintSim.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/ConstraintSim.cs
-    title: "KSA.ConstraintSim (decompiled, build 2026.10.10.5554)"
+    title: KSA.ConstraintSim (decompiled, build 2026.10.10.5554)
   - id: ksa-ibubblejob
     repo: ksa-game-assemblies
     path: current/decomp/KSA/IBubbleJob.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/IBubbleJob.cs
-    title: "KSA.IBubbleJob (decompiled, build 2026.10.10.5554)"
+    title: KSA.IBubbleJob (decompiled, build 2026.10.10.5554)
+  - id: blasto-integration-write-worker-thread-safe-solver-patches
+    repo: blasto
+    path: Blasto.GameMod/Simulation/BlastSimulation.cs
+    resource: https://github.com/meow-sci/blasto/blob/21f7657c42534774001acabcf93289e9412c5242/Blasto.GameMod/Simulation/BlastSimulation.cs
+    title: Blasto Sample nozzle thrust on the solver and hand exposure to the main thread
 ---
 
 Methods such as `PhysicsStates.ComputeDerivatives`, `PhysicsEnvironment.RecomputePositionalValues`,
 `FlightComputer.ComputeControl`, `ConstraintSim.DetectCollisions`/`Simulate` and `KittenLocomotion.StepGrounded`
 run on the vehicle solver's worker threads, per substep or per collision pass, for several vehicles at once.
 A Harmony patch on any of them inherits those constraints: no ImGui or Vulkan, no main-thread-only state, no
-blocking, no allocation on the hot path, and no uncaught exception. This topic collects six ways to feed such a
-patch mod data that the main thread owns.
+blocking and no uncaught exception. Minimize allocations, especially at derivative cadence; bounded
+module-level output queues trade allocations and dropped samples for a main-thread handoff. This topic
+collects seven approaches for feeding workers and publishing their results.
 
 The call chain and the thread table are in the lifecycle reference's
 [worker-thread approach](../../../getting-started/lifecycle/game-loop-and-lifecycle/game-loop-and-lifecycle-4.md) and the
@@ -104,6 +154,7 @@ repeats every frame the throw does, and the player sees frozen vehicles instead 
 | [4: Volatile snapshot handoff from worker patches to the main thread](write-worker-thread-safe-solver-patches-4.md) | KSAGolf, KSAStructures | worker-thread-patch | Immutable snapshot in, volatile fields out; one simulation per call, no shared mutable state |
 | [5: ThreadStatic "who is asking" set in a prefix, cleared in a finalizer](write-worker-thread-safe-solver-patches-5.md) | KSAStructures | harmony-finalizer | Tells vehicle-driven calls from camera and UI calls; relies on the window being bracketed correctly |
 | [6: Immutable commands published before the solver job is queued](write-worker-thread-safe-solver-patches-6.md) | KSA-AdvancedFlightComputer | harmony-postfix | One postfix runs every actuator writer; commands are keyed by an object the worker's flight-computer copy shares |
+| [Sample nozzle thrust on the solver and hand exposure to the main thread](write-worker-thread-safe-solver-patches-7.md) | Blasto | harmony-postfix, background-thread | Actual module output with main-thread effects; bounded queue can drop samples and does not acknowledge individual bubble commits |
 
 Pick by the direction of data flow:
 
@@ -115,6 +166,10 @@ Pick by the direction of data flow:
 | Per-frame values in (a heading, a course) or results out (a hit, a handle list) | 4 |
 | Per-vehicle context for a function that does not receive the vehicle | 5 |
 | A different command for each vehicle every control step | 6 |
+| Detached nozzle samples sent from workers to main-thread terrain and effect owners | 7 |
+
+
+Blasto copies nozzle output from workers and consumes globally published epochs after apply. Its bounded queue offers a distinct output handoff and does not claim allocation-free capture or per-bubble commit acknowledgement; the [article's failure discussion](write-worker-thread-safe-solver-patches-7.md#variations-and-gotchas) explains the distinction. See [Blasto.GameMod/Simulation/BlastSimulation.cs](https://github.com/meow-sci/blasto/blob/21f7657c42534774001acabcf93289e9412c5242/Blasto.GameMod/Simulation/BlastSimulation.cs).[^blasto-integration-write-worker-thread-safe-solver-patches]
 
 ## See also
 
@@ -125,3 +180,5 @@ Pick by the direction of data flow:
 - [Mutate vehicles at a physics-safe point](../mutate-vehicles-at-a-physics-safe-point/overview.md) - related topic
 - [Replace the stock aerodynamic force model and measure the active one](../../aero-and-ground/replace-the-stock-aerodynamic-force-model/overview.md) - related topic
 
+
+[^blasto-integration-write-worker-thread-safe-solver-patches]: Blasto integration source.

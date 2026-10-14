@@ -28,7 +28,7 @@ Skills live in `.claude/skills/<name>/` and are mirrored identically in `.agents
 
 # folder structure
 
-- `content/` - the OKF knowledge bundle (root `content/index.md`)
+- `content/` - the OKF knowledge bundle (root `content/index.md`); includes mods and external authoring tools such as Flexo (overview `kind: authoring-tool`, `loader: none`, with `tool:authoring` / `tool:build` lifecycle phases)
   - `content/mods/<mod-slug>/` - one sub-bundle per reference repo: `overview.md` (type Mod), `features/*.md` (type Mod Feature), `submods/*.md` (type Submod, monorepos only), `index.md`, `log.md`
   - `content/howto/<category>/<group>/<topic>/` - one sub-bundle per how-to topic, grouped one level below the category (groups assigned in `ai/catalog/howto-plan.yml`): `overview.md` (type Game Feature), `<topic>.md` or `<topic>-N.md` (type How-To), `index.md`, `log.md`
 - `docs/` - project-level OKF documentation (conventions, pipeline, site, skill build)
@@ -104,7 +104,7 @@ discards the untriaged-change signal for that repo. If a pinned commit is missin
 - `node scripts/content_check_refs.ts [path ...] [--stale] [--quiet]` - verify `repos`/`game` pins, `sources[]` paths and GitHub blob links in content against the checkouts; `--stale` lists bundles whose pins differ from the checkouts (refresh signal)
 - `node scripts/content_crosslink.ts [--dry-run]` - add See-also links from feature pages to the how-to articles that cite them in `demonstrated_by`
 - `node scripts/content_howto_related.ts [--dry-run]` - link how-to topic overviews to their `related` topics from `ai/catalog/howto-plan.yml`
-- `node scripts/references_build_md.ts [--check]` - regenerate REFERENCES.md from the data file, overviews and catalogs
+- `node scripts/references_build_md.ts [--check]` - regenerate REFERENCES.md from the data file, overviews and catalogs, identifying external authoring tools
 - `node scripts/skill_build.ts [--out dist/skill] [--tarball <base.tar.gz>]` - compile content/ into the Agent Skill at dist/skill/ksa-modding/ (git-ignored); `--tarball site/public/downloads/ksa-modding.tar.gz` inserts the build's UTC timestamp before `.tar.gz` and writes `ksa-modding.json` with the filename, build time, last content commit time and all pinned KSA builds; MUST run before `pnpm --filter site build`. Use full Git history for the content date (CI sets `fetch-depth: 0`); without history, the latest OKF generated/verified time is used. The archived directory stays `ksa-modding/`.
 - `pnpm --filter site dev` - local dev server for the docs site; `pnpm --filter site build` - build the docs site to `site/dist` (needs the skill tarball, see above); `pnpm --filter site check-links` - verify every internal href in `site/dist` resolves
 - `python3 .claude/skills/okf/scripts/validate_bundle.py <dir>` and `build_indexes.py <dir>` - OKF conformance and index generation

@@ -1,0 +1,815 @@
+mod: flexo
+repo: flexo
+ref: e804879abfc1d45ca1c174a9c95c5fded58c1bf2
+summary: Flexo is an external browser authoring suite that assembles native KSA asset-only part mods, custom geometry, textures, animation, propulsion data and static-object scenarios.
+features:
+  - id: mods/flexo/features/animation-import-and-linear-baking
+    title: Import native animation rigs and bake easing into linear GLB samples
+    category: assets
+    submod: null
+    summary: Read named animation hierarchies and export per-channel easing as dense linear samples with explicit approximation limits
+    novelty: high
+    techniques:
+      - glb-model
+      - animation-baking
+      - curve-fitting
+    lifecycle:
+      - tool:authoring
+      - tool:build
+    hooks: []
+    game_types:
+      - KSA.KeyframeAnimationData
+    key_paths:
+      - src/ksa/animationImport.ts
+      - src/ksa/animationRig.ts
+      - src/ksa/exportAnimationGlb.ts
+      - src/ksa/easingFit.ts
+      - src/state/partImport.ts
+    howto_topics:
+      - slug: bake-easing-to-linear-keyframes
+        title: bake easing to linear keyframes
+      - slug: import-native-animation-glb
+        title: import native animation glb
+  - id: mods/flexo/features/asset-pipeline-and-regression-tooling
+    title: Asset pipeline and regression tooling
+    category: testing-and-tooling
+    submod: null
+    summary: Supply a private KSA catalog to browser builds and exercise parsers and workflows with fixtures, unit tests and smoke tools
+    novelty: high
+    techniques:
+      - asset-pipeline
+      - test-fixtures
+      - browser-smoke-tests
+    lifecycle:
+      - tool:build
+    hooks: []
+    game_types: []
+    key_paths:
+      - vite/ksaAssets.ts
+      - scripts/sync-test-fixtures.ts
+      - package.json
+      - scripts/smoke-v2.ts
+      - scripts/capture-part-thumbs.ts
+      - scripts/generate-icrp-thumbs.ts
+    howto_topics:
+      - slug: separate-licensed-assets-from-authoring-tool-source
+        title: separate licensed assets from authoring tool source
+      - slug: test-asset-serializers-and-browser-workflows
+        title: test asset serializers and browser workflows
+  - id: mods/flexo/features/builtin-part-composition
+    title: Assemble parts from the built-in SubPart catalog
+    category: assets
+    submod: null
+    summary: Resolve Core assets and GameData into reusable SubPart templates and complete editable part assemblies
+    novelty: high
+    techniques:
+      - xml-asset
+      - asset-catalog
+    lifecycle:
+      - tool:authoring
+      - tool:build
+    hooks: []
+    game_types:
+      - KSA.PartTemplate
+    key_paths:
+      - src/ksa/catalog.ts
+      - src/ksa/partCatalog.ts
+      - src/ksa/partXmlSerializer.ts
+    howto_topics:
+      - slug: assemble-parts-from-subparts
+        title: assemble parts from subparts
+      - slug: read-part-asset-catalogs
+        title: read part asset catalogs
+  - id: mods/flexo/features/cast-light-authoring
+    title: Author part and SubPart cast lights
+    category: rendering
+    submod: null
+    summary: Serialize native point and spot lights with owner-aware transforms and explicit preview diagnostics
+    novelty: high
+    techniques:
+      - xml-asset
+    lifecycle:
+      - tool:authoring
+      - tool:build
+    hooks: []
+    game_types:
+      - KSA.LightModule
+    key_paths:
+      - src/ksa/partXmlSerializer.ts
+      - src/three/coords.ts
+      - src/ksa/lightValidation.ts
+    howto_topics:
+      - slug: author-part-light-xml
+        title: author part light xml
+      - slug: preview-light-transform-limits
+        title: preview light transform limits
+  - id: mods/flexo/features/collider-authoring-and-coverage
+    title: Author collision shapes and inspect sampled coverage
+    category: physics
+    submod: null
+    summary: Normalize collision data by owner and measure where analytic or convex hull shapes leave visual geometry uncovered
+    novelty: high
+    techniques:
+      - xml-asset
+      - geometry-validation
+    lifecycle:
+      - tool:authoring
+      - tool:build
+    hooks: []
+    game_types:
+      - KSA.ColliderTemplate
+    key_paths:
+      - src/ksa/partXmlSerializer.ts
+      - src/ksa/colliderValidation.ts
+      - src/measure/colliderCoverage.ts
+    howto_topics:
+      - slug: author-part-colliders
+        title: author part colliders
+      - slug: validate-collider-coverage
+        title: validate collider coverage
+  - id: mods/flexo/features/command-registry-and-mode-routing
+    title: Command registry and mode routing
+    category: ui
+    submod: null
+    summary: Share browser commands across menus, palettes and shortcuts while keeping editor mode transitions outside document undo
+    novelty: high
+    techniques:
+      - command-registry
+      - state-machine
+    lifecycle:
+      - tool:authoring
+    hooks: []
+    game_types: []
+    key_paths:
+      - src/state/commandStore.ts
+      - src/state/modeStore.ts
+    howto_topics:
+      - slug: share-editor-commands-across-ui-surfaces
+        title: share editor commands across ui surfaces
+      - slug: separate-editor-modes-from-document-history
+        title: separate editor modes from document history
+  - id: mods/flexo/features/connector-and-feed-authoring
+    title: Author connectors and scoped resource feed wiring
+    category: vehicles-and-parts
+    submod: null
+    summary: Preserve attachment flags, connector capabilities and placement-scoped feed targets in a data-only part
+    novelty: high
+    techniques:
+      - xml-asset
+      - id-remapping
+    lifecycle:
+      - tool:authoring
+      - tool:build
+    hooks: []
+    game_types:
+      - KSA.FeedsFromReference
+      - KSA.ConsumerFeedWiring
+      - KSA.PartTemplate
+    key_paths:
+      - src/state/feedTargets.ts
+      - src/ksa/partXmlSerializer.ts
+    howto_topics:
+      - slug: author-connector-flags-and-capabilities
+        title: author connector flags and capabilities
+      - slug: wire-resource-consumers
+        title: wire resource consumers
+  - id: mods/flexo/features/convex-hull-atlas-import
+    title: Read mesh-only collision atlases for convex hull previews
+    category: physics
+    submod: null
+    summary: Decode named GLB position accessors directly when collision atlases contain no ordinary scene or node hierarchy
+    novelty: high
+    techniques:
+      - glb-model
+      - binary-accessor
+      - geometry-validation
+    lifecycle:
+      - tool:authoring
+      - tool:build
+    hooks: []
+    game_types:
+      - KSA.ConvexHullColliderTemplate
+    key_paths:
+      - src/three/CollisionMeshCache.ts
+      - src/ksa/collisionAtlas.ts
+      - src/ksa/partXmlSerializer.ts
+    howto_topics:
+      - slug: decode-collision-mesh-atlases
+        title: decode collision mesh atlases
+      - slug: preview-convex-hull-colliders
+        title: preview convex hull colliders
+  - id: mods/flexo/features/coordinate-transform-bridge
+    title: Bridge KSA transforms to a three.js editor
+    category: assets
+    submod: null
+    summary: Keep authoring data in KSA space and centralize Euler-order conversion plus explicit XML defaults
+    novelty: high
+    techniques:
+      - xml-asset
+      - coordinate-conversion
+    lifecycle:
+      - tool:authoring
+      - tool:build
+    hooks: []
+    game_types:
+      - KSA.TransformReference
+      - KSA.QuaternionEx
+      - KSA.Vector3Reference
+    key_paths:
+      - src/three/coords.ts
+      - src/ksa/partXmlSerializer.ts
+    howto_topics:
+      - slug: convert-editor-and-game-transforms
+        title: convert editor and game transforms
+      - slug: serialize-part-transforms
+        title: serialize part transforms
+  - id: mods/flexo/features/demand-driven-preview
+    title: Demand-driven browser preview
+    category: rendering
+    submod: null
+    summary: Coalesce scene invalidations into requested frames while adapting KSA material channels for a Three.js preview
+    novelty: high
+    techniques:
+      - on-demand-rendering
+      - shader-adaptation
+    lifecycle:
+      - tool:authoring
+    hooks: []
+    game_types: []
+    key_paths:
+      - src/three/RenderLoop.ts
+      - src/three/MaterialFactory.ts
+      - src/three/normalMapPatch.ts
+    howto_topics:
+      - slug: build-an-on-demand-asset-preview
+        title: build an on demand asset preview
+      - slug: preview-game-texture-conventions-in-a-browser
+        title: preview game texture conventions in a browser
+  - id: mods/flexo/features/embedded-part-preview
+    title: Embedded part preview
+    category: rendering
+    submod: null
+    summary: Build a standalone catalog viewer and matching manifest while sharing static assets with the main authoring application
+    novelty: high
+    techniques:
+      - asset-pipeline
+      - embedded-viewer
+      - session-state
+    lifecycle:
+      - tool:authoring
+      - tool:build
+    hooks: []
+    game_types: []
+    key_paths:
+      - apps/partpreview/src/App.tsx
+      - apps/partpreview/src/settings.ts
+      - apps/partpreview/vite.config.ts
+      - vite/previewManifest.ts
+    howto_topics:
+      - slug: publish-embeddable-part-previews
+        title: publish embeddable part previews
+      - slug: derive-viewer-manifests-from-authoritative-parsers
+        title: derive viewer manifests from authoritative parsers
+  - id: mods/flexo/features/emissive-paint-and-ramp-baking
+    title: Paint emissive masks and bake color ramps
+    category: assets
+    submod: null
+    summary: Create glow textures from a blank paint surface or image and bake editable ramps into diffuse and grayscale emissive outputs
+    novelty: high
+    techniques:
+      - ktx2-texture
+      - texture-painting
+      - texture-compositing
+    lifecycle:
+      - tool:authoring
+      - tool:build
+    hooks: []
+    game_types:
+      - KSA.PbrMaterialReference
+    key_paths:
+      - src/ui/GlowPaintDialog.tsx
+      - src/ktx/glowComposite.ts
+      - src/ktx/glowRamp.ts
+      - src/ksa/modExport.ts
+    howto_topics:
+      - slug: paint-emissive-textures
+        title: paint emissive textures
+      - slug: bake-color-ramps-into-materials
+        title: bake color ramps into materials
+  - id: mods/flexo/features/engine-design-and-validation
+    submod: null
+    summary: Preview propulsion performance and diagnose scoped module, reaction and feed references before exporting an asset-only mod
+    novelty: high
+    howto_topics:
+      - slug: author-scoped-propulsion-graphs
+        title: author scoped propulsion graphs
+      - slug: preview-nozzle-performance
+        title: preview nozzle performance
+      - slug: author-custom-reaction-tables
+        title: author custom reaction tables
+      - slug: aggregate-multiple-nozzle-performance
+        title: aggregate multiple nozzle performance
+    title: Engine design and validation
+    category: vehicles-and-parts
+    techniques:
+      - xml-asset
+      - pure-model
+      - numerical-preview
+      - scoped-references
+    lifecycle:
+      - tool:authoring
+    hooks: []
+    game_types:
+      - KSA.RocketTemplate
+      - KSA.CombustorTemplate
+      - KSA.DeLavalNozzleConfig
+    key_paths:
+      - src/ksa/enginePhysics.ts
+      - src/ksa/engineValidation.ts
+      - src/ui/engine/performanceAggregation.ts
+      - src/ksa/reactionCatalog.ts
+      - src/state/engineStore.ts
+      - src/ksa/exportIssues.ts
+  - id: mods/flexo/features/gltf-model-import
+    title: Normalize imported glTF into reusable KSA SubParts
+    category: assets
+    submod: null
+    summary: Analyze GLB or glTF scenes and normalize mesh instances, materials and handedness for native part export
+    novelty: high
+    techniques:
+      - glb-model
+      - geometry-normalization
+    lifecycle:
+      - tool:authoring
+      - tool:build
+    hooks: []
+    game_types: []
+    key_paths:
+      - src/ksa/importPlan.ts
+      - src/ksa/importNormalize.ts
+      - src/ksa/importMaterials.ts
+      - src/three/loadModelFile.ts
+    howto_topics:
+      - slug: import-gltf-as-part-subparts
+        title: import gltf as part subparts
+      - slug: normalize-model-imports
+        title: normalize model imports
+  - id: mods/flexo/features/isolated-subpart-variants
+    title: Isolate customized built-in SubParts with export variants
+    category: assets
+    submod: null
+    summary: Redeclare only changed built-in templates under deterministic per-part IDs while reusing their Core meshes and materials
+    novelty: high
+    techniques:
+      - xml-asset
+      - id-remapping
+    lifecycle:
+      - tool:authoring
+      - tool:build
+    hooks: []
+    game_types:
+      - KSA.PartTemplate
+    key_paths:
+      - src/ksa/modExport.ts
+      - src/ksa/assetsXmlSerializer.ts
+    howto_topics:
+      - slug: isolate-subpart-template-overrides
+        title: isolate subpart template overrides
+      - slug: reuse-core-meshes-and-materials
+        title: reuse core meshes and materials
+  - id: mods/flexo/features/iva-seat-authoring
+    title: Author IVA seats and interior visibility
+    category: camera
+    submod: null
+    summary: Convert editable seat rotations into explicit camera axes and preserve reversible interior-export choices
+    novelty: high
+    techniques:
+      - xml-asset
+      - coordinate-conversion
+    lifecycle:
+      - tool:authoring
+      - tool:build
+    hooks: []
+    game_types:
+      - KSA.IVASeat
+      - KSA.Vector3Reference
+    key_paths:
+      - src/ksa/ivaSeatAxes.ts
+      - src/ksa/partXmlSerializer.ts
+      - src/ksa/partXmlParser.ts
+    howto_topics:
+      - slug: author-iva-seats
+        title: author iva seats
+      - slug: author-interior-only-geometry
+        title: author interior only geometry
+  - id: mods/flexo/features/keyframe-animation-authoring
+    title: Author hierarchical part animation with an explicit rest anchor
+    category: vehicles-and-parts
+    submod: null
+    summary: Represent hinges, member SubParts and keyframe poses without conflating the modeled assembly with the start of a clip
+    novelty: high
+    techniques:
+      - glb-model
+      - keyframe-animation
+      - matrix-composition
+    lifecycle:
+      - tool:authoring
+      - tool:build
+    hooks: []
+    game_types:
+      - KSA.KeyframeAnimationData
+    key_paths:
+      - src/ksa/animationRig.ts
+      - src/ksa/clipIssues.ts
+      - src/ksa/partXmlSerializer.ts
+    howto_topics:
+      - slug: author-part-keyframe-animations
+        title: author part keyframe animations
+      - slug: preserve-animation-rest-poses
+        title: preserve animation rest poses
+  - id: mods/flexo/features/kitten-pose-baking
+    title: Bake kitten geometry into static part assets
+    category: kittens
+    submod: null
+    summary: Reuse character meshes as browser reference figures or static SubParts by baking bind-pose geometry and attachment transforms
+    novelty: high
+    techniques:
+      - glb-model
+      - cpu-pose-baking
+    lifecycle:
+      - tool:authoring
+      - tool:build
+    hooks: []
+    game_types: []
+    key_paths:
+      - src/three/kittenBake.ts
+      - src/ksa/modExport.ts
+    howto_topics:
+      - slug: bake-character-meshes-for-static-parts
+        title: bake character meshes for static parts
+  - id: mods/flexo/features/launch-site-system-export
+    title: Launch-site system export
+    category: celestials
+    submod: null
+    summary: Export static launch sites through cloned celestial Assets and a selectable System that references the cloned bodies
+    novelty: high
+    techniques:
+      - xml-asset
+      - template-composition
+      - reference-remapping
+    lifecycle:
+      - tool:authoring
+      - tool:build
+    hooks: []
+    game_types:
+      - KSA.StaticObject
+      - KSA.SystemTemplate
+      - KSA.LandmarkReference
+    key_paths:
+      - apps/icrp/src/ksa/systemXml.ts
+      - apps/icrp/src/ksa/landmarkXml.ts
+      - apps/icrp/src/ksa/modPlan.ts
+    howto_topics:
+      - slug: export-custom-launch-sites-and-systems
+        title: export custom launch sites and systems
+      - slug: clone-celestial-assets-with-reference-remapping
+        title: clone celestial assets with reference remapping
+  - id: mods/flexo/features/mass-and-resource-authoring
+    title: Author mass shapes, tanks and power GameData
+    category: vehicles-and-parts
+    submod: null
+    summary: Represent inert mass and resource modules as editable native schemas with source-aware mass estimates
+    novelty: high
+    techniques:
+      - xml-asset
+    lifecycle:
+      - tool:authoring
+      - tool:build
+    hooks: []
+    game_types:
+      - KSA.AsmbVolumetricMassTemplate
+      - KSA.PartTemplate
+    key_paths:
+      - src/ksa/massDefinitions.ts
+      - src/ksa/partXmlSerializer.ts
+      - src/ksa/partCatalog.ts
+    howto_topics:
+      - slug: author-part-mass-definitions
+        title: author part mass definitions
+      - slug: author-tanks-and-power-modules
+        title: author tanks and power modules
+  - id: mods/flexo/features/material-and-ktx2-pipeline
+    title: Build KSA material channels and KTX2 textures in the browser
+    category: assets
+    submod: null
+    summary: Convert images and scalar surface choices into explicit diffuse, normal and packed ORM KTX2 textures
+    novelty: high
+    techniques:
+      - xml-asset
+      - ktx2-texture
+      - channel-packing
+    lifecycle:
+      - tool:authoring
+      - tool:build
+    hooks: []
+    game_types:
+      - KSA.PbrMaterialReference
+    key_paths:
+      - src/ktx/encodeKtx2.ts
+      - src/ksa/assetsXmlSerializer.ts
+      - src/three/MaterialFactory.ts
+      - src/ktx/channelTransforms.ts
+      - src/ksa/importMaterials.ts
+      - src/ktx/decodeImage.ts
+    howto_topics:
+      - slug: encode-ktx2-textures
+        title: encode ktx2 textures
+      - slug: pack-pbr-material-channels
+        title: pack pbr material channels
+  - id: mods/flexo/features/mesh-atlas-and-picking-export
+    title: Export named mesh atlases with separate picking geometry
+    category: assets
+    submod: null
+    summary: Emit indexed named GLB meshes and optional simplified view meshes that remain selectable in the game editor
+    novelty: high
+    techniques:
+      - glb-model
+      - mesh-simplification
+    lifecycle:
+      - tool:authoring
+      - tool:build
+    hooks: []
+    game_types:
+      - KSA.MeshAtlasFileReference
+      - KSA.Part
+    key_paths:
+      - src/ksa/exportGlb.ts
+      - src/ksa/assetsXmlSerializer.ts
+    howto_topics:
+      - slug: export-mesh-atlases
+        title: export mesh atlases
+      - slug: make-custom-parts-selectable
+        title: make custom parts selectable
+  - id: mods/flexo/features/multi-part-project-isolation
+    title: Isolate multiple parts within one browser project
+    category: persistence
+    submod: null
+    summary: Park inactive documents with their own history and merge selected parts into one collision-checked export namespace
+    novelty: high
+    techniques:
+      - document-registry
+      - id-remapping
+      - xml-asset
+    lifecycle:
+      - tool:authoring
+      - tool:build
+    hooks: []
+    game_types: []
+    key_paths:
+      - src/state/partsStore.ts
+      - src/ksa/modExport.ts
+    howto_topics:
+      - slug: isolate-multiple-editor-documents
+        title: isolate multiple editor documents
+      - slug: namespace-multi-part-exports
+        title: namespace multi part exports
+  - id: mods/flexo/features/native-asset-mod-export
+    title: Native asset-only mod export from a browser
+    category: assets
+    submod: null
+    summary: Package part XML, GameData, custom assets and animations into a native mod folder or downloadable ZIP
+    novelty: high
+    techniques:
+      - xml-asset
+      - toml-config
+      - browser-file-system
+    lifecycle:
+      - tool:build
+    hooks: []
+    game_types:
+      - KSA.Mod
+      - KSA.AssetBundle
+    key_paths:
+      - src/ksa/modExport.ts
+      - src/ksa/partXmlSerializer.ts
+    howto_topics:
+      - slug: package-native-asset-mods
+        title: package native asset mods
+      - slug: export-assets-from-browser
+        title: export assets from browser
+  - id: mods/flexo/features/offline-ground-clutter-generation
+    title: Generate ground-clutter atlases and audit legacy scenario output
+    category: celestials
+    submod: null
+    summary: Convert PNGs into shared clutter textures and named GLB geometry while identifying obsolete XML and selection assumptions in the offline generator
+    novelty: high
+    techniques:
+      - xml-asset
+      - glb-model
+      - texture-atlas
+      - offline-generation
+    lifecycle:
+      - tool:build
+    hooks: []
+    game_types:
+      - KSA.ClutterEcotypeReference
+      - KSA.ClutterObjectTemplate
+      - KSA.GroundClutterLodReference
+      - KSA.ClutterEcotypeRenderData
+      - KSA.AssetBundle
+      - KSA.SerializedReference
+      - KSA.SystemTemplate
+    key_paths:
+      - scripts/build-cartoon-moon.ts
+      - src/ktx/encodeKtx2.ts
+    howto_topics:
+      - slug: exclude-or-replace-ground-clutter
+        title: Audit and update an offline ground-clutter generator for current asset contracts
+  - id: mods/flexo/features/procedural-mesh-and-surface-authoring
+    title: Create primitive meshes with per-face surfaces
+    category: assets
+    submod: null
+    summary: Generate editable primitive geometry and bake face-specific surface choices into exported SubParts
+    novelty: high
+    techniques:
+      - glb-model
+      - procedural-geometry
+    lifecycle:
+      - tool:authoring
+      - tool:build
+    hooks: []
+    game_types: []
+    key_paths:
+      - src/three/primitives.ts
+      - src/ksa/modExport.ts
+    howto_topics:
+      - slug: generate-procedural-part-meshes
+        title: generate procedural part meshes
+      - slug: author-per-face-materials
+        title: author per face materials
+  - id: mods/flexo/features/project-persistence-and-archives
+    title: Persist browser projects and archive their binary assets
+    category: persistence
+    submod: null
+    summary: Separate project metadata, snapshots, undo history and blobs while exporting complete portable project archives
+    novelty: high
+    techniques:
+      - indexeddb
+      - json-config
+      - archive-packaging
+    lifecycle:
+      - tool:authoring
+    hooks: []
+    game_types: []
+    key_paths:
+      - src/state/projectDb.ts
+      - src/state/projectStore.ts
+      - src/state/projectArchive.ts
+      - src/state/projectTransfer.ts
+      - src/state/projectShareLink.ts
+    howto_topics:
+      - slug: persist-editor-projects
+        title: persist editor projects
+      - slug: archive-binary-backed-projects
+        title: archive binary backed projects
+  - id: mods/flexo/features/propulsion-design-wizards
+    submod: null
+    summary: Build complete liquid, solid and RCS propulsion assemblies as validated candidate documents committed in one undo step
+    novelty: high
+    howto_topics:
+      - slug: generate-liquid-rcs-and-solid-engine-assemblies
+        title: generate liquid rcs and solid engine assemblies
+      - slug: wire-parent-propellant-feeds
+        title: wire parent propellant feeds
+      - slug: commit-validated-editor-candidates
+        title: commit validated editor candidates
+    title: Propulsion design wizards
+    category: vehicles-and-parts
+    techniques:
+      - xml-asset
+      - pure-model
+      - transactional-editing
+      - procedural-geometry
+    lifecycle:
+      - tool:authoring
+    hooks: []
+    game_types:
+      - KSA.PartTemplate
+      - KSA.RocketThrusterControllerTemplate
+      - KSA.CombustorTemplate
+      - KSA.GimbalController
+    key_paths:
+      - src/ui/engine/wizard/wizardModel.ts
+      - src/ui/engine/wizard/EngineWizardDialog.tsx
+      - src/ui/engine/wizard/wizardGeometry.ts
+      - src/state/editorStore.ts
+  - id: mods/flexo/features/schema-aware-gamedata-roundtrip
+    title: Preserve unmodeled GameData through structured XML passthrough
+    category: assets
+    submod: null
+    summary: Combine typed editable modules with raw XML children and attributes to retain unsupported GameData during import and export
+    novelty: high
+    techniques:
+      - xml-asset
+      - schema-passthrough
+    lifecycle:
+      - tool:authoring
+      - tool:build
+    hooks: []
+    game_types:
+      - KSA.PartTemplate
+    key_paths:
+      - src/ksa/partXmlParser.ts
+      - src/ksa/partXmlSerializer.ts
+    howto_topics:
+      - slug: preserve-unknown-xml
+        title: preserve unknown xml
+      - slug: roundtrip-part-gamedata
+        title: roundtrip part gamedata
+  - id: mods/flexo/features/solid-motor-grain-design
+    submod: null
+    summary: Resolve authored grain stacks and preview vacuum thrust curves by combining grain regression, pressure balance and automatic nozzle sizing
+    novelty: high
+    howto_topics:
+      - slug: author-solid-motor-grain-stacks
+        title: author solid motor grain stacks
+      - slug: sample-solid-motor-thrust-curves
+        title: sample solid motor thrust curves
+      - slug: size-solid-motor-nozzles
+        title: size solid motor nozzles
+    title: Solid-motor grain design
+    category: vehicles-and-parts
+    techniques:
+      - xml-asset
+      - lookup-table
+      - numerical-integration
+      - pure-model
+    lifecycle:
+      - tool:authoring
+    hooks: []
+    game_types:
+      - KSA.SolidMotor
+      - KSA.SolidMotorTemplate
+      - KSA.SolidGrainSegment
+      - KSA.SolidMotorNozzle
+      - KSA.PartTree
+      - KSA.GrainGeometryTemplate
+    key_paths:
+      - src/ksa/solidMotorPhysics.ts
+      - src/ksa/grainGeometryCatalog.ts
+      - src/ui/engine/solidCurveResolution.ts
+      - src/ksa/engineValidation.ts
+  - id: mods/flexo/features/static-object-composition
+    title: Static-object composition
+    category: assets
+    submod: null
+    summary: Compose built-in static and vessel pieces into native StaticObject assets with scaled collider variants and separate GameData
+    novelty: high
+    techniques:
+      - xml-asset
+      - template-composition
+      - coordinate-adapter
+    lifecycle:
+      - tool:authoring
+      - tool:build
+    hooks: []
+    game_types:
+      - KSA.StaticObjectTemplate
+      - KSA.LocationReference
+      - KSA.StaticObject
+    key_paths:
+      - apps/icrp/src/ksa/modPlan.ts
+      - apps/icrp/src/ksa/staticXmlSerializer.ts
+      - apps/icrp/src/three/basis.ts
+      - apps/icrp/src/ksa/colliderScale.ts
+      - src/ksa/colliderSize.ts
+    howto_topics:
+      - slug: compose-native-static-object-assets
+        title: compose native static object assets
+      - slug: bake-collider-scale-into-template-variants
+        title: bake collider scale into template variants
+  - id: mods/flexo/features/undoable-action-chains
+    title: Undoable action chains
+    category: testing-and-tooling
+    submod: null
+    summary: Evaluate transform and array operations once for both ghost previews and atomic document commits
+    novelty: high
+    techniques:
+      - pure-model
+      - transactional-editing
+      - state-machine
+    lifecycle:
+      - tool:authoring
+    hooks: []
+    game_types: []
+    key_paths:
+      - src/state/chainStore.ts
+      - src/three/chainEval.ts
+      - src/three/chainMath.ts
+      - src/state/editorStore.ts
+      - src/ui/chain/applyChainSession.ts
+    howto_topics:
+      - slug: preview-and-commit-asset-transform-arrays
+        title: preview and commit asset transform arrays
+      - slug: design-atomic-editor-undo
+        title: design atomic editor undo

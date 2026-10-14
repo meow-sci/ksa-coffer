@@ -1,17 +1,49 @@
 ---
 type: Game Feature
-title: "Query the terrain height field and test line of sight across terrain"
-description: "Ask KSA how high the ground is along a direction from a body centre, choose between the Ccf and Cce entry points and between fast and accurate sampling, and build sea clamps, ground-contact tests, hover height and line of sight on that one call"
+title: Query the terrain height field and test line of sight across terrain
+description: Ask KSA how high the ground is along a direction from a body centre, choose between the
+  Ccf and Cce entry points and between fast and accurate sampling, and build sea clamps,
+  ground-contact tests, hover height and line of sight on that one call
 topic: query-terrain-height-and-line-of-sight
 category: celestials
 group: terrain
-approaches: 4
-game_types: [KSA.Celestial, KSA.Astronomical, KSA.CelestialSystem, KSA.Universe, KSA.Rendering.Water.Data.OceanReference, KSA.TerrainRadiusCache, KSA.PhysicsEnvironment, KSA.TerrainPatch, KSA.TerrainImpactFinder, KSA.ProceduralModifiersReference, KSA.PhysicsStates]
-lifecycle: [frame:draw-ui, frame:celestials, frame:after-on-frame, frame:dispatch-solvers]
-demonstrated_by: [mods/ksagolf/features/terrain-height-queries, mods/ksarmory/features/terrain-ground-impact-test, mods/ksa-advancedflightcomputer/features/terminal-hover-touchdown]
-tags: [terrain, height-field, ground, ocean, line-of-sight, accurate, ccf, cce]
+approaches: 5
+game_types:
+  - KSA.Celestial
+  - KSA.Astronomical
+  - KSA.CelestialSystem
+  - KSA.Universe
+  - KSA.Rendering.Water.Data.OceanReference
+  - KSA.TerrainRadiusCache
+  - KSA.PhysicsEnvironment
+  - KSA.TerrainPatch
+  - KSA.TerrainImpactFinder
+  - KSA.ProceduralModifiersReference
+  - KSA.PhysicsStates
+lifecycle:
+  - frame:draw-ui
+  - frame:celestials
+  - frame:after-on-frame
+  - frame:dispatch-solvers
+  - frame:apply-solvers
+demonstrated_by:
+  - mods/ksagolf/features/terrain-height-queries
+  - mods/ksarmory/features/terrain-ground-impact-test
+  - mods/ksa-advancedflightcomputer/features/terminal-hover-touchdown
+  - mods/blasto/features/terrain-plume-intersection
+tags:
+  - terrain
+  - height-field
+  - ground
+  - ocean
+  - line-of-sight
+  - accurate
+  - ccf
+  - cce
 status: stable
-generated: { by: claude-code/opus-5.5, at: 2026-10-10T18:47:33Z }
+generated:
+  by: codex/gpt-6
+  at: 2026-10-14T01:43:38Z
 repos:
   - name: KSA-AdvancedFlightComputer
     git: https://github.com/Maximilian-Nesslauer/KSA-AdvancedFlightComputer.git
@@ -25,6 +57,9 @@ repos:
   - name: KSArmory
     git: https://github.com/LaurensDeV/KSArmory.git
     ref: cbd63d6d84da7a48a13641a641d3557bad216435
+  - name: blasto
+    git: git@github.com:meow-sci/blasto.git
+    ref: 21f7657c42534774001acabcf93289e9412c5242
 game:
   build: 2026.10.10.5554
   git: git@github.com:meow-sci/ksa-game-assemblies.git
@@ -34,47 +69,52 @@ sources:
     repo: ksa-game-assemblies
     path: current/decomp/KSA/Astronomical.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/Astronomical.cs
-    title: "KSA/Astronomical.cs (decompiled, build 2026.10.10.5554)"
+    title: KSA/Astronomical.cs (decompiled, build 2026.10.10.5554)
   - id: ksa-game-assemblies-current-decomp-ksa-celestial-cs
     repo: ksa-game-assemblies
     path: current/decomp/KSA/Celestial.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/Celestial.cs
-    title: "KSA/Celestial.cs (decompiled, build 2026.10.10.5554)"
+    title: KSA/Celestial.cs (decompiled, build 2026.10.10.5554)
   - id: ksa-game-assemblies-current-decomp-ksa-physicsenvironment-cs
     repo: ksa-game-assemblies
     path: current/decomp/KSA/PhysicsEnvironment.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/PhysicsEnvironment.cs
-    title: "KSA/PhysicsEnvironment.cs (decompiled, build 2026.10.10.5554)"
+    title: KSA/PhysicsEnvironment.cs (decompiled, build 2026.10.10.5554)
   - id: ksa-game-assemblies-current-decomp-ksa-terrainimpactfinder-cs
     repo: ksa-game-assemblies
     path: current/decomp/KSA/TerrainImpactFinder.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/TerrainImpactFinder.cs
-    title: "KSA/TerrainImpactFinder.cs (decompiled, build 2026.10.10.5554)"
+    title: KSA/TerrainImpactFinder.cs (decompiled, build 2026.10.10.5554)
   - id: ksa-game-assemblies-current-decomp-ksa-terrainpatch-cs
     repo: ksa-game-assemblies
     path: current/decomp/KSA/TerrainPatch.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/TerrainPatch.cs
-    title: "KSA/TerrainPatch.cs (decompiled, build 2026.10.10.5554)"
+    title: KSA/TerrainPatch.cs (decompiled, build 2026.10.10.5554)
   - id: ksa-game-assemblies-current-decomp-ksa-terrainradiuscache-cs
     repo: ksa-game-assemblies
     path: current/decomp/KSA/TerrainRadiusCache.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/TerrainRadiusCache.cs
-    title: "KSA/TerrainRadiusCache.cs (decompiled, build 2026.10.10.5554)"
+    title: KSA/TerrainRadiusCache.cs (decompiled, build 2026.10.10.5554)
   - id: ksa-game-assemblies-current-decomp-ksa-universe-cs
     repo: ksa-game-assemblies
     path: current/decomp/KSA/Universe.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/Universe.cs
-    title: "KSA/Universe.cs (decompiled, build 2026.10.10.5554)"
+    title: KSA/Universe.cs (decompiled, build 2026.10.10.5554)
   - id: ksa-game-assemblies-current-decomp-ksa-vehicle-cs
     repo: ksa-game-assemblies
     path: current/decomp/KSA/Vehicle.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/Vehicle.cs
-    title: "KSA/Vehicle.cs (decompiled, build 2026.10.10.5554)"
+    title: KSA/Vehicle.cs (decompiled, build 2026.10.10.5554)
   - id: ksa-program
     repo: ksa-game-assemblies
     path: current/decomp/KSA/Program.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/Program.cs
-    title: "KSA.Program (decompiled, build 2026.10.10.5554)"
+    title: KSA.Program (decompiled, build 2026.10.10.5554)
+  - id: blasto-integration-query-terrain-height-and-line-of-sight
+    repo: blasto
+    path: Blasto.GameMod/Simulation/SurfaceProbe.cs
+    resource: https://github.com/meow-sci/blasto/blob/21f7657c42534774001acabcf93289e9412c5242/Blasto.GameMod/Simulation/SurfaceProbe.cs
+    title: Blasto Intersect exhaust rays with terrain and classify dry surfaces
 ---
 KSA has no terrain raycast and no collider query a mod can call. What it has is one function,
 `Celestial.GetTerrainHeightFromDirCcf(direction, accurate)`, which returns the terrain height in
@@ -103,6 +143,10 @@ how to keep queries affordable and how to turn height samples into a line-of-sig
 | [2: centre and surface radius, nearest body by depth, radar horizon mask](query-terrain-height-and-line-of-sight-2.md) | ksarmory | `terrain-query` | `frame:draw-ui`, `frame:celestials`, `frame:after-on-frame` | One sample per frame serves every sub-step; the surface is a sphere for the frame |
 | [3: cache decorator reusing a sample until near the ground or moved](query-terrain-height-and-line-of-sight-3.md) | ksarmory | `decorator-cache` | `frame:draw-ui` | Cuts lookups by orders of magnitude for trajectory previews; stale if the thresholds are wrong |
 | [4: height under the craft for hover and touchdown](query-terrain-height-and-line-of-sight-4.md) | ksa-advancedflightcomputer | `harmony-prefix` | `frame:dispatch-solvers` | Smallest possible use (Ccf plus a finite check); default `accurate: true` |
+| [Intersect exhaust rays with terrain and classify dry surfaces](query-terrain-height-and-line-of-sight-5.md) | Blasto | harmony-postfix, custom-physics | frame:apply-solvers | Dry-ground ray and tangent frame for effects; sampled relief differs from physical collision geometry |
+
+
+Blasto adds bounded exhaust-ray marching, first-crossing refinement, ocean filtering and an incidence-oriented footprint. Biome-name responses are artistic heuristics rather than a physical soil model. See [Blasto.GameMod/Simulation/SurfaceProbe.cs](https://github.com/meow-sci/blasto/blob/21f7657c42534774001acabcf93289e9412c5242/Blasto.GameMod/Simulation/SurfaceProbe.cs).[^blasto-integration-query-terrain-height-and-line-of-sight]
 
 ## See also
 
@@ -116,3 +160,5 @@ how to keep queries affordable and how to turn height samples into a line-of-sig
 - [Place a static object on a planet surface at a latitude and longitude, and keep it anchored](../place-static-objects-on-a-planet-surface/overview.md) - related topic
 - [Steer by predicted miss (zero-effort-miss guidance) and model homing sensors](../../../flight-and-orbits/guidance/steer-by-zero-effort-miss/overview.md) - related topic
 
+
+[^blasto-integration-query-terrain-height-and-line-of-sight]: Blasto integration source.

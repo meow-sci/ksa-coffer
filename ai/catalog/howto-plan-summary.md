@@ -47,7 +47,7 @@ ui | subclass-the-stock-imguiwindow | 5 | ksa-deltavmap, ksa-measuretools, ksa-p
 ui | match-the-stock-console-ui-style | 4 | ksa-deltavmap, ksa-measuretools, ohmystars, ksa-advancedflightcomputer, unscience | theme-the-whole-game-ui
 ui | build-a-tabbed-imgui-window | 5 | purrtty, ksarmory, ohmystars, mpfx, kitten-engineer-redux | pop-out-panel-sections-into-windows
 ui | show-live-vehicle-data-in-a-window | 3 | ksaero, kitten-engineer-redux | add-a-panel-to-the-vehicle-editor
-ui | build-a-settings-window | 6 | mpfx, purrtty, ksa-aircrafthud, ksagolf, ksastructures, ksacars, unscience | pick-colors-in-imgui, build-a-developer-panel
+ui | build-a-settings-window | 7 | mpfx, purrtty, ksa-aircrafthud, ksagolf, ksastructures, ksacars, unscience, blasto | pick-colors-in-imgui, build-a-developer-panel
 ui | build-searchable-lists-and-browsers | 6 | purrtty, compendium, ksa-deltavmap, unscience | build-a-two-pane-browser-window, build-a-filesystem-file-picker, add-search-to-imgui-combos-and-lists
 ui | show-alerts-and-popups-in-game | 2 | ksa-advancedflightcomputer, ohmystars | show-a-game-styled-popup, show-a-transient-on-screen-alert
 ui | show-a-dialog-during-loading | 2 | starmap, kittenextensions | -
@@ -89,10 +89,11 @@ rendering | grow-game-gpu-buffers-for-runtime-content | 2 | unscience, ohmystars
 rendering | add-invisible-shadow-casters | 1 | ksastructures | -
 rendering | hide-parts-or-subparts-from-rendering | 6 | unscience, ksarmory, ksacars, gatos | show-iva-interiors-from-outside, render-kitten-equipment-in-the-right-order
 rendering | keep-vessels-rendered-at-any-distance | 4 | unscience, gatos, ksarmory | -
-rendering | add-dynamic-lights-to-the-world | 3 | ksacars, ksastructures, ksarmory | -
+rendering | add-dynamic-lights-to-the-world | 4 | ksacars, ksastructures, ksarmory, flexo | -
 rendering | control-part-light-color-and-state | 5 | unscience, gatos | animate-part-lights
-rendering | spawn-particle-effects | 3 | ksarmory, gatos | -
+rendering | spawn-particle-effects | 4 | ksarmory, gatos, blasto | -
 rendering | draw-exhaust-plumes-without-an-engine | 5 | ksacars, unscience, gatos, ksarmory | edit-exhaust-and-cloud-templates-live, lay-volumetric-smoke-trails
+rendering | blend-persistent-marks-into-terrain | 1 | blasto | -
 shaders | write-a-post-processing-fragment-shader | 4 | mpfx, shaderextensions, ksa-aircrafthud | build-a-fullscreen-pass-with-rendertechnique, bind-extra-textures-and-buffers-to-a-shader, implement-a-shader-asset-type-with-its-own-descriptor-set
 shaders | declare-post-processing-shader-assets-in-xml | 3 | mpfx, ksa-aircrafthud, shaderextensions | chain-post-processing-passes
 shaders | choose-pre-or-post-imgui-post-processing | 2 | shaderextensions, mpfx | -
@@ -123,16 +124,18 @@ assets | mod-xml-load-order | 1 | kittenextensions, realatmospheres, ksacars | -
 assets | resolve-asset-ids-and-mod-relative-paths | 2 | ksacars, ksagolf, realatmospheres | -
 assets | register-custom-xml-asset-type | 3 | kittenextensions, shaderextensions, mpfx | inject-child-elements-into-game-xml
 assets | ship-and-share-data-files-between-mods | 4 | ohmystars, compendium, ksarmory, unscience | ship-data-files-with-a-mod, cross-mod-data-files, write-a-mod-folder-from-game
-assets | declare-gltf-and-pbr-material-assets | 4 | ksagolf, ksacars, unscience, ksarmory, ksastructures | author-pbr-texture-sets, dilate-baked-texture-atlas
-assets | add-a-part-model-with-glb-and-pbr-textures | 2 | ksacars, ksarmory | -
+assets | declare-gltf-and-pbr-material-assets | 5 | ksagolf, ksacars, unscience, ksarmory, ksastructures, flexo | author-pbr-texture-sets, dilate-baked-texture-atlas
+assets | add-a-part-model-with-glb-and-pbr-textures | 3 | ksacars, ksarmory, flexo | -
 assets | export-glb-from-blender-for-ksa | 4 | ksacars, ksagolf, ksarmory, ksastructures | generate-parts-with-headless-blender, generate-glb-without-blender
 assets | import-glb-models-at-runtime | 3 | unscience | convert-gltf-pbr-to-game-materials, read-the-game-asset-registries
 assets | composite-png-over-stock-texture | 2 | unscience, realatmospheres | -
 assets | find-z-fighting-and-degenerate-uvs-in-glb | 3 | ksagolf, ksacars, ksarmory, unscience | read-glb-mesh-names-and-bounds, check-glb-meshes-for-z-fighting-offline
-assets | validate-asset-xml-references | 3 | ksacars, ksagolf, ksarmory, ksastructures, unscience | deserialize-asset-bundle-with-game-serializer, check-and-generate-mod-assets-offline, validate-asset-xml-offline
+assets | validate-asset-xml-references | 4 | ksacars, ksagolf, ksarmory, ksastructures, unscience, flexo | deserialize-asset-bundle-with-game-serializer, check-and-generate-mod-assets-offline, validate-asset-xml-offline
 assets | debug-xml-patches | 2 | kittenextensions | testing-and-tooling/debug-xml-patches
+assets | author-native-asset-mods-in-a-browser | 1 | flexo | -
+assets | author-part-colliders-and-convex-hulls | 1 | flexo | -
 physics | mutate-vehicles-at-a-physics-safe-point | 4 | ksacars, ksarmory, ksastructures, gatos, ksagolf, unscience | -
-physics | write-worker-thread-safe-solver-patches | 6 | ksaero, realatmospheres, ksastructures, unscience, ksagolf, ksa-advancedflightcomputer | -
+physics | write-worker-thread-safe-solver-patches | 7 | ksaero, realatmospheres, ksastructures, unscience, ksagolf, ksa-advancedflightcomputer, blasto | -
 physics | inject-forces-and-impulses-at-the-physics-safe-point | 5 | ksacars, ksarmory, gatos, ksa-advancedflightcomputer | apply-impulses-and-velocity-changes-to-a-vehicle, reposition-or-rotate-a-vehicle-in-place, add-lift-hover-boost-and-downforce-to-a-craft, keep-custom-forces-stable-under-time-warp
 physics | keep-a-pushed-craft-off-rails | 2 | ksacars, ksa-advancedflightcomputer | -
 physics | simulate-bodies-outside-the-vehicle-system | 6 | ksarmory, ksagolf, ksacars | simulate-projectiles-and-balls-outside-the-vehicle-system, advance-mod-physics-on-simulated-time, sample-world-state-at-a-consistent-epoch, simulate-in-the-planet-fixed-frame, roll-and-bounce-a-ball-on-terrain, keep-physics-maths-free-of-game-types
@@ -161,9 +164,9 @@ vehicles-and-parts | make-a-vehicle-indestructible | 4 | ksacars, unscience, ksa
 vehicles-and-parts | scale-a-vessel-or-its-parts-at-runtime | 4 | unscience, gatos | unclamp-editor-part-scaling, visually-scale-a-vessel
 vehicles-and-parts | define-a-part-with-game-data | 3 | ksacars, ksarmory, ksastructures | -
 vehicles-and-parts | ship-ready-made-craft | 3 | ksacars, ksastructures | make-a-single-part-a-whole-craft
-vehicles-and-parts | add-crew-seats-and-eva-doors | 2 | ksacars, ksastructures | -
+vehicles-and-parts | add-crew-seats-and-eva-doors | 3 | ksacars, ksastructures, flexo | -
 vehicles-and-parts | evolve-a-shipped-part-without-breaking-saves | 2 | ksarmory | repair-saves-and-craft-files-at-startup
-vehicles-and-parts | define-and-animate-subparts | 4 | ksacars, ksarmory | hide-show-and-fly-subparts-as-projectiles, animate-subparts-from-code
+vehicles-and-parts | define-and-animate-subparts | 5 | ksacars, ksarmory, flexo | hide-show-and-fly-subparts-as-projectiles, animate-subparts-from-code
 vehicles-and-parts | load-and-unload-part-mods-at-runtime | 3 | unscience | load-part-mods-at-runtime, unload-runtime-parts-safely, validate-part-xml-before-loading
 vehicles-and-parts | read-live-part-module-state | 2 | gatos, ksarmory | read-propellant-remaining
 vehicles-and-parts | refill-or-drain-resources | 3 | unscience, gatos, ksarmory | -
@@ -180,6 +183,7 @@ vehicles-and-parts | draw-an-engine-diagram-from-nozzle-positions | 1 | ksa-publ
 vehicles-and-parts | give-inert-parts-behaviour-by-part-id | 3 | ksarmory | simulate-decoys-flares-and-chaff
 vehicles-and-parts | track-and-classify-craft | 4 | ksacars, ksarmory, ksa-public-telemetry | detect-staging-and-vehicle-loss
 vehicles-and-parts | target-and-gate-automated-weapons | 3 | ksarmory | classify-threats-by-closest-point-of-approach, model-radar-search-and-lock, gate-automation-with-an-explainable-ladder
+vehicles-and-parts | design-engine-game-data | 1 | flexo | -
 flight-and-orbits | understand-ksa-coordinate-frames-and-epochs | 5 | gatos, kitten-engineer-redux, ksarmory, ksa-measuretools, ksa-advancedflightcomputer, ksagolf | understand-ksa-coordinate-frames, sample-positions-at-a-consistent-epoch, convert-position-to-latitude-longitude
 flight-and-orbits | read-vehicle-flight-state | 4 | gatos, ksa-public-telemetry, ksa-aircrafthud, ksaero | read-altitude-speed-and-g-load
 flight-and-orbits | read-flight-state-in-a-local-horizon-frame | 2 | ksa-aircrafthud, ksa-advancedflightcomputer | compute-attitude-in-the-local-horizon-frame, compute-angle-of-attack-and-sideslip
@@ -224,11 +228,11 @@ camera | chain-camera-moves-into-keyframe-sequences | 2 | unscience | animate-th
 camera | borrow-a-secondary-viewport | 3 | ksarmory, ksastructures, unscience | show-a-secondary-camera-in-your-own-window
 camera | aim-a-secondary-viewport-camera | 2 | ksarmory, unscience | give-a-secondary-camera-its-nearby-body
 camera | mount-a-camera-on-a-part | 3 | unscience, ksarmory | -
-celestials | query-terrain-height-and-line-of-sight | 4 | ksagolf, ksarmory, ksa-advancedflightcomputer | query-the-terrain-height-field, choose-accurate-or-coarse-terrain-sampling, check-line-of-sight-across-terrain, query-terrain-height-under-a-point
+celestials | query-terrain-height-and-line-of-sight | 5 | ksagolf, ksarmory, ksa-advancedflightcomputer, blasto | query-the-terrain-height-field, choose-accurate-or-coarse-terrain-sampling, check-line-of-sight-across-terrain, query-terrain-height-under-a-point
 celestials | measure-slope-and-detect-ground-contact-on-terrain | 3 | ksagolf, unscience, ksarmory | measure-ground-slope-and-surface-normal, stop-a-mod-simulated-body-at-the-ground
 celestials | add-terrain-decals-and-dig-a-site | 2 | ksastructures | add-terrain-decals-from-code, flatten-or-dig-terrain-for-a-site
-celestials | place-static-objects-on-a-planet-surface | 3 | ksastructures, unscience, ksagolf | place-a-static-object-landmark-on-a-planet, draw-a-static-object-the-engine-culls, anchor-a-placed-model-to-the-ground
-celestials | exclude-or-replace-ground-clutter | 3 | ksastructures, unscience | keep-ground-clutter-off-a-site, replace-ground-clutter-on-a-body, keep-clutter-removals-across-swaps-and-saves
+celestials | place-static-objects-on-a-planet-surface | 4 | ksastructures, unscience, ksagolf, flexo | place-a-static-object-landmark-on-a-planet, draw-a-static-object-the-engine-culls, anchor-a-placed-model-to-the-ground
+celestials | exclude-or-replace-ground-clutter | 4 | ksastructures, unscience, flexo | keep-ground-clutter-off-a-site, replace-ground-clutter-on-a-body, keep-clutter-removals-across-swaps-and-saves
 celestials | click-a-planet-to-get-latitude-and-longitude | 2 | ksa-measuretools | draw-a-great-circle-arc-over-a-planet
 celestials | define-atmospheres-and-cloud-layers-in-system-xml | 3 | realatmospheres | add-an-atmosphere-to-an-airless-body, tune-atmosphere-scattering-in-system-xml, add-a-volumetric-cloud-layer-to-a-body, build-cloud-masks-and-flowmaps-for-ksa
 celestials | generate-measured-atmosphere-tables-offline | 1 | realatmospheres | generate-mod-data-as-csharp, fit-parameters-with-an-offline-port-of-the-renderer
@@ -258,10 +262,11 @@ kittens | open-the-vehicle-editor-on-a-live-eva-kitten | 3 | unscience | show-an
 kittens | tint-and-restyle-kitten-appearance | 5 | unscience, gatos, ksagolf | tint-kitten-materials, create-and-budget-runtime-gpu-materials, hide-kitten-helmet-and-visor
 kittens | attach-a-prop-to-a-kitten-bone | 2 | ksagolf | build-a-static-mesh-renderable-from-mod-assets
 kittens | hide-a-kitten-body-from-one-viewport | 2 | ksastructures, ksagolf | draw-a-different-skinned-pose-into-the-shadow-pass, hide-a-kitten-from-its-own-first-person-view, keep-the-shadow-of-a-hidden-body
+kittens | bake-kitten-poses-as-static-meshes | 1 | flexo | -
 persistence | save-and-load-the-game-from-code | 3 | unscience, ksagolf, ksastructures, ksacars, ksarmory | create-a-native-save-from-code, load-a-save-from-code
 persistence | detect-save-load | 6 | ksarmory, ksagolf, ksastructures, ksa-advancedflightcomputer, ohmystars, ksa-measuretools, ksa-public-telemetry, ksacars | reset-mod-state-on-load, rebuild-mod-state-from-the-loaded-world
 persistence | save-mod-state-with-the-game-save | 3 | ksarmory, ohmystars, ksa-advancedflightcomputer | detect-game-save
-persistence | save-mod-state-with-the-scene | 3 | unscience | hook-native-save-and-load, save-sidecar-state-per-scene, save-mod-state-with-native-saves
+persistence | save-mod-state-with-the-scene | 4 | unscience, blasto | hook-native-save-and-load, save-sidecar-state-per-scene, save-mod-state-with-native-saves
 persistence | identify-vessels-and-parts-across-saves | 4 | ksa-advancedflightcomputer, ksarmory, purrtty, unscience | understand-which-ids-survive-a-save, reference-a-part-stably-across-saves
 persistence | keep-mod-vehicles-out-of-saves | 1 | ksastructures | vehicles-and-parts/keep-mod-vehicles-out-of-saves
 persistence | persist-mod-settings-ini | 4 | ohmystars, compendium, ksa-aircrafthud, ksa-measuretools | -
@@ -269,7 +274,7 @@ persistence | persist-mod-settings-as-json | 2 | kitten-engineer-redux, ksa-publ
 persistence | persist-mod-settings-toml | 3 | gatos, purrtty, realatmospheres | -
 persistence | write-and-load-config-files-safely | 4 | ksa-public-telemetry, kitten-engineer-redux, gatos, ksa-measuretools, purrtty | write-config-files-atomically, load-config-without-losing-user-edits
 persistence | choose-where-a-mod-stores-its-files | 5 | ohmystars, compendium, ksa-measuretools, ksa-aircrafthud, ksa-public-telemetry, purrtty, realatmospheres, kitten-engineer-redux, gatos, ksagolf, ksastructures, starmap | where-ksa-stores-user-data, ship-default-config-and-keep-user-edits
-persistence | persist-user-created-presets-and-content | 6 | ksa-measuretools, purrtty, ksa-public-telemetry, mpfx, ksagolf, unscience | persist-named-color-palettes, ship-presets-as-xml-assets-and-export-them, import-user-files-into-a-mod-catalog, save-user-built-layouts-as-versioned-json-files
+persistence | persist-user-created-presets-and-content | 7 | ksa-measuretools, purrtty, ksa-public-telemetry, mpfx, ksagolf, unscience, flexo | persist-named-color-palettes, ship-presets-as-xml-assets-and-export-them, import-user-files-into-a-mod-catalog, save-user-built-layouts-as-versioned-json-files
 persistence | persist-imgui-window-state | 3 | ohmystars, compendium, unscience, purrtty | persist-imgui-window-layout, save-and-restore-named-window-layouts
 audio | play-a-sound-at-a-world-position-and-hold-its-channel | 3 | ksagolf, ksarmory, ksacars | play-a-sound-at-a-world-position, hold-and-move-a-spatial-channel-every-frame
 audio | drive-sound-parameters-from-code | 3 | ksacars, ksarmory | reuse-the-stock-engine-sound-for-custom-thrust, play-a-stock-explosion-sound-on-your-own-schedule
@@ -303,7 +308,7 @@ testing-and-tooling | visual-regression-for-mods | 2 | ksagolf, ksacars, ksastru
 testing-and-tooling | run-unattended-scenarios-and-report-a-verdict | 3 | ksarmory, ksacars, ksagolf, ksastructures | ab-test-mod-behaviour-in-flight, run-an-unattended-scenario-and-report-pass-or-fail, load-a-save-from-code, step-the-simulation-an-exact-number-of-seconds
 testing-and-tooling | live-tweak-constants-in-game | 1 | ksa-public-telemetry | -
 testing-and-tooling | measure-and-budget-mod-performance | 6 | ksa-deltavmap, ksa-measuretools, ksa-advancedflightcomputer, gatos, ksarmory | lightweight-perf-scopes, measure-gpu-cost-of-a-mod-pass, throttle-expensive-ui-computation, profile-mod-frame-cost, warm-up-hot-code-at-load
-testing-and-tooling | unit-test-mod-logic-without-game | 5 | ksagolf, ksacars, ksarmory, ksastructures, ksaero, ksa-deltavmap, ksa-advancedflightcomputer, purrtty, gatos | split-game-adapters-from-pure-logic, make-time-gated-code-deterministic-in-tests, gate-slow-or-platform-specific-tests
+testing-and-tooling | unit-test-mod-logic-without-game | 6 | ksagolf, ksacars, ksarmory, ksastructures, ksaero, ksa-deltavmap, ksa-advancedflightcomputer, purrtty, gatos, blasto | split-game-adapters-from-pure-logic, make-time-gated-code-deterministic-in-tests, gate-slow-or-platform-specific-tests
 testing-and-tooling | run-mod-simulation-in-a-headless-rig | 3 | ksacars, ksarmory, ksagolf | test-frame-timing-and-epoch-logic
 testing-and-tooling | headless-test-harness-for-game-mods | 2 | ksa-advancedflightcomputer, ksa-deltavmap | test-against-the-games-own-routines, make-time-gated-code-deterministic-in-tests
 testing-and-tooling | test-harmony-patches-without-the-game | 3 | unscience, purrtty, ksa-advancedflightcomputer | test-patches-without-the-game
@@ -313,3 +318,4 @@ testing-and-tooling | decompile-the-game-for-reference | 2 | compendium, ksarmor
 testing-and-tooling | track-the-game-api-your-mod-uses | 1 | ksarmory, ksacars, ksagolf | pin-harmony-targets-at-compile-time
 testing-and-tooling | pin-the-game-build-with-a-hashed-lock | 1 | ksarmory, ksagolf, ksacars, ksastructures | detect-a-new-ksa-build-automatically
 testing-and-tooling | upgrade-a-mod-to-a-new-ksa-build | 3 | ksarmory, ksacars, ksagolf, purrtty, gatos | degrade-one-feature-on-api-drift
+testing-and-tooling | build-a-browser-asset-preview | 1 | flexo | -

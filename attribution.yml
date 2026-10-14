@@ -7,8 +7,16 @@
 # by scripts/references_check_refs.ts.
 
 projects:
+  - name: blasto
+    url: https://github.com/meow-sci/blasto
+    license: MIT
+
   - name: Compendium
     url: https://github.com/meow-sci/Compendium
+    license: MIT
+
+  - name: flexo
+    url: https://github.com/meow-sci/flexo
     license: MIT
 
   - name: gatOS

@@ -1,17 +1,49 @@
 ---
 type: Game Feature
 title: Defining articulated subparts and animating or hiding them from code
-description: How a subpart is a Part with settable parent-relative transforms, and four mods' ways of posing wheels, mounts and gimbals and hiding subparts from the main-thread frame
+description: How articulated SubParts use either runtime transform writes or authored native keyframe rigs
+  with explicit instance identity and rest poses
 topic: define-and-animate-subparts
 category: vehicles-and-parts
 group: parts
-approaches: 4
-game_types: [KSA.Part, KSA.SubPartTemplate, KSA.PartTree, KSA.PartTreeRenderData, KSA.PartInstance, KSA.Vehicle]
-lifecycle: [startup:asset-load, frame:draw-ui, frame:after-on-frame, frame:celestials, frame:viewports, frame:render]
-demonstrated_by: [mods/ksacars/features/pose-subparts-at-runtime, mods/ksacars/features/car-part-assets-glb-pbr, mods/ksarmory/features/articulated-mount-subparts, mods/ksarmory/features/optical-director-heads, mods/ksarmory/features/rounds-as-hidden-launcher-subparts]
-tags: [subpart, animation, transform, gimbal, hide, projectile, render]
+approaches: 5
+game_types:
+  - KSA.Part
+  - KSA.SubPartTemplate
+  - KSA.PartTree
+  - KSA.PartTreeRenderData
+  - KSA.PartInstance
+  - KSA.Vehicle
+  - KSA.KeyframeAnimationData
+lifecycle:
+  - startup:asset-load
+  - frame:draw-ui
+  - frame:after-on-frame
+  - frame:celestials
+  - frame:viewports
+  - frame:render
+  - tool:authoring
+  - tool:build
+demonstrated_by:
+  - mods/ksacars/features/pose-subparts-at-runtime
+  - mods/ksacars/features/car-part-assets-glb-pbr
+  - mods/ksarmory/features/articulated-mount-subparts
+  - mods/ksarmory/features/optical-director-heads
+  - mods/ksarmory/features/rounds-as-hidden-launcher-subparts
+  - mods/flexo/features/keyframe-animation-authoring
+  - mods/flexo/features/animation-import-and-linear-baking
+tags:
+  - subpart
+  - animation
+  - transform
+  - gimbal
+  - hide
+  - projectile
+  - render
 status: stable
-generated: { by: claude-code/opus-5.5, at: 2026-10-10T18:26:22Z }
+generated:
+  by: codex/gpt-6
+  at: 2026-10-14T02:00:07Z
 repos:
   - name: KSACars
     git: https://github.com/LaurensDeV/KSACars
@@ -19,6 +51,9 @@ repos:
   - name: KSArmory
     git: https://github.com/LaurensDeV/KSArmory.git
     ref: cbd63d6d84da7a48a13641a641d3557bad216435
+  - name: flexo
+    git: git@github.com:meow-sci/flexo.git
+    ref: e804879abfc1d45ca1c174a9c95c5fded58c1bf2
 game:
   build: 2026.10.10.5554
   git: git@github.com:meow-sci/ksa-game-assemblies.git
@@ -28,27 +63,65 @@ sources:
     repo: ksa-game-assemblies
     path: current/decomp/KSA/PartTemplate.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/PartTemplate.cs
-    title: "current/decomp/KSA/PartTemplate.cs (decompiled, build 2026.10.10.5554)"
+    title: current/decomp/KSA/PartTemplate.cs (decompiled, build 2026.10.10.5554)
   - id: ksa-part
     repo: ksa-game-assemblies
     path: current/decomp/KSA/Part.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/Part.cs
-    title: "current/decomp/KSA/Part.cs (decompiled, build 2026.10.10.5554)"
+    title: current/decomp/KSA/Part.cs (decompiled, build 2026.10.10.5554)
   - id: ksa-parttreerenderdata
     repo: ksa-game-assemblies
     path: current/decomp/KSA/PartTreeRenderData.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/PartTreeRenderData.cs
-    title: "current/decomp/KSA/PartTreeRenderData.cs (decompiled, build 2026.10.10.5554)"
+    title: current/decomp/KSA/PartTreeRenderData.cs (decompiled, build 2026.10.10.5554)
   - id: ksa-vehicle
     repo: ksa-game-assemblies
     path: current/decomp/KSA/Vehicle.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/Vehicle.cs
-    title: "current/decomp/KSA/Vehicle.cs (decompiled, build 2026.10.10.5554)"
+    title: current/decomp/KSA/Vehicle.cs (decompiled, build 2026.10.10.5554)
+  - id: ksa-current-decomp-ksa-keyframeanimationdata
+    repo: ksa-game-assemblies
+    path: current/decomp/KSA/KeyframeAnimationData.cs
+    resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/KeyframeAnimationData.cs
+    title: current/decomp/KSA/KeyframeAnimationData.cs
+  - id: flexo-src-ksa-animationrig
+    repo: flexo
+    path: src/ksa/animationRig.ts
+    resource: https://github.com/meow-sci/flexo/blob/e804879abfc1d45ca1c174a9c95c5fded58c1bf2/src/ksa/animationRig.ts
+    title: src/ksa/animationRig.ts
+  - id: flexo-src-ksa-easingfit
+    repo: flexo
+    path: src/ksa/easingFit.ts
+    resource: https://github.com/meow-sci/flexo/blob/e804879abfc1d45ca1c174a9c95c5fded58c1bf2/src/ksa/easingFit.ts
+    title: src/ksa/easingFit.ts
+  - id: flexo-src-ksa-clipissues
+    repo: flexo
+    path: src/ksa/clipIssues.ts
+    resource: https://github.com/meow-sci/flexo/blob/e804879abfc1d45ca1c174a9c95c5fded58c1bf2/src/ksa/clipIssues.ts
+    title: src/ksa/clipIssues.ts
+  - id: flexo-src-state-partimport
+    repo: flexo
+    path: src/state/partImport.ts
+    resource: https://github.com/meow-sci/flexo/blob/e804879abfc1d45ca1c174a9c95c5fded58c1bf2/src/state/partImport.ts
+    title: src/state/partImport.ts
+  - id: flexo-src-ksa-animationimport
+    repo: flexo
+    path: src/ksa/animationImport.ts
+    resource: https://github.com/meow-sci/flexo/blob/e804879abfc1d45ca1c174a9c95c5fded58c1bf2/src/ksa/animationImport.ts
+    title: src/ksa/animationImport.ts
+  - id: flexo-src-ksa-exportanimationglb
+    repo: flexo
+    path: src/ksa/exportAnimationGlb.ts
+    resource: https://github.com/meow-sci/flexo/blob/e804879abfc1d45ca1c174a9c95c5fded58c1bf2/src/ksa/exportAnimationGlb.ts
+    title: src/ksa/exportAnimationGlb.ts
+  - id: flexo-src-ksa-partxmlserializer
+    repo: flexo
+    path: src/ksa/partXmlSerializer.ts
+    resource: https://github.com/meow-sci/flexo/blob/e804879abfc1d45ca1c174a9c95c5fded58c1bf2/src/ksa/partXmlSerializer.ts
+    title: src/ksa/partXmlSerializer.ts
 ---
-KSA has no animation hook a mod can drive, and no module a mod can register. What it has is a tree of `Part`
-objects whose subparts carry public, settable parent-relative transforms that the renderer re-reads whenever
-one changed. Every moving body (a wheel, a turret, a gimbal, a round in flight) is therefore declared as its
-own `<SubPart>` in the part XML and posed from C# every frame.
+
+KSA supports both code-driven SubPart transforms and native keyframe animation data. Use runtime writes for interactive wheels, turrets and projectiles; use an authored keyframe rig when the desired motion can be represented by the native animation module. Each moving member still needs a stable SubPart instance identity and a correctly authored pivot.
 
 ## Engine background
 
@@ -73,14 +146,17 @@ own `<SubPart>` in the part XML and posed from C# every frame.
   `Vehicle.UpdateRenderData` builds only when the craft is large enough on screen
   [current/decomp/KSA/Vehicle.cs](https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/Vehicle.cs#L3713-L3726)[^ksa-vehicle].
 
+The native route uses instance-named leaves beneath animated joint nodes. Flexo exports a KeyframeAnimationModule and GLB channels, translating its editor rest-anchor and easing metadata into native geometry and samples. Import can approximate or lose unsupported motion, including the current scale-only dense-track fitter limitation. [src/ksa/animationRig.ts](https://github.com/meow-sci/flexo/blob/e804879abfc1d45ca1c174a9c95c5fded58c1bf2/src/ksa/animationRig.ts#L266-L348) [src/ksa/easingFit.ts](https://github.com/meow-sci/flexo/blob/e804879abfc1d45ca1c174a9c95c5fded58c1bf2/src/ksa/easingFit.ts#L101-L126)
+
 ## Approaches
 
-| Article | Mod | Technique | Subject |
-|---|---|---|---|
-| [1: wheels, arms and blades from `StarMapAfterGui`](define-and-animate-subparts-1.md) | KSACars | `starmap-lifecycle` | author the subparts, pose them each frame, dual-hook with a frame latch |
-| [2: articulated turret mounts](define-and-animate-subparts-2.md) | KSArmory | `subpart-transform-write` | rate-limited drives, sibling chains composed in code, per-channel refusal latch |
-| [3: roll-nod optical gimbals](define-and-animate-subparts-3.md) | KSArmory | `gimbal-geometry` | pointing drive without a look-up singularity, two bodies on one pivot |
-| [4: scale-to-hide and parent-frame placement](define-and-animate-subparts-4.md) | KSArmory | `scale-to-hide` | hidden launcher subparts flown as projectiles |
+| Article | Mod | Technique | Lifecycle | Trade-off |
+|---|---|---|---|---|
+| [1: wheels, arms and blades from `StarMapAfterGui`](define-and-animate-subparts-1.md) | KSACars | `starmap-lifecycle`, `xml-asset` | `startup:asset-load`, `frame:draw-ui`, `frame:after-on-frame`, `frame:render` | author the subparts, pose them each frame, dual-hook with a frame latch |
+| [2: articulated turret mounts](define-and-animate-subparts-2.md) | KSArmory | `subpart-transform-write`, `xml-asset` | `startup:asset-load`, `frame:draw-ui`, `frame:celestials`, `frame:render` | rate-limited drives, sibling chains composed in code, per-channel refusal latch |
+| [3: roll-nod optical gimbals](define-and-animate-subparts-3.md) | KSArmory | `gimbal-geometry`, `subpart-transform-write` | `startup:asset-load`, `frame:draw-ui`, `frame:celestials`, `frame:viewports`, `frame:render` | pointing drive without a look-up singularity, two bodies on one pivot |
+| [4: scale-to-hide and parent-frame placement](define-and-animate-subparts-4.md) | KSArmory | `scale-to-hide`, `subpart-transform-write` | `startup:asset-load`, `frame:draw-ui`, `frame:celestials`, `frame:render` | hidden launcher subparts flown as projectiles |
+| [5: Author and import keyframe clips and bake native GLB animations](define-and-animate-subparts-5.md) | Flexo | `glb-model`, `keyframe-animation`, `matrix-composition`, `animation-baking`, `curve-fitting` | `tool:authoring`, `tool:build` | Ship authored motion as assets without a runtime controller; preserve rest anchors and inspect import/baking approximations |
 
 ## See also
 

@@ -1,5 +1,9 @@
 # Validate asset XML ids and paths before launching the game (offline) history
 
+## 2026-10-13
+* **Update**: Independently reviewed the [browser export regression workflow](validate-asset-xml-references-4.md) against the pinned tooling and native loader. Confirmed command runtimes, prepared assets, fixture and smoke limits, and thumbnail fingerprints; marked the final source excerpt's omitted closing context explicitly. No upstream suites or native game session were run.
+* **Update**: Added [browser export regression tooling](validate-asset-xml-references-4.md) and extended the [approach comparison](overview.md), covering the prepared asset prerequisite, fixture refresh, export assertions, DOM smoke checks and incremental thumbnails with explicit native-validation limits.
+
 ## 2026-10-10
 * **Update**: Independent review of the topic against the decompiled build 2026.10.10.5554 and the pinned mod checkouts. Narrowed the missing-channel claim to part and static-object materials, qualified the `validate-parts.py` snippets by repository and removed unrelated `game_types`. Link text of cross references now names the target article, unresolved topic placeholders became links and truncated snippets are marked with an elision.
 * **Creation**: Added [Validate asset XML ids and paths before launching the game (offline)](overview.md), [Check asset XML ids and paths offline with check-xml.sh and validate-parts.py](validate-asset-xml-references-1.md), [Extend the validator for generated geometry, ids named in C# and shared planes](validate-asset-xml-references-2.md), [Parse an AssetBundle with the game serializer, without OnDataLoad, and apply pure rules](validate-asset-xml-references-3.md). Three approaches: check-xml.sh and validate-parts.py, extended checks, and a game-serializer parse for runtime loaders. Verified against the decompiled game build 2026.10.10.5554 and the pinned mod checkouts.

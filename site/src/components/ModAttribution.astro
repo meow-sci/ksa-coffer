@@ -69,9 +69,9 @@ const totalFeatures = rows.reduce((n, r) => n + r.features, 0);
 const fmt = (n: number) => n.toLocaleString("en-US");
 ---
 
-<h2 id="source-mods">Source mods</h2>
+<h2 id="source-mods">Source mods and authoring tools</h2>
 <p>
-  This corpus was distilled from the open-source KSA mods below, and we are grateful to their authors. Every page links
+  This corpus was distilled from the KSA mods and authoring tools below, and we are grateful to their authors. Every page links
   its code references to the pinned commit shown here; licenses are summarized in{" "}
   <a href="https://github.com/meow-sci/ksa-coffer/blob/main/attribution.yml"><code>attribution.yml</code></a>.
 </p>
@@ -79,7 +79,7 @@ const fmt = (n: number) => n.toLocaleString("en-US");
   <table>
     <thead>
       <tr>
-        <th>Mod</th>
+        <th>Project</th>
         <th>Author</th>
         <th>Source</th>
         <th>License</th>
@@ -131,7 +131,7 @@ const fmt = (n: number) => n.toLocaleString("en-US");
     </tbody>
     <tfoot>
       <tr>
-        <th colspan="4">All mods (distinct)</th>
+        <th colspan="4">All projects (distinct)</th>
         <td class="num">{fmt(totalFeatures)}</td>
         <td class="num">{fmt(allArticles.size)}</td>
         <td class="num">{fmt(allTopics.size)}</td>

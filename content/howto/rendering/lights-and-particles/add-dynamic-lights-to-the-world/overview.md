@@ -1,16 +1,40 @@
 ---
 type: Game Feature
 title: Add dynamic spot and point lights to the world from a mod
-description: KSA clears its light list every frame, so a mod submits its own Light instances after ClearLights and before the lights are written, for headlights, lamps, flashes and fireballs, and budgets which ones cast shadows
+description: How runtime light submissions and browser-authored native Light modules enter KSA lighting with appropriate timing and owner transforms
 topic: add-dynamic-lights-to-the-world
 category: rendering
 group: lights-and-particles
-approaches: 3
-game_types: [KSA.Rendering.Lighting.Light, KSA.Rendering.Lighting.ILightSystem, KSA.Rendering.Lighting.ClusteredLightSystem, KSA.Rendering.Lighting.LightDebug, KSA.Program, KSA.PartTree]
-lifecycle: [frame:lights, frame:pre-render, frame:render, render:shadows]
-demonstrated_by: [mods/ksacars/features/headlights-as-spotlights, mods/ksastructures/features/garage-spot-lights, mods/ksarmory/features/fireball-light-injection]
-tags: [lights, spotlight, point-light, shadows, per-viewport]
-generated: { by: claude-code/opus-5.5, at: 2026-10-10T18:29:54Z }
+approaches: 4
+game_types:
+  - KSA.Rendering.Lighting.Light
+  - KSA.Rendering.Lighting.ILightSystem
+  - KSA.Rendering.Lighting.ClusteredLightSystem
+  - KSA.Rendering.Lighting.LightDebug
+  - KSA.Program
+  - KSA.PartTree
+  - KSA.LightModule
+lifecycle:
+  - frame:lights
+  - frame:pre-render
+  - frame:render
+  - render:shadows
+  - tool:authoring
+  - tool:build
+demonstrated_by:
+  - mods/ksacars/features/headlights-as-spotlights
+  - mods/ksastructures/features/garage-spot-lights
+  - mods/ksarmory/features/fireball-light-injection
+  - mods/flexo/features/cast-light-authoring
+tags:
+  - lights
+  - spotlight
+  - point-light
+  - shadows
+  - per-viewport
+generated:
+  by: codex/gpt-6
+  at: 2026-10-14T01:50:28Z
 status: stable
 repos:
   - name: KSACars
@@ -22,6 +46,9 @@ repos:
   - name: KSArmory
     git: https://github.com/LaurensDeV/KSArmory.git
     ref: cbd63d6d84da7a48a13641a641d3557bad216435
+  - name: flexo
+    git: git@github.com:meow-sci/flexo.git
+    ref: e804879abfc1d45ca1c174a9c95c5fded58c1bf2
 game:
   build: 2026.10.10.5554
   git: git@github.com:meow-sci/ksa-game-assemblies.git
@@ -31,17 +58,42 @@ sources:
     repo: ksa-game-assemblies
     path: current/decomp/KSA.Rendering.Lighting/ILightSystem.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA.Rendering.Lighting/ILightSystem.cs
-    title: "KSA.Rendering.Lighting.ILightSystem (decompiled, build 2026.10.10.5554)"
+    title: KSA.Rendering.Lighting.ILightSystem (decompiled, build 2026.10.10.5554)
   - id: g-current-decomp-ksa-rendering-lighting-light-cs
     repo: ksa-game-assemblies
     path: current/decomp/KSA.Rendering.Lighting/Light.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA.Rendering.Lighting/Light.cs
-    title: "KSA.Rendering.Lighting.Light (decompiled, build 2026.10.10.5554)"
+    title: KSA.Rendering.Lighting.Light (decompiled, build 2026.10.10.5554)
   - id: g-current-decomp-ksa-program-cs
     repo: ksa-game-assemblies
     path: current/decomp/KSA/Program.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/Program.cs
-    title: "KSA.Program (decompiled, build 2026.10.10.5554)"
+    title: KSA.Program (decompiled, build 2026.10.10.5554)
+  - id: ksa-current-decomp-ksa-lightmodule
+    repo: ksa-game-assemblies
+    path: current/decomp/KSA/LightModule.cs
+    resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/LightModule.cs
+    title: current/decomp/KSA/LightModule.cs
+  - id: flexo-src-ksa-partxmlserializer
+    repo: flexo
+    path: src/ksa/partXmlSerializer.ts
+    resource: https://github.com/meow-sci/flexo/blob/e804879abfc1d45ca1c174a9c95c5fded58c1bf2/src/ksa/partXmlSerializer.ts
+    title: src/ksa/partXmlSerializer.ts
+  - id: flexo-src-ksa-lightvalidation
+    repo: flexo
+    path: src/ksa/lightValidation.ts
+    resource: https://github.com/meow-sci/flexo/blob/e804879abfc1d45ca1c174a9c95c5fded58c1bf2/src/ksa/lightValidation.ts
+    title: src/ksa/lightValidation.ts
+  - id: flexo-src-state-editorstore
+    repo: flexo
+    path: src/state/editorStore.ts
+    resource: https://github.com/meow-sci/flexo/blob/e804879abfc1d45ca1c174a9c95c5fded58c1bf2/src/state/editorStore.ts
+    title: src/state/editorStore.ts
+  - id: flexo-src-three-coords
+    repo: flexo
+    path: src/three/coords.ts
+    resource: https://github.com/meow-sci/flexo/blob/e804879abfc1d45ca1c174a9c95c5fded58c1bf2/src/three/coords.ts
+    title: src/three/coords.ts
 ---
 KSA's lights are not objects a mod registers once. `LightSystem.ClearLights()` empties them at the start of each frame's light pass, the game's own light modules, exhausts and explosions re-submit while it builds render data, and the result is sorted, assigned shadow tiles and written to the GPU before any command is recorded. A mod that wants a headlamp, a ceiling lamp or a flash therefore has to submit at a precise moment, for every viewport that will draw it.
 
@@ -52,6 +104,8 @@ KSA's lights are not objects a mod registers once. `LightSystem.ClearLights()` e
 - **Timeline.** `Program.OnFrame` clears lights (L2317-L2318, `frame:lights`); `Program.Render` then `UpdateRenderingResources` ([current/decomp/KSA/Program.cs](https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/Program.cs#L4337-L4409)) re-submits per visible viewport (vehicles' `LightModule`s inside `PartTree.UpdateRenderData`, location render data, explosion lights), then `WriteForwardLights` and `UpdateRenderResources` consume them; `RenderGame` draws the light shadow atlas (`render:shadows`). See rows 19 and 22 of [the lifecycle reference](../../../getting-started/lifecycle/game-loop-and-lifecycle/overview.md#per-frame-sequence).
 - **The one survivor.** `LightDebug.Lights` is a public list that `ClusteredLightSystem.OnFrame` copies into the system after the clear.
 
+Native authored lights are an additional option for lamps attached to parts. Flexo emits Light modules and the game performs their recurring submission; no Flexo code enters the frame loop. The editor shows local-frame markers and validation warnings, including scaled-owner direction differences. [src/ksa/partXmlSerializer.ts](https://github.com/meow-sci/flexo/blob/e804879abfc1d45ca1c174a9c95c5fded58c1bf2/src/ksa/partXmlSerializer.ts#L714-L753) [src/ksa/lightValidation.ts](https://github.com/meow-sci/flexo/blob/e804879abfc1d45ca1c174a9c95c5fded58c1bf2/src/ksa/lightValidation.ts#L80-L206)
+
 ## Approaches
 
 | Article | Mod | Technique | Lifecycle | Trade-off |
@@ -59,8 +113,9 @@ KSA's lights are not objects a mod registers once. `LightSystem.ClearLights()` e
 | [1: postfix PartTree.UpdateRenderData per craft](add-dynamic-lights-to-the-world-1.md) | KSACars | `harmony-postfix`, `Light.CreateSpotLight`, part light switch | `frame:render` | Lamps follow a vessel exactly as drawn, per viewport; Harmony required |
 | [2: postfix UpdateStaticObjectRenderData with a shadow budget](add-dynamic-lights-to-the-world-2.md) | KSAStructures | `dynamic-lights`, per-viewport camera-relative lamps, nearest-N casters | `frame:render`, `render:shadows` | Lamps for a place on a celestial and explicit control of which cast shadows; layout is yours to maintain |
 | [3: LightDebug.Lights, plus a compute fill](add-dynamic-lights-to-the-world-3.md) | KSArmory | Public list the engine re-pushes, reflection, `SunbloomRenderer.Render` prefix | `frame:lights`, `render:prepass`, `render:bloom` | Works from any frame hook and needs no Harmony for the light itself; one light, main viewport only, beyond 3 km needs the extra compute pass |
+| [4: Author native cast lights with validated local frames and falloff](add-dynamic-lights-to-the-world-4.md) | Flexo | `xml-asset` | `tool:authoring`, `tool:build` | Let native part modules submit recurring lights; author local data carefully and validate owner-scale effects in the game |
 
-Pick by what the light is attached to: a vessel (1), a fixed place (2), or a short-lived effect whose position your own simulation owns (3).
+Choose native authored modules (4) for part lamps that can use the game’s module behavior. Use a vessel render-data patch (1), a fixed-place patch (2), or a simulation-owned transient light (3) when custom runtime submission is needed.
 
 ## See also
 

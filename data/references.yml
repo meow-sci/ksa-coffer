@@ -6,9 +6,19 @@
 # Comments other than this header are not preserved when the script rewrites this file.
 
 repos:
+  - name: blasto
+    git: git@github.com:meow-sci/blasto.git
+    ref: 21f7657c42534774001acabcf93289e9412c5242
+    license: MIT
+
   - name: Compendium
     git: https://github.com/meow-sci/Compendium.git
     ref: 62cfbe7aafabc58cf71f7c6d618d0c5ece7c504c
+    license: MIT
+
+  - name: flexo
+    git: git@github.com:meow-sci/flexo.git
+    ref: e804879abfc1d45ca1c174a9c95c5fded58c1bf2
     license: MIT
 
   - name: gatOS

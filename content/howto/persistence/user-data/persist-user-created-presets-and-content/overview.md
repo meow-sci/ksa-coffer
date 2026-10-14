@@ -5,12 +5,49 @@ description: Store what the player creates rather than what the mod configures -
 topic: persist-user-created-presets-and-content
 category: persistence
 group: user-data
-approaches: 6
-game_types: [Brutal.ImGuiApi.ImGui, KSA.SerializedId, KSA.IKeyed, KSA.ModLibrary, KSA.Celestial, KSA.Universe, KSA.CelestialSystem]
-lifecycle: [startup:all-mods-loaded, frame:draw-ui, event:starmap-unload, startup:asset-load]
-demonstrated_by: [mods/ksa-measuretools/features/color-palettes-persistence, mods/purrtty/features/toml-themes-and-settings, mods/ksa-public-telemetry/features/json-config-in-documents, mods/ksa-public-telemetry/features/live-tuning-and-palette-reflection, mods/mpfx/features/xml-effect-profiles, mods/ksagolf/features/course-grid-and-save-file, mods/unscience/features/lib-shared-file-library]
-tags: [presets, palettes, themes, user-content, import, export, json, toml, xml, versioning]
-generated: { by: claude-code/sonnet-5.5, at: 2026-10-10T22:13:02Z }
+approaches: 7
+game_types:
+  - Brutal.ImGuiApi.ImGui
+  - KSA.SerializedId
+  - KSA.IKeyed
+  - KSA.ModLibrary
+  - KSA.Celestial
+  - KSA.Universe
+  - KSA.CelestialSystem
+lifecycle:
+  - startup:all-mods-loaded
+  - frame:draw-ui
+  - event:starmap-unload
+  - startup:asset-load
+  - tool:authoring
+  - tool:build
+demonstrated_by:
+  - mods/ksa-measuretools/features/color-palettes-persistence
+  - mods/purrtty/features/toml-themes-and-settings
+  - mods/ksa-public-telemetry/features/json-config-in-documents
+  - mods/ksa-public-telemetry/features/live-tuning-and-palette-reflection
+  - mods/mpfx/features/xml-effect-profiles
+  - mods/ksagolf/features/course-grid-and-save-file
+  - mods/unscience/features/lib-shared-file-library
+  - mods/flexo/features/project-persistence-and-archives
+  - mods/flexo/features/multi-part-project-isolation
+  - mods/flexo/features/undoable-action-chains
+tags:
+  - presets
+  - palettes
+  - themes
+  - user-content
+  - import
+  - export
+  - json
+  - toml
+  - xml
+  - versioning
+  - flexo
+  - asset-authoring
+generated:
+  by: codex/gpt-6
+  at: 2026-10-14T02:18:31Z
 status: stable
 repos:
   - name: KSA-MeasureTools
@@ -31,6 +68,9 @@ repos:
   - name: unscience
     git: https://github.com/meow-sci/unscience.git
     ref: 1829b3b298dd0fa5a67342cafff29074c8c29286
+  - name: flexo
+    git: git@github.com:meow-sci/flexo.git
+    ref: e804879abfc1d45ca1c174a9c95c5fded58c1bf2
 game:
   build: 2026.10.10.5554
   git: git@github.com:meow-sci/ksa-game-assemblies.git
@@ -40,34 +80,47 @@ sources:
     repo: ksa-game-assemblies
     path: current/decomp/KSA/Constants.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/Constants.cs
-    title: "KSA.Constants (decompiled, build 2026.10.10.5554)"
+    title: KSA.Constants (decompiled, build 2026.10.10.5554)
   - id: imgui
     repo: ksa-game-assemblies
     path: current/decomp/Brutal.ImGuiApi/ImGui.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/Brutal.ImGuiApi/ImGui.cs
-    title: "Brutal.ImGuiApi.ImGui (decompiled, build 2026.10.10.5554)"
+    title: Brutal.ImGuiApi.ImGui (decompiled, build 2026.10.10.5554)
   - id: serializedid
     repo: ksa-game-assemblies
     path: current/decomp/KSA/SerializedId.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/SerializedId.cs
-    title: "KSA.SerializedId (decompiled, build 2026.10.10.5554)"
+    title: KSA.SerializedId (decompiled, build 2026.10.10.5554)
   - id: modlibrary
     repo: ksa-game-assemblies
     path: current/decomp/KSA/ModLibrary.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/ModLibrary.cs
-    title: "KSA.ModLibrary (decompiled, build 2026.10.10.5554)"
+    title: KSA.ModLibrary (decompiled, build 2026.10.10.5554)
   - id: celestial
     repo: ksa-game-assemblies
     path: current/decomp/KSA/Celestial.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/Celestial.cs
-    title: "KSA.Celestial (decompiled, build 2026.10.10.5554)"
+    title: KSA.Celestial (decompiled, build 2026.10.10.5554)
   - id: celestialsystem
     repo: ksa-game-assemblies
     path: current/decomp/KSA/CelestialSystem.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/CelestialSystem.cs
-    title: "KSA.CelestialSystem (decompiled, build 2026.10.10.5554)"
+    title: KSA.CelestialSystem (decompiled, build 2026.10.10.5554)
+  - id: source-flexo-src-state-partsstore-ts
+    repo: flexo
+    path: src/state/partsStore.ts
+    resource: https://github.com/meow-sci/flexo/blob/e804879abfc1d45ca1c174a9c95c5fded58c1bf2/src/state/partsStore.ts
+    title: src/state/partsStore.ts
+  - id: source-flexo-src-state-projectarchive-ts
+    repo: flexo
+    path: src/state/projectArchive.ts
+    resource: https://github.com/meow-sci/flexo/blob/e804879abfc1d45ca1c174a9c95c5fded58c1bf2/src/state/projectArchive.ts
+    title: src/state/projectArchive.ts
 ---
-Settings are what a mod configures; presets and content are what the player makes: a color scheme they tuned, a theme they named, a layout they built on a planet, a PNG they imported. These need names, lists, a way to delete and overwrite safely, and a file format that survives mod and game updates. KSA offers no preset store for mods, so each of the six approaches below owns its files. They differ in what is stored (colors, a bundle of window appearance, an effect profile, a placed layout, a media file) and in who writes the file (the mod on save, the player by hand, or an export-and-paste flow).
+
+Settings are what a mod configures; presets and content are what the player makes: a color scheme they tuned, a theme they named, a layout they built on a planet, a PNG they imported. These need names, lists, a way to delete and overwrite safely, and a file format that survives mod and game updates. KSA offers no preset store for mods, so the seven approaches below manage their own files or browser records. They differ in what is stored (colors, a bundle of window appearance, an effect profile, a placed layout, a media file) and in who writes the file (the mod on save, the player by hand, or an export-and-paste flow).
+
+Browser projects add a separate persistence case: they need per-document undo, isolated identities and custom binary assets while keeping native game export separate.
 
 ## Engine background
 
@@ -82,7 +135,9 @@ The game contributes only a few pieces, and every approach leans on a different 
 | `Celestial.GetDirCcfFromLatLon`: latitude/longitude to a body-fixed direction | [current/decomp/KSA/Celestial.cs](https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/Celestial.cs#L667-L675) | Approach 5 |
 | `Universe.CurrentSystem` / `CelestialSystem`: finding a body by id | [current/decomp/KSA/CelestialSystem.cs](https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/CelestialSystem.cs) | Approach 5 |
 
-Timing is shared: read presets at `startup:all-mods-loaded` (or `startup:asset-load` for XML assets), edit and save from the UI pass (`frame:draw-ui`), and do final saves at `[StarMapUnload]`. StarMap removes all Harmony patches before it invokes `[StarMapUnload]`, so the instance-path redirect of the documents folder is gone by then and a path recomputed from `Constants.DocumentsFolderPath` at unload points at the default Documents folder; resolve the folder once at load, or derive it from the assembly location, as approach 1 does. See the [game loop reference](../../../getting-started/lifecycle/game-loop-and-lifecycle/overview.md) and [Find where KSA keeps user data and choose where a mod stores its config and data files](../choose-where-a-mod-stores-its-files/overview.md).
+For the runtime mod approaches, read presets at `startup:all-mods-loaded` (or `startup:asset-load` for XML assets), edit and save from the UI pass (`frame:draw-ui`), and do final saves at `[StarMapUnload]`. StarMap removes all Harmony patches before it invokes `[StarMapUnload]`, so the instance-path redirect of the documents folder is gone by then and a path recomputed from `Constants.DocumentsFolderPath` at unload points at the default Documents folder; resolve the folder once at load, or derive it from the assembly location, as approach 1 does. See the [game loop reference](../../../getting-started/lifecycle/game-loop-and-lifecycle/overview.md) and [Find where KSA keeps user data and choose where a mod stores its config and data files](../choose-where-a-mod-stores-its-files/overview.md).
+
+Flexo implements this outside KSA through [src/state/projectArchive.ts](https://github.com/meow-sci/flexo/blob/e804879abfc1d45ca1c174a9c95c5fded58c1bf2/src/state/projectArchive.ts#L614-L711) and [src/state/partsStore.ts](https://github.com/meow-sci/flexo/blob/e804879abfc1d45ca1c174a9c95c5fded58c1bf2/src/state/partsStore.ts#L391-L431). Generated game files are delivered later; no game save callback runs in the browser.
 
 ## Approaches
 
@@ -95,6 +150,8 @@ Timing is shared: read presets at `startup:all-mods-loaded` (or `startup:asset-l
 | [Versioned snake_case JSON layout anchored by latitude, longitude and ground height](./persist-user-created-presets-and-content-5.md) | KSAGolf | `json-config` | `frame:draw-ui` | Survives terrain changes with a drift warning; unknown ids are dropped, newer files refused |
 | [Import user files into a catalog folder and refer to them by name](./persist-user-created-presets-and-content-6.md) | unscience | `save-sidecar`, `imgui-window` | `frame:draw-ui` | Saved scenes reproduce a file by name; copying blocks a frame and duplicates are name-based |
 
+| [Keep browser projects isolated and carry custom assets in archives](persist-user-created-presets-and-content-7.md) | Flexo | `indexeddb`, `json-config`, `archive-packaging`, `document-registry`, `id-remapping`, `xml-asset`, `pure-model`, `transactional-editing`, `state-machine` | `tool:authoring`, `tool:build` | Portable editor archive and isolated Undo; exact format compatibility, browser-storage limits and non-transactional blob adoption |
+
 Choosing between them:
 
 - **A fixed set of tunable colors**: approach 3 when there are no named presets, approach 1 when there are.
@@ -102,8 +159,13 @@ Choosing between them:
 - **A preset that other mods may ship**: approach 4, because it rides the game's asset XML loading.
 - **A thing the player builds in the world**: approach 5, with a version and a ground-relative anchor.
 - **Media the player brings**: approach 6, then store only the catalog name.
+- **External authoring projects**: approach 7, with separate local histories and portable archives that carry authored data and asset bytes.
 
 ## See also
+
+- [Persist browser projects and archive their binary assets](../../../../mods/flexo/features/project-persistence-and-archives.md)
+- [Isolate multiple parts within one browser project](../../../../mods/flexo/features/multi-part-project-isolation.md)
+- [Undoable action chains](../../../../mods/flexo/features/undoable-action-chains.md)
 
 - [Persist mod settings as JSON with System.Text.Json](../../settings-formats/persist-mod-settings-as-json/overview.md), [Persist mod settings as TOML](../../settings-formats/persist-mod-settings-toml/overview.md), [Write config files atomically and load hand-edited ones without losing them](../../settings-formats/write-and-load-config-files-safely/overview.md)
 - [Save a whole mod's scene state as versioned sidecar records, with reset and replay on load](../../saves/save-mod-state-with-the-scene/overview.md), [Find where KSA keeps user data and choose where a mod stores its config and data files](../choose-where-a-mod-stores-its-files/overview.md)

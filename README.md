@@ -8,7 +8,7 @@ This information is a combination of my own efforts doing KSA modding and analyz
 
 Everything lives in one [OKF v0.2](.claude/skills/okf/SKILL.md) bundle rooted at [content/index.md](./content/index.md):
 
-- [content/mods/](./content/mods/index.md) - one sub-bundle per analyzed mod: an overview (loader model, lifecycle hooks, dependencies, feature table) and one page per reusable feature with verbatim code snippets, pinned source links and a mandatory *Lifecycle and timing* section that says where in the KSA frame or physics step the code runs.
+- [content/mods/](./content/mods/index.md) - one sub-bundle per analyzed mod or authoring tool: an overview (loader model, lifecycle hooks, dependencies, feature table) and one page per reusable feature with verbatim code snippets, pinned source links and a mandatory *Lifecycle and timing* section that identifies the game phase or external authoring workflow.
 - [content/howto/](./content/howto/index.md) - how-to articles organised by category and group, one topic per modding problem; when several mods solve a problem differently each solution is a numbered article and the topic overview compares them. Start with the [game loop and lifecycle reference](./content/howto/getting-started/lifecycle/game-loop-and-lifecycle/overview.md).
 - [docs/content-conventions.md](./docs/content-conventions.md) - the layout, frontmatter pins, lifecycle vocabulary and code-reference rules every page follows.
 
@@ -33,14 +33,16 @@ Coding agents can run either task from a repo skill: `refresh-data` for updates 
 
 ## Attribution
 
-The [attribution.yml](./attribution.yml) file contains a list of all source material of KSA game mods that have been analyzed to help compile this single combined knowledge base
+The [attribution.yml](./attribution.yml) file lists the KSA game mods and authoring tools analyzed for this knowledge base.
 
 
-The [attribution/](./attribution/) folder contains a copy of each source material repositories license
+The [attribution/](./attribution/) folder contains a copy of each source material repository's license.
 
 
 ## References
 
+* [Blasto](./content/mods/blasto/overview.md) — persistent exhaust marks and landing dust
+* [Flexo](./content/mods/flexo/overview.md) — browser-based authoring of native asset-only mods
 * Compendium
 * gatOS
 * Kitten-Engineer-Redux

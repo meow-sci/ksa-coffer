@@ -1,5 +1,6 @@
 # Subdirectories
 
+* [build-a-browser-asset-preview](build-a-browser-asset-preview/index.md) - Coalesce viewport redraws, share command dispatch and isolate an embeddable viewer from persistent editor settings
 * [headless-test-harness-for-game-mods](headless-test-harness-for-game-mods/index.md) - Ship tests as a second StarMap mod that depends on HeadlessHarness and the mod under test so the real simulation runs without a GPU, swap the clock for simulation time and use the game's own private routines as the oracle
 * [run-mod-simulation-in-a-headless-rig](run-mod-simulation-in-a-headless-rig/index.md) - Drive vehicles, rounds or balls through the mod's own step function in a plain test with a rig that supplies mass, inertia and a terrain stand-in, and vary the step to expose phase and epoch errors
 * [run-repo-checks-from-a-pre-push-hook-and-ci](run-repo-checks-from-a-pre-push-hook-and-ci/index.md) - Gather boundary checks and other textual guards, tests, API-surface and lock checks, shader compiles, asset validators and CI smoke checks of bundled native libraries and guest images into one check-all script that a git hook and the CI workflow both call

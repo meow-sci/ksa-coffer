@@ -1,0 +1,639 @@
+batch: add-blasto
+note: Write or review only assigned_approach and topic overview/log, preserving existing article links and content.
+topics:
+  - category: physics
+    slug: write-worker-thread-safe-solver-patches
+    title: Write worker-thread-safe patches inside the vehicle solver
+    kind: howto
+    group: solver
+    batch: physics-1
+    summary: Patches inside vehicle workers run at their target method cadence, including module steps and derivative
+      substeps, possibly concurrently. Compare allocation-conscious calculations, thread-local state and bounded
+      immutable sample handoff to the settled main-thread window; keep UI and rendering out of worker callbacks.
+    game_types:
+      - KSA.PhysicsStates
+      - KSA.PhysicsBubble
+      - KSA.VehicleUpdateTask
+      - KSA.PhysicsEnvironment
+      - KSA.ConstraintSim
+      - KSA.KittenLocomotion
+      - KSA.FlightComputer
+      - KSA.VehicleUpdateState
+      - KSA.RocketNozzleState
+      - KSA.Universe
+    engine_pointers:
+      - current/decomp/KSA/VehicleUpdateTask.cs
+      - current/decomp/KSA/PhysicsBubble.cs
+      - current/decomp/KSA/PhysicsStates.cs ComputeDerivatives
+    lifecycle:
+      - physics:vehicle-solver
+      - physics:bepu
+      - frame:dispatch-solvers
+      - frame:apply-solvers
+    approaches:
+      - n: 1
+        title: Pure, allocation-free, never-throwing code over the in arguments
+        mod: ksaero
+        features:
+          - mods/ksaero/features/body-of-revolution-aerodynamics
+          - mods/ksaero/features/stock-drag-delegate-fallback
+        technique: harmony-transpiler
+        note: Explain the call chain PrepareFrame -> ExecuteNextVehicleSolvers -> VehicleUpdateTask on JobSystems.VehicleSolver
+          -> ComputeDerivatives, what MarkFailed does when the step throws (the bubble step is not applied that frame),
+          and why KSAero uses only its arguments and falls back to stock on degenerate geometry.
+      - n: 2
+        title: Read-only tables filled on the main thread before physics starts
+        mod: realatmospheres
+        features:
+          - mods/realatmospheres/features/measured-flight-atmospheres
+          - mods/ksastructures/features/dry-volume-below-sea-level
+        technique: reflection
+        note: ConditionalWeakTable keyed on the game's reference object, populated in a load-time postfix, read by
+          allocation-free prefixes on the worker. Also volatile array swaps for data that changes at runtime.
+      - n: 3
+        title: Concurrent registries keyed by reference
+        mod: unscience
+        features:
+          - mods/unscience/features/kitchen-sink-g-load-protection
+          - mods/unscience/features/the-tick-vessel-indestructibility
+        technique: reflection
+        note: ConcurrentDictionary with ReferenceEqualityComparer written by the UI and read by workers, an IsDisposed check on
+          read and a per-frame prune on the main thread.
+      - n: 4
+        title: Volatile snapshot handoff from worker patches to the main thread
+        mod: ksagolf
+        features:
+          - mods/ksagolf/features/course-colliders-as-clutter
+          - mods/ksastructures/features/first-person-kitten-view
+        technique: worker-thread-patch
+        note: Worker prefixes on ConstraintSim passes and KittenLocomotion.StepGrounded read an immutable snapshot published by
+          the main thread and write results through volatile fields; one sim per prefix call, no shared mutable state.
+      - n: 5
+        title: Identify the vehicle a callback runs for with a ThreadStatic set in a prefix and cleared in a finalizer
+        mod: ksastructures
+        features:
+          - mods/ksastructures/features/terrain-height-roof-override
+        technique: harmony-finalizer
+        note: Functions like GetTerrainHeightFromDirCce do not receive the vehicle. A Priority.First prefix on
+          Vehicle.PrepareWorker sets a thread-static and a Priority.Last finalizer clears it, so later patches can tell
+          vehicle-driven calls from camera and UI calls.
+      - n: 6
+        title: Immutable commands published before the solver job is queued
+        mod: ksa-advancedflightcomputer
+        features:
+          - mods/ksa-advancedflightcomputer/features/flight-computer-command-sink
+        technique: harmony-postfix
+        note: A single postfix on FlightComputer.ComputeControl runs every mod actuator writer on the worker, each consuming an
+          immutable command handed over at PrepareWorker time, with wake and off-rails requests merged into the stock
+          output.
+      - n: 7
+        title: Sample nozzle thrust on the solver and hand exposure to the main thread
+        mod: blasto
+        features:
+          - mods/blasto/features/worker-nozzle-exposure-handoff
+        technique: harmony-postfix, background-thread
+        note: Explain source-verified timing, ownership and failure paths. Distinguish offline validation from live visual
+          confirmation; cover every listed mechanism.
+    related:
+      - mutate-vehicles-at-a-physics-safe-point
+      - replace-the-stock-aerodynamic-force-model
+      - mutate-the-shared-bepu-shape-registry
+    assigned_approach: 7
+    existing_topic: true
+  - category: celestials
+    slug: query-terrain-height-and-line-of-sight
+    title: Query the terrain height field and test line of sight across terrain
+    kind: howto
+    group: terrain
+    batch: celestials-1
+    summary: "KSA has no terrain raycast a mod can use; it has Celestial.GetTerrainHeightFromDirCcf/Cce/Cci(direction,
+      accurate), returning metres above MeanRadius along a direction from the body centre. This topic covers picking the
+      frame entry point, clamping to sea level, what the accurate flag drops (every procedural modifier, including
+      levelling decals) and how to keep accurate queries affordable, and builds on it a line-of-sight test: sphere test
+      first, then fixed-budget sampling of the band below the terrain ceiling, or a radar-horizon mask. Also covers
+      reading the height directly below a craft with the Ccf overload for hover and touchdown."
+    game_types:
+      - KSA.Celestial
+      - KSA.Astronomical
+      - KSA.CelestialSystem
+      - KSA.Universe
+      - KSA.Rendering.Water.Data.OceanReference
+      - KSA.TerrainRadiusCache
+      - KSA.PhysicsEnvironment
+      - KSA.TerrainPatch
+      - KSA.TerrainImpactFinder
+      - KSA.ProceduralModifiersReference
+      - KSA.PhysicsStates
+    engine_pointers:
+      - current/decomp/KSA/Celestial.cs GetTerrainHeightFromDirCcf / Cce / Cci, GetSurfacePositionEclFromCce
+      - current/decomp/KSA/TerrainRadiusCache.cs ComputeRadiusCcf
+      - current/decomp/KSA/PhysicsEnvironment.cs RecomputePositionalValues
+      - current/decomp/KSA.Rendering.Water.Data/OceanReference.cs
+      - current/decomp/KSA/Celestial.cs GetTerrainHeightFromDirCcf (SampleHeightBicubic vs SampleHeightMapBilinear,
+        modifier loop gated on accurate)
+      - current/decomp/KSA/TerrainRadiusCache.cs
+      - current/decomp/KSA/TerrainPatch.cs BaseQuadWidth
+      - current/decomp/KSA/TerrainImpactFinder.cs
+      - current/decomp/KSA/Celestial.cs GetTerrainHeightFromDirCce
+      - current/decomp/KSA/Celestial.cs MaxTerrainHeightApprox (_maxTerrainHeightApprox)
+      - current/decomp/KSA/Astronomical.cs MaxTerrainRadius
+      - current/decomp/KSA/Celestial.cs GetTerrainHeightFromDirCcf, GetTerrainHeightFromDirCce
+    lifecycle:
+      - frame:draw-ui
+      - frame:celestials
+      - frame:after-on-frame
+      - frame:dispatch-solvers
+      - frame:apply-solvers
+    approaches:
+      - n: 1
+        title: Ccf versus Cce entry points, sea clamp, and a no-claim result type; Document what accurate changes and sample
+          non-accurate only where drift is harmless; Closed-form band below the terrain ceiling, fixed interior sample
+          count
+        mod: ksagolf
+        features:
+          - mods/ksagolf/features/terrain-height-queries
+        technique: custom-physics
+        note: "Cce direction from position minus centre in Ecl (Cce shares ecliptic axes), Ccf for body-fixed positions; passing
+          one to the other rotates by the planet's current phase; sea detected by OceanReference non-null with Density >
+          0, never IsValid; ITerrainHeights.TryHeight false means no claim, never zero. Bicubic vs bilinear, modifier
+          loop gated, early returns when no heightmap or biome materials, single-precision direction pack giving a third
+          of a metre staircase on Earth; physics samples accurate true with a 0.25 m arc reuse; TerrainImpactFinder
+          samples false. Sub-step of the height-query topic: what accurate true/false changes and how to cache; give it
+          its own section. LineOfSight (segment vs sphere strictly between endpoints, horizon range as the sum of
+          tangent lengths) and TerrainMask.TryBandBelow solving the quadratic; no-claim samples treated as unknown, not
+          zero. Ceiling bound: MaxTerrainRadius - MeanRadius + 8,000 m, not MaxTerrainHeightApprox. Sub-step: line of
+          sight built on the height query; give it its own section."
+      - n: 2
+        title: Answer as a body centre and surface radius, pick the body by depth below the mean sphere; Radar horizon mask over
+          non-accurate height samples
+        mod: ksarmory
+        features:
+          - mods/ksarmory/features/terrain-ground-impact-test
+        technique: terrain-query
+        note: "IGroundTest.TryGround returns centreEcl and surfaceRadius so a round tests its height every sub-step by
+          subtraction; nearest body by depth below MeanRadius with last-body caching; any exception or non-finite
+          answers false. TerrainHeights(body) with accurate false via KsaWorld.IsHiddenByTerrain, tens of samples per
+          contact per scan. Sub-step: line of sight built on the height query; give it its own section."
+      - n: 3
+        title: Cache decorator that reuses a sample until near the ground or moved
+        mod: ksarmory
+        features:
+          - mods/ksarmory/features/terrain-ground-impact-test
+          - mods/ksagolf/features/terrain-height-queries
+        technique: decorator-cache
+        note: "CoarseGroundTest re-samples only when within 600 m of the cached surface or 250 m from the sample point; radar
+          horizon masks use accurate false because tens of samples per contact per scan. Sub-step of the height-query
+          topic: what accurate true/false changes and how to cache; give it its own section."
+      - n: 4
+        title: "Query terrain height under a point: Height directly below the craft with the Ccf overload for hover or
+          touchdown"
+        mod: ksa-advancedflightcomputer
+        features:
+          - mods/ksa-advancedflightcomputer/features/terminal-hover-touchdown
+        technique: harmony-prefix
+        note: "Sub-step folded from query-terrain-height-under-a-point (give it its own section): Ask a celestial for the ground
+          height under a direction vector, choose between the Ccf and Cce overloads and between fast and accurate
+          sampling, and use it for hover and touchdown. Rotate the position into the body-fixed frame and use the Ccf
+          overload; non-finite results fall back to zero. Also cover the Ccf versus Cce overloads and fast versus
+          accurate (bicubic with procedural modifiers) sampling, using the per-wheel Cce accurate call as the contrast."
+      - n: 5
+        title: Intersect exhaust rays with terrain and classify dry surfaces
+        mod: blasto
+        features:
+          - mods/blasto/features/terrain-plume-intersection
+        technique: harmony-postfix, custom-physics
+        note: Explain source-verified timing, ownership and failure paths. Distinguish offline validation from live visual
+          confirmation; cover every listed mechanism.
+    related:
+      - measure-slope-and-detect-ground-contact-on-terrain
+      - override-terrain-height-for-roofs-and-platforms
+      - pick-objects-under-the-cursor
+      - understand-ksa-coordinate-frames-and-epochs
+      - add-terrain-decals-and-dig-a-site
+      - place-static-objects-on-a-planet-surface
+      - steer-by-zero-effort-miss
+      - simulate-bodies-outside-the-vehicle-system
+      - sample-the-ground-under-each-wheel
+    merged_from:
+      - query-the-terrain-height-field
+      - choose-accurate-or-coarse-terrain-sampling
+      - check-line-of-sight-across-terrain
+      - query-terrain-height-under-a-point
+    assigned_approach: 5
+    existing_topic: true
+  - category: persistence
+    slug: save-mod-state-with-the-scene
+    title: Save a whole mod's scene state as versioned sidecar records, with reset and replay on load
+    kind: howto
+    group: saves
+    batch: persistence-1
+    summary: "For many features with native objects to rebuild, capture each feature as a versioned JSON record at save
+      time, validate every record before the world is touched on load, reset old ownership in reverse order, replay
+      restores in order after KSA rebuilds the world, and retain records that cannot be restored. The third approach is
+      the mechanism underneath: patch GameSave.Populate, UncompressedSave.Write and Load, and Universe.DeserializeSave
+      and LoadSystem to publish capture, write, reset and restore callbacks, validate incoming data before anything is
+      destroyed, and replay world replacement at the PrepareFrame handoff."
+    game_types:
+      - KSA.GameSave
+      - KSA.UncompressedSave
+      - KSA.Universe
+      - KSA.UniverseData
+      - KSA.GameSaves
+      - KSA.JobSystems
+      - KSA.Program
+      - KSA.PlanetRenderer
+    engine_pointers:
+      - current/decomp/KSA/GameSave.cs Populate
+      - current/decomp/KSA/UncompressedSave.cs Write, Load
+      - current/decomp/KSA/Universe.cs DeserializeSave
+      - current/decomp/KSA/Universe.cs DeserializeSave, LoadSystem
+      - current/decomp/KSA/Program.cs PrepareFrame, OnGameLoaded
+    lifecycle:
+      - startup:all-mods-loaded
+      - event:save
+      - event:load
+      - frame:prepare
+      - frame:draw-ui
+      - frame:input
+      - frame:apply-solvers
+      - event:game-dispose
+      - event:starmap-unload
+    approaches:
+      - n: 1
+        title: ISaveParticipant records through a game-independent coordinator
+        mod: unscience
+        features:
+          - mods/unscience/features/lib-scene-save-coordinator
+          - mods/unscience/features/camera-controller-override-keyframe-sequences
+          - mods/unscience/features/kitten-animations-locomotion-tuning
+        technique: save-sidecar
+        note: Participant contract (SaveId, SaveVersion, RestoreOrder, CaptureState, ResetState, PrepareRestore), coordinator
+          state machine, retention of unknown or newer records so older builds round-trip them, the unscience.json
+          document with size limits and a universe.xml SHA-256 binding, and the SaveJson options for Brutal vector
+          types.
+      - n: 2
+        title: Host wiring - pair each capture with its write by object identity
+        mod: unscience
+        features:
+          - mods/unscience/features/unscience-scene-save-sidecar
+        technique: save-sidecar
+        note: Populate postfix stores the document in a ConditionalWeakTable keyed by the GameSave, the Write postfix publishes
+          it only when the native write succeeded, a write without a capture is reported rather than filled with fresh
+          state, and a missing sidecar means reset everything, restore nothing.
+      - n: 3
+        title: Eight static callbacks over five patched methods, loads replayed at the frame handoff
+        mod: unscience
+        features:
+          - mods/unscience/features/lib-native-save-hooks
+        technique: harmony-prefix
+        note: Exact-signature binding with rollback on failure, the deferral prefix that re-queues the same native call, worker
+          joins before reset, preflight validation of incoming UniverseData, finalizers that turn silent native read
+          failures into errors, and per-callback try/catch isolation. Includes the call-chain table from console,
+          windows and multiplayer.
+      - n: 4
+        title: Persist body-fixed exposure sites with save-bound sidecar transactions
+        mod: blasto
+        features:
+          - mods/blasto/features/persistent-exposure-site-store
+          - mods/blasto/features/save-bound-sidecar-transactions
+          - mods/blasto/features/scene-reset-and-native-cleanup
+        technique: spatial-index, immutable-snapshot, harmony-postfix, harmony-prefix, harmony-finalizer, save-sidecar,
+          json-config, starmap-lifecycle
+        note: Explain source-verified timing, ownership and failure paths. Distinguish offline validation from live visual
+          confirmation; cover every listed mechanism.
+    related:
+      - identify-vessels-and-parts-across-saves
+      - detect-save-load
+      - save-mod-state-with-the-game-save
+      - exclude-or-replace-ground-clutter
+      - chain-camera-moves-into-keyframe-sequences
+      - restore-kitten-customizations-after-a-load
+      - mutate-vehicles-at-a-physics-safe-point
+      - save-and-load-the-game-from-code
+    merged_from:
+      - hook-native-save-and-load
+      - save-sidecar-state-per-scene
+      - save-mod-state-with-native-saves
+    assigned_approach: 4
+    existing_topic: true
+  - category: rendering
+    slug: blend-persistent-marks-into-terrain
+    title: Blend persistent marks into native terrain materials
+    kind: howto
+    group: vulkan-passes
+    batch: add-blasto
+    summary: Blend persistent marks into native terrain materials, using source-backed export or runtime mechanisms and
+      explicit validation limits.
+    game_types:
+      - KSA.PlanetRenderer
+      - KSA.Celestial
+      - KSA.Camera
+      - Core.Renderer
+      - KSA.ShaderReference
+      - RenderCore.Shaders.ShaderCompilerResolve
+      - Brutal.VulkanApi.VkPhysicalDeviceLimits
+    engine_pointers:
+      - current/decomp/KSA/PlanetRenderer.cs
+      - current/decomp/KSA/Program.cs
+      - current/decomp/Core/Renderer.cs
+      - current/decomp/KSA/Camera.cs
+      - current/Content/Core/Shaders/Planet/Planet.frag
+      - current/Content/Core/Shaders/Planet/PlanetTessEvaluation.tese
+      - current/Content/Core/Shaders/Planet/Planet.vert
+      - current/decomp/RenderCore.Shaders/ShaderCompilerResolve.cs
+      - current/decomp/Brutal.VulkanApi/VkPhysicalDeviceLimits.cs
+    lifecycle:
+      - startup:starmap-before-main
+      - event:renderer-build
+      - frame:prepare
+      - frame:post-render
+      - render:planet
+    approaches:
+      - n: 1
+        title: Blend persistent marks into native terrain materials
+        mod: blasto
+        features:
+          - mods/blasto/features/private-terrain-pipeline-swap
+          - mods/blasto/features/frame-viewport-terrain-buffers
+          - mods/blasto/features/terrain-material-shader-injection
+          - mods/blasto/features/unsigned-vulkan-limit-validation
+        technique: harmony-postfix, harmony-prefix, harmony-transpiler, harmony-finalizer, reflection, vulkan-pipeline,
+          vulkan-buffer, native-interop, glsl-shader
+        note: Explain source-verified timing, ownership and failure paths. Distinguish offline validation from live visual
+          confirmation; cover every listed mechanism.
+    related:
+      - insert-a-custom-pass-into-render-game
+      - query-terrain-height-and-line-of-sight
+      - save-mod-state-with-the-scene
+    assigned_approach: 1
+    existing_topic: false
+  - category: rendering
+    slug: spawn-particle-effects
+    title: Spawn particle effects and explosions from a mod
+    kind: howto
+    group: lights-and-particles
+    batch: rendering-2
+    summary: Take emitters from the engine's fixed pool, either from XML-declared ParticleEmitter assets or built in C#,
+      anchor them, return them correctly, and fire the game's own explosion presets where no vehicle hosts the burst.
+    game_types:
+      - KSA.Rendering.Particles.ParticleEmitter
+      - KSA.Rendering.Particles.ParticleEmitterReference
+      - KSA.ExplosionSystem
+      - KSA.Rendering.Particles.EmitterSpawnPresets
+      - KSA.Rendering.Particles.ParticleSystem
+      - KSA.Celestial
+      - KSA.BubbleOrigin
+    engine_pointers:
+      - current/decomp/KSA.Rendering.Particles/ParticleEmitter.cs
+      - current/decomp/KSA.Rendering.Particles/ParticleEmitterReference.cs
+      - current/decomp/KSA.Rendering.Particles/EmitterSpawnPresets.cs
+      - current/decomp/KSA/ExplosionSystem.cs SpawnPreset
+    lifecycle:
+      - startup:asset-load
+      - frame:viewports
+      - frame:pre-render
+      - render:particles
+      - frame:apply-solvers
+      - frame:render
+    approaches:
+      - n: 1
+        title: XML ParticleEmitter assets taken by id from the engine pool
+        mod: ksarmory
+        features:
+          - mods/ksarmory/features/pooled-particle-emitters
+        technique: pooled-resource
+        note: Kill() before handing an emitter back, bounded acquire, re-anchor each frame while following.
+      - n: 2
+        title: ParticleEmitterReference built in C# with SpawnMode.Burst
+        mod: gatos
+        features:
+          - mods/gatos/features/face-particle-bursts
+        technique: particle-emitter
+        note: EmitterPool.Get + InitializeEmitter + AddEmitter, pool of 1024, update in OnPreRender.
+      - n: 3
+        title: ExplosionSystem presets with a body-fixed origin
+        mod: ksarmory
+        features:
+          - mods/ksarmory/features/ksa-explosions-from-a-point
+        technique: engine-explosion-preset
+        note: Preset chosen by fireball size, real ambient pressure for pressure-gated stages.
+      - n: 4
+        title: Own and budget surface dust emitters
+        mod: blasto
+        features:
+          - mods/blasto/features/owned-surface-dust-emitters
+        technique: harmony-postfix, native-particles
+        note: Explain source-verified timing, ownership and failure paths. Distinguish offline validation from live visual
+          confirmation; cover every listed mechanism.
+    related:
+      - choose-a-render-frame-and-anchor-effects
+      - draw-exhaust-plumes-without-an-engine
+    assigned_approach: 4
+    existing_topic: true
+  - category: ui
+    slug: build-a-settings-window
+    title: Build a mod settings window (and developer panel)
+    kind: howto
+    group: windows
+    batch: ui-1
+    summary: Lay out settings as tabs, tables and collapsing headers, with slider-plus-input rows, color pickers, reset
+      buttons, form label gutters and wrapped tooltips; also covers a closable developer panel with a reopen button and
+      slow-motion controls.
+    game_types:
+      - Brutal.ImGuiApi.ImGui
+      - Brutal.ImGuiApi.ImGuiTableFlags
+      - KSA.Program
+      - KSA.KSAColor
+      - Brutal.Numerics.Color
+      - KSA.Universe
+      - KSA.SimSpeed
+      - KSA.GameSettings
+    engine_pointers:
+      - current/decomp/KSA/GameSettings.cs (stock settings pages for style comparison)
+      - current/decomp/KSA/KSAColor.cs Xkcd (static Color.Preset properties)
+      - current/decomp/KSA/Universe.cs SetSimulationSpeed
+    lifecycle:
+      - frame:draw-ui
+      - frame:input
+      - frame:apply-solvers
+    approaches:
+      - n: 1
+        title: Tabs, three-column table, collapsing headers and ColorPicker4 bound to a float4
+        mod: mpfx
+        features:
+          - mods/mpfx/features/effect-settings-window
+        technique: imgui-window
+        note: "Slider-plus-input row helper, ColorPicker4 bound to a float4, Reset buttons, pre/post rows. Also folded:
+          ColorPicker4 bound to a float4 setting (mpfx): Direct float4 editing with reset. Sub-step: color editing."
+      - n: 2
+        title: Label-gutter form tables and full-width widgets
+        mod: purrtty
+        features:
+          - mods/purrtty/features/imgui-filter-combo-and-form-widgets
+        technique: imgui-window
+        note: Fixed label gutter, full-width inputs, destructive button styling.
+      - n: 3
+        title: Settings window with ColorButton popups and INI persistence
+        mod: ksa-aircrafthud
+        features:
+          - mods/ksa-aircrafthud/features/ini-settings-and-settings-window
+        technique: imgui-window
+        note: ColorButton plus popup ColorPicker, settings written to a hand-parsed hud.ini. Borrowed from persistence.
+      - n: 4
+        title: Menu entry plus small settings window with wrapped tooltips
+        mod: ksagolf
+        features:
+          - mods/ksagolf/features/developer-panel-and-menu-bar
+          - mods/ksastructures/features/settings-menu
+          - mods/ksacars/features/car-panel-and-modmenu
+        technique: imgui-window
+        note: Wrapped tooltips, apply expensive settings on slider release, NoNav/NoFocusOnAppearing panel.
+      - n: 5
+        title: Reflected XKCD catalog with a filterable picker
+        mod: unscience
+        features:
+          - mods/unscience/features/lib-xkcd-color-catalog
+        technique: reflection
+        note: "Reflect over KSAColor.Xkcd once, cache sorted name/color pairs, serve to a filterable picker. Writer note: the
+          same feature is approach 4 of build-searchable-lists-and-browsers; write the XKCD catalog once here and
+          cross-link, or the other way round."
+      - n: 6
+        title: Panel opened from menu, ModMenu or a floating button
+        mod: ksagolf
+        features:
+          - mods/ksagolf/features/developer-panel-and-menu-bar
+        technique: imgui-window
+        note: "Universe.SetSimulationSpeed(new SimSpeed(x)); the engine has no floor. Wrapped tooltips helper. Sub-step to give
+          its own section: a developer panel with a reopen affordance and simulation-speed buttons below the 0.1x floor
+          via Universe.SetSimulationSpeed."
+      - n: 7
+        title: Tune saved terrain effects and diagnose rendering from an ImGui window
+        mod: blasto
+        features:
+          - mods/blasto/features/live-effect-tuning-and-input
+        technique: starmap-lifecycle, harmony-prefix, harmony-postfix, imgui-window, imgui-menu, json-config
+        note: Explain source-verified timing, ownership and failure paths. Distinguish offline validation from live visual
+          confirmation; cover every listed mechanism.
+    related:
+      - list-a-mod-in-modmenu
+      - persist-mod-settings-toml
+      - match-the-stock-console-ui-style
+      - build-searchable-lists-and-browsers
+      - add-items-to-the-game-menu-bar
+    merged_from:
+      - pick-colors-in-imgui
+      - build-a-developer-panel
+    assigned_approach: 7
+    existing_topic: true
+  - category: testing-and-tooling
+    slug: unit-test-mod-logic-without-game
+    title: Unit-test mod logic without launching the game
+    kind: howto
+    group: offline-tests
+    batch: testing-and-tooling-1
+    summary: "Choose where the game boundary sits (a folder, an assembly, a shared source file or a compile-gated half) so
+      the maths, models, parsers and state machines compile with no KSA assembly, then build a test project that runs on
+      any machine and in CI: link the game-free sources, assert physical invariants and edge cases, make clocks and
+      threads deterministic, gate slow or platform-specific tests behind an opt-in switch, and wire it to dotnet test or
+      a console exit code."
+    game_types:
+      - Brutal.Numerics.double3
+      - KSA.Vehicle
+      - KSA.Universe
+    engine_pointers:
+      - Brutal.Core.Numerics (the only game assembly most pure code needs)
+      - current/decomp/KSA/Universe.cs GetLastSimStep (the typical adapter-side seam)
+      - Brutal.Core.Numerics double3 (the only game assembly the pure side may need)
+      - current/decomp/KSA/Universe.cs GetElapsedSeconds
+    lifecycle:
+      - thread:background
+      - event:headless-test-run
+      - tool:build
+    approaches:
+      - n: 1
+        title: xUnit project linking a game-free Sim folder wholesale
+        mod: ksagolf
+        features:
+          - mods/ksagolf/features/headless-sim-tests
+          - mods/ksacars/features/headless-sim-tests
+          - mods/ksarmory/features/sim-boundary-headless-tests
+          - mods/ksastructures/features/headless-tests-and-ci
+        technique: msbuild
+        note: "The csproj uses Compile Include of ../src/Mod/Sim/**/*.cs and references no KSA assembly. About 290 tests in
+          KSAGolf. tools/test.sh wraps it for the pre-push hook and CI. Merged from split-game-adapters-from-pure-logic
+          (Sim/ and Ksa/ folders in one project, with the boundary enforced by the test project): All KSA-free logic
+          lives under Sim/ and everything that names a KSA type under Ksa/. Even parsing of bridge commands is a Sim
+          type. The test project links Sim/** and references only the numerics assemblies, so a stray KSA type is a
+          compile error. Say what belongs on each side (frame bookkeeping, physics, parsing vs reflection, ImGui,
+          patches)."
+      - n: 2
+        title: Console test executable with invariant checks and non-zero exit
+        mod: ksaero
+        features:
+          - mods/ksaero/features/headless-model-tests
+          - mods/ksa-deltavmap/features/offline-layout-and-math-tests
+        technique: msbuild
+        note: "A plain Exe that source-links the model and asserts axisymmetry, force decomposition, monotonic drag, continuity
+          and overlap invariants against synthetic trees and stock reference values. No test framework dependency; exit
+          code is the verdict. Merged from split-game-adapters-from-pure-logic (Share individual pure files with Compile
+          Include and Compile Remove): AeroModel.cs and DeltaVMap's layout engine and math kernels are game-type-free by
+          convention and compiled into both the mod and a test exe. The mod removes files from its own build when a
+          harness test links them. Cheapest option for a small mod."
+      - n: 3
+        title: Console checks against Python reference fixtures
+        mod: ksa-advancedflightcomputer
+        features:
+          - mods/ksa-advancedflightcomputer/features/game-free-guidance-checks
+          - mods/ksa-advancedflightcomputer/features/solver-problem-json-replay
+        technique: console-checks
+        note: "Solver outputs compared with JAX and CVXPY reference fixtures from a CI script, so numerics are checked against
+          an independent implementation rather than against themselves. Merged from split-game-adapters-from-pure-logic
+          (Separate game-free assemblies joined by ProjectReference, with the game-facing adapter beside them): Numerics
+          and solver code in their own csprojs with no game references; single game-facing files are linked into small
+          test executables; the serialized problem type lives on the game-free side so the mod and the offline console
+          share it."
+      - n: 4
+        title: NUnit suites with property tests and silent-on-success rules
+        mod: purrtty
+        features:
+          - mods/purrtty/features/headless-test-suites
+        technique: nunit
+        note: "Four NUnit projects, FsCheck properties, game types kept out of tested layers, reference assemblies used only
+          where cheap, and a no-fixed-sleep and silent-on-success convention. Merged from
+          make-time-gated-code-deterministic-in-tests (Sentinel flush and bounded polling instead of sleeps): A sentinel
+          written through the pipe proves everything before it was processed; waits are bounded polls, never fixed
+          sleeps. Merged from gate-slow-or-platform-specific-tests (OS-gated real-PTY tests next to portable ones): Real
+          PTY tests run per operating system in the three-OS CI matrix; everything else is portable."
+      - n: 5
+        title: Compile-gated Game/ half joined by partial methods
+        mod: gatos
+        features:
+          - mods/gatos/features/compile-gated-game-seam
+          - mods/gatos/features/build-deploy-and-ci
+        technique: msbuild
+        note: "Folded from split-game-adapters-from-pure-logic (sub-step: give the boundary choice its own section). Borrowed
+          from getting-started. The whole Game/ folder drops out of compilation when KSA.dll is absent, so CI builds and
+          tests everything else with no game files. Merged from gate-slow-or-platform-specific-tests (Assert.Ignore
+          unless an environment variable is set): TestEnv gates real-VM tests on GATOS_IT=1; CI turns it on under KVM."
+      - n: 6
+        title: Validate production terrain math and shader transformations offline
+        mod: blasto
+        features:
+          - mods/blasto/features/offline-rendering-validation
+        technique: headless-tests, shader-validation, build-packaging
+        note: Explain source-verified timing, ownership and failure paths. Distinguish offline validation from live visual
+          confirmation; cover every listed mechanism.
+    related:
+      - run-mod-simulation-in-a-headless-rig
+      - headless-test-harness-for-game-mods
+      - run-repo-checks-from-a-pre-push-hook-and-ci
+      - build-a-mod-without-game-references
+      - simulate-bodies-outside-the-vehicle-system
+      - compute-mission-elapsed-time-and-detect-liftoff
+      - build-in-ci-without-the-game-installed
+    merged_from:
+      - split-game-adapters-from-pure-logic
+      - make-time-gated-code-deterministic-in-tests
+      - gate-slow-or-platform-specific-tests
+    assigned_approach: 6
+    existing_topic: true

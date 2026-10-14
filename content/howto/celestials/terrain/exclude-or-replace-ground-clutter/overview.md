@@ -1,17 +1,62 @@
 ---
 type: Game Feature
-title: "Keep grass, rocks and trees off a custom site, and replace or preserve a planet's ground clutter"
-description: "Refill the four launch-pad exclusion zones the engine bakes at load, swap a body's clutter types for imported models at the solver handoff, and carry knocked-out or displaced instances across swaps and saves"
+title: Keep grass, rocks and trees off a custom site, and replace or preserve a planet's ground clutter
+description: Refill the four launch-pad exclusion zones the engine bakes at load, swap a body's clutter types for imported models at the solver handoff, and carry knocked-out or displaced instances across swaps and saves
 topic: exclude-or-replace-ground-clutter
 category: celestials
 group: terrain
-approaches: 3
-game_types: [KSA.GroundClutterPlacementData, KSA.ClutterCubeCellGrid, KSA.ClutterEcotypeRenderData, KSA.ClutterEcotypePhysicalData, KSA.GroundClutterRenderer, KSA.PlanetRenderer, KSA.LandmarkReference, KSA.StaticObject, KSA.Celestial, KSA.Camera, KSA.Universe, KSA.GroundClutterReference, KSA.ClutterEcotypeReference, KSA.ClutterObjectTemplate, KSA.GroundClutterLodReference, KSA.PhysicsBubble, KSA.BubbleClutterStatics, KSA.CelestialTemplate, KSA.GameSave]
-lifecycle: [startup:all-mods-loaded, startup:game-loaded, frame:dispatch-solvers, frame:draw-ui, event:renderer-rebuild, event:load, event:save]
-demonstrated_by: [mods/ksastructures/features/ground-clutter-exclusion-zones, mods/unscience/features/pebbles-ground-clutter-replacement, mods/unscience/features/pebbles-private-clutter-materials, mods/unscience/features/pebbles-clutter-state-persistence]
-tags: [ground-clutter, exclusion, ecotype, launch-pad, harmony, save]
+approaches: 4
+game_types:
+  - KSA.GroundClutterPlacementData
+  - KSA.ClutterCubeCellGrid
+  - KSA.ClutterEcotypeRenderData
+  - KSA.ClutterEcotypePhysicalData
+  - KSA.GroundClutterRenderer
+  - KSA.PlanetRenderer
+  - KSA.LandmarkReference
+  - KSA.StaticObject
+  - KSA.Celestial
+  - KSA.Camera
+  - KSA.Universe
+  - KSA.GroundClutterReference
+  - KSA.ClutterEcotypeReference
+  - KSA.ClutterObjectTemplate
+  - KSA.GroundClutterLodReference
+  - KSA.PhysicsBubble
+  - KSA.BubbleClutterStatics
+  - KSA.CelestialTemplate
+  - KSA.GameSave
+  - KSA.AssetBundle
+  - KSA.SerializedReference
+  - KSA.SystemTemplate
+lifecycle:
+  - startup:all-mods-loaded
+  - startup:game-loaded
+  - frame:dispatch-solvers
+  - frame:draw-ui
+  - event:renderer-rebuild
+  - event:load
+  - event:save
+  - tool:build
+demonstrated_by:
+  - mods/ksastructures/features/ground-clutter-exclusion-zones
+  - mods/unscience/features/pebbles-ground-clutter-replacement
+  - mods/unscience/features/pebbles-private-clutter-materials
+  - mods/unscience/features/pebbles-clutter-state-persistence
+  - mods/flexo/features/offline-ground-clutter-generation
+tags:
+  - ground-clutter
+  - exclusion
+  - ecotype
+  - launch-pad
+  - harmony
+  - save
+  - flexo
+  - asset-authoring
 status: stable
-generated: { by: claude-code/opus-5.5, at: 2026-10-10T18:47:33Z }
+generated:
+  by: codex/gpt-6
+  at: 2026-10-14T02:12:22Z
 repos:
   - name: KSAStructures
     git: https://github.com/LaurensDeV/KSAStructures
@@ -19,6 +64,9 @@ repos:
   - name: unscience
     git: https://github.com/meow-sci/unscience.git
     ref: 1829b3b298dd0fa5a67342cafff29074c8c29286
+  - name: flexo
+    git: git@github.com:meow-sci/flexo.git
+    ref: e804879abfc1d45ca1c174a9c95c5fded58c1bf2
 game:
   build: 2026.10.10.5554
   git: git@github.com:meow-sci/ksa-game-assemblies.git
@@ -28,29 +76,47 @@ sources:
     repo: ksa-game-assemblies
     path: current/decomp/KSA/ClutterEcotypeRenderData.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/ClutterEcotypeRenderData.cs
-    title: "KSA/ClutterEcotypeRenderData.cs (decompiled, build 2026.10.10.5554)"
+    title: KSA/ClutterEcotypeRenderData.cs (decompiled, build 2026.10.10.5554)
   - id: ksa-game-assemblies-current-decomp-ksa-groundclutterplacementdata-cs
     repo: ksa-game-assemblies
     path: current/decomp/KSA/GroundClutterPlacementData.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/GroundClutterPlacementData.cs
-    title: "KSA/GroundClutterPlacementData.cs (decompiled, build 2026.10.10.5554)"
+    title: KSA/GroundClutterPlacementData.cs (decompiled, build 2026.10.10.5554)
   - id: ksa-game-assemblies-current-decomp-ksa-groundclutterrenderer-cs
     repo: ksa-game-assemblies
     path: current/decomp/KSA/GroundClutterRenderer.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/GroundClutterRenderer.cs
-    title: "KSA/GroundClutterRenderer.cs (decompiled, build 2026.10.10.5554)"
+    title: KSA/GroundClutterRenderer.cs (decompiled, build 2026.10.10.5554)
   - id: ksa-game-assemblies-current-decomp-ksa-planetrenderer-cs
     repo: ksa-game-assemblies
     path: current/decomp/KSA/PlanetRenderer.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/PlanetRenderer.cs
-    title: "KSA/PlanetRenderer.cs (decompiled, build 2026.10.10.5554)"
+    title: KSA/PlanetRenderer.cs (decompiled, build 2026.10.10.5554)
   - id: ksa-game-assemblies-current-decomp-ksa-universe-cs
     repo: ksa-game-assemblies
     path: current/decomp/KSA/Universe.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/Universe.cs
-    title: "KSA/Universe.cs (decompiled, build 2026.10.10.5554)"
+    title: KSA/Universe.cs (decompiled, build 2026.10.10.5554)
+  - id: source-game-current-decomp-ksa-clutterobjecttemplate-cs
+    repo: ksa-game-assemblies
+    path: current/decomp/KSA/ClutterObjectTemplate.cs
+    resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/ClutterObjectTemplate.cs
+    title: current/decomp/KSA/ClutterObjectTemplate.cs
+  - id: source-game-current-decomp-ksa-groundclutterlodreference-cs
+    repo: ksa-game-assemblies
+    path: current/decomp/KSA/GroundClutterLodReference.cs
+    resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/GroundClutterLodReference.cs
+    title: current/decomp/KSA/GroundClutterLodReference.cs
+  - id: source-flexo-scripts-build-cartoon-moon-ts
+    repo: flexo
+    path: scripts/build-cartoon-moon.ts
+    resource: https://github.com/meow-sci/flexo/blob/e804879abfc1d45ca1c174a9c95c5fded58c1bf2/scripts/build-cartoon-moon.ts
+    title: scripts/build-cartoon-moon.ts
 ---
+
 Ground clutter (grass, rocks, trees, pebbles) is placed by the engine from distribution textures and biome masks, drawn by `GroundClutterRenderer` and collided by `ClutterEcotypePhysicalData`. A mod usually wants one of three things: keep clutter off a custom site (the engine only clears it around a few launch pads), replace the models of chosen clutter types on a body, or make sure removals the player caused (since KSA 5447, hitting a rock knocks it loose as a dynamic body) are not forgotten when it swaps those models.
+
+A legacy offline generator can still supply useful texture and mesh construction, but its generated XML and engine assumptions must be audited independently before using its output.
 
 ## Engine background
 
@@ -60,6 +126,8 @@ Ground clutter (grass, rocks, trees, pebbles) is placed by the engine from distr
 - `Universe.ExecuteNextClothSolvers` has one caller, `Program.PrepareFrame`, and `ExecuteNextVehicleSolvers` runs `SyncGroundClutter` just before kicking the vehicle task ([current/decomp/KSA/Universe.cs](https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/Universe.cs#L2114-L2135)).
 - Renderer rebuild: `PlanetRenderer.RebuildGroundClutterResources` creates a new `GroundClutterRenderer` ([current/decomp/KSA/PlanetRenderer.cs](https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/PlanetRenderer.cs#L1725)).
 
+Flexo’s [scripts/build-cartoon-moon.ts](https://github.com/meow-sci/flexo/blob/e804879abfc1d45ca1c174a9c95c5fded58c1bf2/scripts/build-cartoon-moon.ts#L511-L577) predates the current [current/decomp/KSA/ClutterObjectTemplate.cs](https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/ClutterObjectTemplate.cs#L91-L124) and ID-only mesh-reference contract in [current/decomp/KSA/GroundClutterLodReference.cs](https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/GroundClutterLodReference.cs#L8-L17). The new approach teaches an explicit adaptation; it does not certify the unchanged generator’s output.
+
 ## Approaches
 
 | Article | Mod | Technique | Lifecycle | Trade-off |
@@ -67,8 +135,11 @@ Ground clutter (grass, rocks, trees, pebbles) is placed by the engine from distr
 | [1: Harmony postfix on PopulateLaunchPadExclusionZones](exclude-or-replace-ground-clutter-1.md) | ksastructures | `harmony-postfix` | `startup:all-mods-loaded`, `startup:game-loaded` | Four zones near the load-time camera only; zones are baked once |
 | [2: prefix on ExecuteNextClothSolvers builds private bundles](exclude-or-replace-ground-clutter-2.md) | unscience | `harmony-prefix` | `frame:dispatch-solvers`, `event:renderer-rebuild` | Whole-body clutter replacement with exact restore; heavy, many private types |
 | [3: per-grid memory, public-API snapshot and replay, native plus sidecar saves](exclude-or-replace-ground-clutter-3.md) | unscience | `save-sidecar` | `frame:dispatch-solvers`, `event:save`, `event:load` | Nothing knocked out is resurrected; needs a sidecar for override-only grids |
+| [Audit and update an offline ground-clutter generator for current asset contracts](exclude-or-replace-ground-clutter-4.md) | Flexo | `xml-asset`, `glb-model`, `texture-atlas`, `offline-generation` | `tool:build` | Reusable offline atlas/mesh pipeline; obsolete XML and selection assumptions require adaptation and native verification |
 
 ## See also
+
+- [Generate ground-clutter atlases and audit legacy scenario output](../../../../mods/flexo/features/offline-ground-clutter-generation.md)
 
 - [Game loop and mod lifecycle](../../../getting-started/lifecycle/game-loop-and-lifecycle/overview.md)
 - [Place a static object on a planet surface](../../../celestials/terrain/place-static-objects-on-a-planet-surface/overview.md), [Add terrain decals and dig a site](../../../celestials/terrain/add-terrain-decals-and-dig-a-site/overview.md)
@@ -78,4 +149,3 @@ Ground clutter (grass, rocks, trees, pebbles) is placed by the engine from distr
 - [Place a static object on a planet surface at a latitude and longitude, and keep it anchored](../place-static-objects-on-a-planet-surface/overview.md) - related topic
 - [Add terrain decals from code and flatten or dig the ground under a custom site](../add-terrain-decals-and-dig-a-site/overview.md) - related topic
 - [Change loaded game data at runtime and make the renderer rebuild from it](../../atmospheres-and-rings/change-loaded-game-data-and-make-the-renderer-notice/overview.md) - related topic
-

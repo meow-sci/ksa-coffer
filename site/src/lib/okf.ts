@@ -117,7 +117,7 @@ export function dirTitle(relDir: string): string {
   const { mods, topics } = getScan();
   const parts = rel.split("/");
   if (parts[0] === "mods") {
-    if (parts.length === 1) return "Mods";
+    if (parts.length === 1) return "Mods and authoring tools";
     const modTitle = mods.get(parts[1]) ?? humanize(parts[1]);
     if (parts.length === 2) return modTitle;
     if (parts[2] === "features") return `${modTitle} features`;
@@ -158,7 +158,7 @@ export function buildSidebar() {
     .sort(byLabel);
   return [
     { label: "How-to", items: howto },
-    { label: "Mods", collapsed: false, items: modItems },
+    { label: "Mods and tools", collapsed: false, items: modItems },
   ];
 }
 
@@ -188,11 +188,20 @@ export function readReferences(): Map<string, RepoRef> {
       .sort((a, b) => Number(a.m![2] ?? 0) - Number(b.m![2] ?? 0))
       .map((x) => `attribution/${x.f}`);
     references.set(name, {
-      url: String(r.git).replace(/\.git$/, ""),
+      url: referenceWebUrl(String(r.git)),
       ref: String(r.ref),
       license: String(r.license ?? ""),
       licenseFiles,
     });
   }
   return references;
+}
+
+function referenceWebUrl(git: string): string {
+  let url = git.trim();
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\/(?:[^@/]+@)?([^/:]+)(?::\d+)?\/(.*)$/i.exec(url);
+  const scpLike = /^(?:[^@/]+@)?([^/:]+):(?!\/\/)(.*)$/.exec(url);
+  if (withScheme) url = `${withScheme[1]}/${withScheme[2]}`;
+  else if (scpLike) url = `${scpLike[1]}/${scpLike[2]}`;
+  return `https://${url.replace(/\/+$/, "").replace(/\.git$/i, "").replace(/\/+$/, "")}`;
 }

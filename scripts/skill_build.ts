@@ -37,7 +37,7 @@ const GITHUB_BLOB = 'https://github.com/meow-sci/ksa-coffer/blob/main/';
 const FM_WHITELIST = [
   'type', 'title', 'description', 'mod', 'submod', 'category', 'group', 'topic', 'approach', 'difficulty',
   'prerequisites', 'demonstrated_by', 'techniques', 'hooks', 'lifecycle', 'game_types', 'tags', 'repo',
-  'license', 'author', 'loader', 'mod_id',
+  'license', 'author', 'loader', 'mod_id', 'kind',
 ];
 
 type Fm = Record<string, unknown>;
@@ -255,7 +255,7 @@ function main(): number {
   }
 
   {
-    let md = `# Community mods\n\nAnalyzed community KSA mods. Open a mod overview for its architecture and feature list, then a feature page for pinned code references.\n`;
+    let md = `# Community mods and authoring tools\n\nAnalyzed community KSA mods and external authoring tools. Open a project overview for its architecture and feature list, then a feature page for pinned code references.\n`;
     const sorted = [...mods].sort((a, b) => oneLine(a.fm.title).toLowerCase().localeCompare(oneLine(b.fm.title).toLowerCase()));
     for (const m of sorted) {
       const slug = m.rel.split('/')[1]!;
@@ -298,7 +298,7 @@ function main(): number {
     mkdirSync(join(skill, 'assets/licenses'), { recursive: true });
     for (const f of licFiles) copyFileSync(join(licDir, f), join(skill, 'assets/licenses', f));
     copyFileSync(join(ROOT, 'LICENSE'), join(skill, 'LICENSE'));
-    let md = `# Attribution\n\nThis skill is MIT licensed (see \`LICENSE\` in the skill root). It quotes and analyzes code from the third-party community mods below, which keep their own licenses. Full license texts are in \`assets/licenses/\`.\n\n| Project | URL | License | License text |\n|---|---|---|---|\n`;
+    let md = `# Attribution\n\nThis skill is MIT licensed (see \`LICENSE\` in the skill root). It quotes and analyzes code from the third-party community mods and authoring tools below, which keep their own licenses. Full license texts are in \`assets/licenses/\`.\n\n| Project | URL | License | License text |\n|---|---|---|---|\n`;
     for (const p of attr.projects) {
       const files = licFiles.filter((f) => f === `LICENSE.${p.name}.txt` || new RegExp(`^LICENSE\\.${p.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-\\d+\\.txt$`).test(f));
       const links = files.map((f) => `[${f}](../assets/licenses/${f})`).join(', ') || '-';
@@ -316,6 +316,8 @@ function main(): number {
       const f = c.fm;
       Object.assign(rec, {
         type: f.type,
+        kind: f.kind,
+        loader: f.loader,
         title: oneLine(f.title),
         description: oneLine(f.description),
         category: parts[0] === 'howto' ? parts[1] : f.category,
@@ -360,14 +362,14 @@ function main(): number {
     /* not a git checkout */
   }
   const description =
-    `Implementation knowledge for writing Kitten Space Agency (KSA) game mods in C#: ${howtos.length} step-by-step how-to articles across ${topics.length} topics ` +
+    `Implementation knowledge for writing Kitten Space Agency (KSA) code mods and asset-only mods: ${howtos.length} step-by-step how-to articles across ${topics.length} topics ` +
     `(getting started with StarMap mod loading and lifecycle, Harmony patching, ImGui UI, rendering, shaders, assets, physics, vehicles and parts, flight and orbits, camera, celestials, kittens and EVA, persistence, audio, external I/O, testing and tooling) ` +
-    `plus ${features.length} analyzed features of ${mods.length} community mods with pinned code references and decompiled game API names. ` +
-    `Use when creating, debugging or researching a KSA or StarMap mod, KSA game internals, mod.toml, or Harmony patches against KSA types.`;
+    `plus ${features.length} analyzed features of ${mods.length} community mods and authoring tools with pinned code references and decompiled game API names. ` +
+    `Use when creating, debugging or researching a KSA or StarMap mod, native XML/GLB assets, Flexo authoring workflows, KSA game internals, mod.toml, or Harmony patches against KSA types.`;
   const q = (s: string): string => JSON.stringify(s);
   const subs: Record<string, string> = {
     DESCRIPTION: q(description),
-    LICENSE: q('MIT (see LICENSE); quoted mod code under third-party licenses, see references/ATTRIBUTION.md'),
+    LICENSE: q('MIT (see LICENSE); quoted source code under third-party licenses, see references/ATTRIBUTION.md'),
     COMPATIBILITY: q('Search script needs Python 3.8+ (stdlib only). Code links point to GitHub.'),
     GAME_BUILD: q(gameBuild),
     CORPUS_COMMIT: q(sha),

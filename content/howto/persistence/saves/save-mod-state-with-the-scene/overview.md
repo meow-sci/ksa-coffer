@@ -1,16 +1,52 @@
 ---
 type: Game Feature
 title: Save a whole mod's scene state as versioned sidecar records, with reset and replay on load
-description: How to persist many features with native objects to rebuild - versioned JSON records per feature, validated before the world is touched, reset in reverse order and replayed in order - and the patches that make it work
+description: How to persist many features with native objects to rebuild - versioned JSON records
+  per feature, validated before the world is touched, reset in reverse order and replayed in order -
+  and the patches that make it work
 topic: save-mod-state-with-the-scene
 category: persistence
 group: saves
-approaches: 3
-game_types: [KSA.GameSave, KSA.UncompressedSave, KSA.Universe, KSA.UniverseData, KSA.GameSaves, KSA.JobSystems, KSA.Program]
-lifecycle: [startup:all-mods-loaded, event:save, event:load, frame:prepare, frame:draw-ui, frame:input]
-demonstrated_by: [mods/unscience/features/lib-scene-save-coordinator, mods/unscience/features/camera-controller-override-keyframe-sequences, mods/unscience/features/kitten-animations-locomotion-tuning, mods/unscience/features/unscience-scene-save-sidecar, mods/unscience/features/lib-native-save-hooks]
-tags: [saves, scene, sidecar, json, harmony, versioning, transactional-load]
-generated: { by: claude-code/sonnet-5.5, at: 2026-10-10T18:42:08Z }
+approaches: 4
+game_types:
+  - KSA.GameSave
+  - KSA.UncompressedSave
+  - KSA.Universe
+  - KSA.UniverseData
+  - KSA.GameSaves
+  - KSA.JobSystems
+  - KSA.Program
+  - KSA.PlanetRenderer
+lifecycle:
+  - startup:all-mods-loaded
+  - event:save
+  - event:load
+  - frame:prepare
+  - frame:draw-ui
+  - frame:input
+  - frame:apply-solvers
+  - event:game-dispose
+  - event:starmap-unload
+demonstrated_by:
+  - mods/unscience/features/lib-scene-save-coordinator
+  - mods/unscience/features/camera-controller-override-keyframe-sequences
+  - mods/unscience/features/kitten-animations-locomotion-tuning
+  - mods/unscience/features/unscience-scene-save-sidecar
+  - mods/unscience/features/lib-native-save-hooks
+  - mods/blasto/features/persistent-exposure-site-store
+  - mods/blasto/features/save-bound-sidecar-transactions
+  - mods/blasto/features/scene-reset-and-native-cleanup
+tags:
+  - saves
+  - scene
+  - sidecar
+  - json
+  - harmony
+  - versioning
+  - transactional-load
+generated:
+  by: codex/gpt-6
+  at: 2026-10-14T01:45:10Z
 status: stable
 game:
   build: 2026.10.10.5554
@@ -21,27 +57,39 @@ sources:
     repo: ksa-game-assemblies
     path: current/decomp/KSA/UncompressedSave.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/UncompressedSave.cs
-    title: "KSA.UncompressedSave (decompiled, build 2026.10.10.5554)"
+    title: KSA.UncompressedSave (decompiled, build 2026.10.10.5554)
   - id: gsv
     repo: ksa-game-assemblies
     path: current/decomp/KSA/GameSave.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/GameSave.cs
-    title: "KSA.GameSave (decompiled, build 2026.10.10.5554)"
+    title: KSA.GameSave (decompiled, build 2026.10.10.5554)
   - id: uni
     repo: ksa-game-assemblies
     path: current/decomp/KSA/Universe.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/Universe.cs
-    title: "KSA.Universe (decompiled, build 2026.10.10.5554)"
+    title: KSA.Universe (decompiled, build 2026.10.10.5554)
   - id: prog
     repo: ksa-game-assemblies
     path: current/decomp/KSA/Program.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/Program.cs
-    title: "KSA.Program (decompiled, build 2026.10.10.5554)"
+    title: KSA.Program (decompiled, build 2026.10.10.5554)
   - id: net
     repo: ksa-game-assemblies
     path: current/decomp/KSA.Networking/NetworkClient.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA.Networking/NetworkClient.cs
-    title: "decomp/KSA.Networking/NetworkClient.cs (game content, build 2026.10.10.5554)"
+    title: decomp/KSA.Networking/NetworkClient.cs (game content, build 2026.10.10.5554)
+  - id: blasto-integration-save-mod-state-with-the-scene
+    repo: blasto
+    path: Blasto.GameMod/Core/BlastSiteStore.cs
+    resource: https://github.com/meow-sci/blasto/blob/21f7657c42534774001acabcf93289e9412c5242/Blasto.GameMod/Core/BlastSiteStore.cs
+    title: Blasto Persist body-fixed exposure sites with save-bound sidecar transactions
+repos:
+  - name: unscience
+    git: https://github.com/meow-sci/unscience.git
+    ref: 1829b3b298dd0fa5a67342cafff29074c8c29286
+  - name: blasto
+    git: git@github.com:meow-sci/blasto.git
+    ref: 21f7657c42534774001acabcf93289e9412c5242
 ---
 
 A mod with a handful of settings can use a single sidecar file ([Store per-save mod data next to a KSA save and notice when the player saves](../save-mod-state-with-the-game-save/overview.md)). A mod with dozens of features that own native objects (cameras, lights, decals, welds, scaled craft) needs more: each feature saves its own record, a record the running build cannot restore must not be lost, and the world has to be torn down and rebuilt in a defined order. unscience solves this in three layers, each a separate article here.
@@ -69,6 +117,10 @@ Read them in order: 1 is the contract and the state machine, 2 the host that con
 | [ISaveParticipant records through a game-independent coordinator](./save-mod-state-with-the-scene-1.md) | unscience | `save-sidecar` | `event:save`, `event:load`, `frame:prepare` | Records are versioned, validated before the world is touched, retained when unrestorable; the whole core compiles without KSA so it is testable |
 | [Host wiring: pair each capture with its write by object identity](./save-mod-state-with-the-scene-2.md) | unscience | `save-sidecar` | `event:save`, `event:load` | A write without its capture is reported, not filled with fresh state; a missing sidecar means reset everything and restore nothing |
 | [Eight static callbacks over five patched methods, loads replayed at the frame handoff](./save-mod-state-with-the-scene-3.md) | unscience | `harmony-prefix` | `startup:all-mods-loaded`, `frame:prepare`, `event:save`, `event:load` | Deferring every load changes when `LoadSaveGame` takes effect for all mods; exact-signature binding fails loudly on a game update |
+| [Persist body-fixed exposure sites with save-bound sidecar transactions](save-mod-state-with-the-scene-4.md) | Blasto | spatial-index, immutable-snapshot, harmony-postfix, harmony-prefix, harmony-finalizer, save-sidecar, json-config, starmap-lifecycle | frame:apply-solvers, event:save, event:load, event:game-dispose, event:starmap-unload | Focused immutable site history and integrity-bound JSON; no generic participant registry or global load-deferral layer |
+
+
+Blasto provides a smaller end-to-end alternative for one effect system: stable body-fixed history, capture/write pairing, strict integrity-bound JSON, bounded recovery and separate scene/native-resource cleanup. It does not adopt approach 3’s global native-load deferral. See [Blasto.GameMod/Core/BlastSiteStore.cs](https://github.com/meow-sci/blasto/blob/21f7657c42534774001acabcf93289e9412c5242/Blasto.GameMod/Core/BlastSiteStore.cs).[^blasto-integration-save-mod-state-with-the-scene]
 
 ## See also
 
@@ -76,3 +128,5 @@ Read them in order: 1 is the contract and the state machine, 2 the host that con
 - [Keep grass, rocks and trees off a custom site, and replace or preserve a planet's ground clutter](../../../celestials/terrain/exclude-or-replace-ground-clutter/overview.md), [Animate the flight camera with eased moves, keyframe sequences and saved recipes](../../../camera/special-views/chain-camera-moves-into-keyframe-sequences/overview.md), [Restore kitten colours, clips and tuning after a save load](../../../kittens/characters/restore-kitten-customizations-after-a-load/overview.md)
 - [Mutate vehicles at a physics-safe point](../../../physics/solver/mutate-vehicles-at-a-physics-safe-point/overview.md), [Create and load native KSA saves from mod code](../save-and-load-the-game-from-code/overview.md)
 - [Game loop and mod lifecycle](../../../getting-started/lifecycle/game-loop-and-lifecycle/overview.md)
+
+[^blasto-integration-save-mod-state-with-the-scene]: Blasto integration source.

@@ -6,6 +6,8 @@ blob links: `<Web>/blob/<ref>/<path>`.
 
 | Name (folder) | Slug | Web | Ref | License | Size | Notes |
 |---|---|---|---|---|---|---|
+| blasto | blasto | https://github.com/meow-sci/blasto | 21f7657c42534774001acabcf93289e9412c5242 | MIT | C# / GLSL | Persistent terrain exhaust marks, terrain shader integration, native dust particles, save-bound sidecar |
+| flexo | flexo | https://github.com/meow-sci/flexo | e804879abfc1d45ca1c174a9c95c5fded58c1bf2 | MIT | TypeScript / React / three.js | External browser authoring tool; native asset-only mod export, part composition, GLB/material import, textures/emissives, animation and engines |
 | Compendium | compendium | https://github.com/meow-sci/Compendium | 62cfbe7aafabc58cf71f7c6d618d0c5ece7c504c | MIT | 16 cs / 4.9k LOC | Celestial info window, root-target Harmony patches, fonts, JSON data, ModMenu |
 | gatOS | gatos | https://github.com/meow-sci/gatOS | b88c28588e013841cfec58a1b3a09fcbd2cbc47e | MIT | 388 cs / 80k LOC + rust/ts examples | QEMU Linux VM, /sim filesystem telemetry, HTTP/MQTT/MCP, purrTTY custom shell, bus (CCSDS/NMEA/SCPI/serial); docs/ has KSA_INTEGRATION_MATRIX, PARTICLE_ANALYSIS, LIGHT_PART_ANALYSIS |
 | Kitten-Engineer-Redux | kitten-engineer-redux | https://github.com/BarneyCompiler/Kitten-Engineer-Redux | d5786a0e75203a18a96936fb3537220d44b7a18b | MIT | 26 cs / 3.6k LOC | KER-style editor panel and flight HUD, mass/stage analyzers, suicide burn calc, ModMenu + standalone menu |

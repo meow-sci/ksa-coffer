@@ -1,17 +1,40 @@
 ---
 type: Game Feature
 title: Adding crew seats and EVA doors to a part
-description: How IVASeat and EVADoor modules are declared in part XML, paired by SeatId and used for boarding, and two mods' seat and door definitions
+description: How native seat and door modules are paired, and how a browser editor can author seat transforms
+  and stable hatch references
 topic: add-crew-seats-and-eva-doors
 category: vehicles-and-parts
 group: parts
-approaches: 2
-game_types: [KSA.IVASeat, KSA.EVADoor, KSA.EVADoorTemplate, KSA.KittenEva, KSA.Vehicle, KSA.PartTemplate]
-lifecycle: [startup:asset-load, frame:render]
-demonstrated_by: [mods/ksacars/features/seats-and-eva-doors, mods/ksastructures/features/office-furniture-craft]
-tags: [seat, eva-door, iva, crew, kitten, boarding]
+approaches: 3
+game_types:
+  - KSA.IVASeat
+  - KSA.EVADoor
+  - KSA.EVADoorTemplate
+  - KSA.KittenEva
+  - KSA.Vehicle
+  - KSA.PartTemplate
+  - KSA.Vector3Reference
+lifecycle:
+  - startup:asset-load
+  - frame:render
+  - tool:authoring
+  - tool:build
+demonstrated_by:
+  - mods/ksacars/features/seats-and-eva-doors
+  - mods/ksastructures/features/office-furniture-craft
+  - mods/flexo/features/iva-seat-authoring
+tags:
+  - seat
+  - eva-door
+  - iva
+  - crew
+  - kitten
+  - boarding
 status: stable
-generated: { by: claude-code/opus-5.5, at: 2026-10-10T18:26:22Z }
+generated:
+  by: codex/gpt-6
+  at: 2026-10-14T02:00:07Z
 repos:
   - name: KSACars
     git: https://github.com/LaurensDeV/KSACars
@@ -19,6 +42,9 @@ repos:
   - name: KSAStructures
     git: https://github.com/LaurensDeV/KSAStructures
     ref: c24759358381fb10290c61f9a6980b7d832ba3d4
+  - name: flexo
+    git: git@github.com:meow-sci/flexo.git
+    ref: e804879abfc1d45ca1c174a9c95c5fded58c1bf2
 game:
   build: 2026.10.10.5554
   git: git@github.com:meow-sci/ksa-game-assemblies.git
@@ -28,37 +54,62 @@ sources:
     repo: ksa-game-assemblies
     path: current/decomp/KSA/IVASeat.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/IVASeat.cs
-    title: "current/decomp/KSA/IVASeat.cs (decompiled, build 2026.10.10.5554)"
+    title: current/decomp/KSA/IVASeat.cs
   - id: ksa-kittenlocomotiontuning
     repo: ksa-game-assemblies
     path: current/decomp/KSA/KittenLocomotionTuning.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/KittenLocomotionTuning.cs
-    title: "current/decomp/KSA/KittenLocomotionTuning.cs (decompiled, build 2026.10.10.5554)"
+    title: current/decomp/KSA/KittenLocomotionTuning.cs (decompiled, build 2026.10.10.5554)
   - id: ksa-evadoor
     repo: ksa-game-assemblies
     path: current/decomp/KSA/EVADoor.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/EVADoor.cs
-    title: "current/decomp/KSA/EVADoor.cs (decompiled, build 2026.10.10.5554)"
+    title: current/decomp/KSA/EVADoor.cs (decompiled, build 2026.10.10.5554)
   - id: ksa-evadoortemplate
     repo: ksa-game-assemblies
     path: current/decomp/KSA/EVADoorTemplate.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/EVADoorTemplate.cs
-    title: "current/decomp/KSA/EVADoorTemplate.cs (decompiled, build 2026.10.10.5554)"
+    title: current/decomp/KSA/EVADoorTemplate.cs (decompiled, build 2026.10.10.5554)
   - id: ksa-kitteneva
     repo: ksa-game-assemblies
     path: current/decomp/KSA/KittenEva.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/KittenEva.cs
-    title: "current/decomp/KSA/KittenEva.cs (decompiled, build 2026.10.10.5554)"
+    title: current/decomp/KSA/KittenEva.cs (decompiled, build 2026.10.10.5554)
   - id: ksa-inputevents
     repo: ksa-game-assemblies
     path: current/decomp/KSA/InputEvents.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/InputEvents.cs
-    title: "current/decomp/KSA/InputEvents.cs (decompiled, build 2026.10.10.5554)"
+    title: current/decomp/KSA/InputEvents.cs (decompiled, build 2026.10.10.5554)
   - id: ksa-vehicle
     repo: ksa-game-assemblies
     path: current/decomp/KSA/Vehicle.cs
     resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/Vehicle.cs
-    title: "current/decomp/KSA/Vehicle.cs (decompiled, build 2026.10.10.5554)"
+    title: current/decomp/KSA/Vehicle.cs (decompiled, build 2026.10.10.5554)
+  - id: ksa-current-decomp-ksa-vector3reference
+    repo: ksa-game-assemblies
+    path: current/decomp/KSA/Vector3Reference.cs
+    resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/Vector3Reference.cs
+    title: current/decomp/KSA/Vector3Reference.cs
+  - id: flexo-src-ksa-ivaseataxes
+    repo: flexo
+    path: src/ksa/ivaSeatAxes.ts
+    resource: https://github.com/meow-sci/flexo/blob/e804879abfc1d45ca1c174a9c95c5fded58c1bf2/src/ksa/ivaSeatAxes.ts
+    title: src/ksa/ivaSeatAxes.ts
+  - id: flexo-src-ksa-partxmlserializer
+    repo: flexo
+    path: src/ksa/partXmlSerializer.ts
+    resource: https://github.com/meow-sci/flexo/blob/e804879abfc1d45ca1c174a9c95c5fded58c1bf2/src/ksa/partXmlSerializer.ts
+    title: src/ksa/partXmlSerializer.ts
+  - id: flexo-src-state-editorstore
+    repo: flexo
+    path: src/state/editorStore.ts
+    resource: https://github.com/meow-sci/flexo/blob/e804879abfc1d45ca1c174a9c95c5fded58c1bf2/src/state/editorStore.ts
+    title: src/state/editorStore.ts
+  - id: flexo-src-ksa-partxmlparser
+    repo: flexo
+    path: src/ksa/partXmlParser.ts
+    resource: https://github.com/meow-sci/flexo/blob/e804879abfc1d45ca1c174a9c95c5fded58c1bf2/src/ksa/partXmlParser.ts
+    title: src/ksa/partXmlParser.ts
 ---
 Kittens sit only in a seat that belongs to a part, and leave a craft only through an EVA door. Both are plain
 XML module templates, so a part mod can carry crew with no code. The two pieces are a seat (an `IVASeat` in the
@@ -82,12 +133,15 @@ part's game data) and a door (an `EVADoor` on a mesh-less hidden subpart), paire
 - **Drawing.** Seated crew are drawn by `Vehicle.UpdateSeatedCrewRenderData`, and only when the vehicle is
   `Program.ControlledVehicle` [current/decomp/KSA/Vehicle.cs](https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/Vehicle.cs#L3728-L3741)[^ksa-vehicle].
 
+The browser approach authors part-level seats without a runtime hook. It converts stored Euler rotations to explicit forward/up vectors and separates internal editor identity from an intentional game-facing seat ID. [src/ksa/ivaSeatAxes.ts](https://github.com/meow-sci/flexo/blob/e804879abfc1d45ca1c174a9c95c5fded58c1bf2/src/ksa/ivaSeatAxes.ts#L24-L108) [src/ksa/partXmlSerializer.ts](https://github.com/meow-sci/flexo/blob/e804879abfc1d45ca1c174a9c95c5fded58c1bf2/src/ksa/partXmlSerializer.ts#L539-L560)
+
 ## Approaches
 
-| Article | Mod | What it shows |
-|---|---|---|
-| [1: seats in PartGameData, doors on hidden subparts](add-crew-seats-and-eva-doors-1.md) | KSACars | multi-seat cars, eye offsets, door placement, one door per front seat |
-| [2: the minimum viable seat and door](add-crew-seats-and-eva-doors-2.md) | KSAStructures | one seat and one door on a chair, one-part craft |
+| Article | Mod | Technique | Lifecycle | Trade-off |
+|---|---|---|---|---|
+| [1: seats in PartGameData, doors on hidden subparts](add-crew-seats-and-eva-doors-1.md) | KSACars | `xml-asset` | `startup:asset-load`, `frame:render` | multi-seat cars, eye offsets, door placement, one door per front seat |
+| [2: the minimum viable seat and door](add-crew-seats-and-eva-doors-2.md) | KSAStructures | `xml-asset` | `startup:asset-load` | one seat and one door on a chair, one-part craft |
+| [3: Author IVA seats and validate their transforms before exporting XML](add-crew-seats-and-eva-doors-3.md) | Flexo | `xml-asset`, `coordinate-conversion` | `tool:authoring`, `tool:build` | Position and aim seats visually, then export axis vectors; the preview does not simulate KSA crew, boarding or IVA camera control |
 
 ## See also
 

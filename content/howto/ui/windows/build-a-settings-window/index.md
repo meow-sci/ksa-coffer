@@ -1,6 +1,6 @@
 # Game Feature
 
-* [Build a mod settings window (and developer panel)](overview.md) - KSA has no settings-window API for mods, so six mods show six ImGui layouts - tabbed tables with colour pickers, label-gutter forms, ColorButton popups with INI, small auto-sized windows with tooltips, an XKCD colour catalogue and a developer panel
+* [Build a mod settings window (and developer panel)](overview.md) - KSA has no settings-window API for mods, so seven approaches show ImGui layouts - tabbed tables with colour pickers, label-gutter forms, ColorButton popups with INI, small auto-sized windows with tooltips, an XKCD colour catalogue, a developer panel and validated live tuning
 
 # How-To
 
@@ -10,3 +10,4 @@
 * [Settings window: ColorButton popups and a hand-parsed INI file](build-a-settings-window-3.md) - Build a compact HUD settings window from buttons, sliders and swatch buttons that open ColorPicker4 popups, and load and save the values with a tiny INI reader and writer
 * [Settings window: label-gutter form tables and full-width widgets](build-a-settings-window-2.md) - Lay out a settings form as a two-column table with a fixed label gutter, full-width widgets, a filter combo and a red destructive button, so several sections of one dialog line up
 * [Settings window: slider-plus-input rows, ColorPicker4 on a float4 and Reset buttons](build-a-settings-window-1.md) - Edit a profile of float parameters with a reusable slider-and-input table row, colour pickers bound directly to float4 fields, per-effect enable checkboxes, Reset buttons and derived values
+* [Tune saved terrain effects and diagnose rendering from an ImGui window](build-a-settings-window-7.md) - Build a scene-persisted tuning panel with typed values beyond drag ranges, validated immutable settings, hidden-HUD drawing and rendering diagnostics

@@ -3,7 +3,7 @@ type: Guide
 title: Content bundle conventions
 description: Layout, frontmatter, code-reference and body rules for the OKF knowledge bundle under content/ (mods and how-to articles)
 tags: [okf, conventions, content, starlight]
-generated: { by: claude-code/opus-5.5, at: 2026-10-11T22:30:00Z }
+generated: { by: codex/gpt-6, at: 2026-10-14T01:56:41Z }
 status: stable
 sources:
   - id: okf-skill
@@ -15,7 +15,7 @@ sources:
 ---
 
 Everything under `content/` is one OKF v0.2 bundle whose root is `content/index.md`. It holds two
-groups: `mods/` (one self-contained sub-bundle per analyzed mod repository) and `howto/` (one
+groups: `mods/` (one self-contained sub-bundle per analyzed mod or authoring-tool repository) and `howto/` (one
 self-contained sub-bundle per how-to topic, grouped by category). The bundle is written so that it
 can later be dropped into an Astro Starlight site with little or no change, so the rules below
 serve both OKF conformance and Starlight compatibility.[^okf-skill]
@@ -129,7 +129,7 @@ sources:
 - `sources[]` entries that point at code carry `repo` and `path` in addition to the OKF `resource`
   URL. The URL is derived, never invented: web URL of the repo (strip `.git` and any trailing
   slash) + `/blob/<ref>/<path>`.
-- `generated.by` is `claude-code/<model>` for agent-written content. Set `generated.at` to the
+- `generated.by` identifies the actual producer, such as `claude-code/<model>` or `codex/<model>`. Set `generated.at` to the
   current UTC time with `date -u +%Y-%m-%dT%H:%M:%SZ`. Never add `verified` unless the claims were
   checked against the cited files in the same session, and then only with the same actor form.
 
@@ -142,11 +142,17 @@ mod: ksaero                 # mod slug
 repo: KSAero                # folder under references/
 license: MIT                # from data/references.yml
 author: cairn5              # from mod.toml or README when stated
-loader: starmap             # starmap | native | both | loader (StarMap itself)
+loader: starmap             # starmap | native | both | loader (StarMap itself) | none (external tool)
 mod_id: KSAero              # the `name` in mod.toml (the manifest id)
 tested_against: 2026.10.7.5541   # KSA build the mod README says it targets, when stated
 categories: [physics, ui]   # union of feature categories
 ```
+
+External authoring tools such as Flexo stay under `mods/` and retain the `Mod` / `Mod Feature`
+types so catalogs, refresh planning and links use the same structure. Set `kind: authoring-tool`
+and `loader: none` on their overview, and omit `mod_id` when the tool has no installed game mod
+identity. Describe the exported mod's manifest and loader separately. Browser previews and export
+validation are not evidence of in-game behavior or a successful in-game test.
 
 `Mod Feature`: `mod: <slug>`, optional `submod: <slug>`, `category`, `techniques`, `game_types`.
 
@@ -214,6 +220,8 @@ lifecycle values to use:
 
 | Value | What runs | Notes for modders |
 |---|---|---|
+| `tool:authoring` | External editor interaction, document editing and browser preview | Not a KSA frame phase; use `hooks: []` when no game hook exists. Describe game consumption separately |
+| `tool:build` | Offline extraction, conversion, export, packaging and tests | Not a KSA frame phase; identify required inputs and the generated artifacts |
 | `startup:starmap-before-main` | `StarMapBeforeMain`, before `Program.Main` | No game state exists; only loader-level work. Harmony prefixes on `Program.Main` registered here (KittenExtensions, ShaderExtensions) also use this value |
 | `startup:immediate-load` | `StarMapImmediateLoad(Mod)`, Harmony prefix on `Mod.PrepareSystems` | Per-mod, before systems and asset bundles load. Only a method with exactly one `KSA.Mod` parameter is called; a zero-argument one never runs |
 | `startup:asset-load` | `ModLibrary.PreloadAssetBundles`, `LoadEditorTags`, `LoadAll`: mod.toml `assets`, XML asset bundles, then every `ILoader.Load` (file assets, shader compiles) on .NET thread-pool threads; KittenExtensions' XML patch run, a `ModLibrary.PrepareAll` prefix on the main thread that finishes before the first `startup:immediate-load` | Content mods live here; no code hooks except patches, and patches on loader paths must be thread-safe |

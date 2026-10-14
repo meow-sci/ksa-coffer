@@ -1,66 +1,114 @@
 ---
 type: Game Feature
 title: Build a mod settings window (and developer panel)
-description: KSA has no settings-window API for mods, so six mods show six ImGui layouts - tabbed tables with colour pickers, label-gutter forms, ColorButton popups with INI, small auto-sized windows with tooltips, an XKCD colour catalogue and a developer panel
+description: KSA has no settings-window API for mods, so seven approaches show ImGui layouts - tabbed
+  tables with colour pickers, label-gutter forms, ColorButton popups with INI, small auto-sized
+  windows with tooltips, an XKCD colour catalogue, a developer panel and validated live tuning
 topic: build-a-settings-window
 category: ui
 group: windows
-approaches: 6
-game_types: [Brutal.ImGuiApi.ImGui, Brutal.ImGuiApi.ImGuiTableFlags, Brutal.ImGuiApi.ImGuiWindowFlags, KSA.Program, KSA.KSAColor, KSA.Universe, KSA.SimSpeed, Brutal.ImGuiApi.ImGuiColorEditFlags, Brutal.Numerics.float4, Brutal.ImGuiApi.ImGuiTableColumnFlags, Brutal.Numerics.Color, Brutal.ImGuiApi.ImInputString]
-lifecycle: ['startup:immediate-load', 'frame:draw-ui']
-demonstrated_by: [mods/mpfx/features/effect-settings-window, mods/purrtty/features/imgui-filter-combo-and-form-widgets, mods/ksa-aircrafthud/features/ini-settings-and-settings-window, mods/ksastructures/features/settings-menu, mods/ksacars/features/car-panel-and-modmenu, mods/ksagolf/features/developer-panel-and-menu-bar, mods/unscience/features/lib-xkcd-color-catalog]
-tags: [settings, form, table, color-picker, tooltip, modmenu, developer-panel, imgui-window]
-generated: { by: claude-code/opus-5.5, at: 2026-10-10T18:25:43Z }
+approaches: 7
+game_types:
+  - Brutal.ImGuiApi.ImGui
+  - Brutal.ImGuiApi.ImGuiTableFlags
+  - Brutal.ImGuiApi.ImGuiWindowFlags
+  - KSA.Program
+  - KSA.KSAColor
+  - KSA.Universe
+  - KSA.SimSpeed
+  - Brutal.ImGuiApi.ImGuiColorEditFlags
+  - Brutal.Numerics.float4
+  - Brutal.ImGuiApi.ImGuiTableColumnFlags
+  - Brutal.Numerics.Color
+  - Brutal.ImGuiApi.ImInputString
+  - KSA.GameSettings
+lifecycle:
+  - startup:immediate-load
+  - frame:draw-ui
+  - frame:input
+  - frame:apply-solvers
+demonstrated_by:
+  - mods/mpfx/features/effect-settings-window
+  - mods/purrtty/features/imgui-filter-combo-and-form-widgets
+  - mods/ksa-aircrafthud/features/ini-settings-and-settings-window
+  - mods/ksastructures/features/settings-menu
+  - mods/ksacars/features/car-panel-and-modmenu
+  - mods/ksagolf/features/developer-panel-and-menu-bar
+  - mods/unscience/features/lib-xkcd-color-catalog
+  - mods/blasto/features/live-effect-tuning-and-input
+tags:
+  - settings
+  - form
+  - table
+  - color-picker
+  - tooltip
+  - modmenu
+  - developer-panel
+  - imgui-window
+generated:
+  by: codex/gpt-6
+  at: 2026-10-14T01:54:13Z
 status: stable
 repos:
-- name: MPFX
-  git: https://github.com/AMPW-german/MPFX.git
-  ref: "fbdeeebca9bd2e0f0001348b6903af3a652cecd0"
-- name: purrtty
-  git: https://github.com/meow-sci/purrtty.git
-  ref: "71da9efe9ed7b8ec533cad7a0bb15bea9f59a9a5"
-- name: KSA_AircraftHUD
-  git: https://github.com/uriahgnu/KSA_AircraftHUD.git
-  ref: "4e4c71719a8355afb1fc608f54d531676bec4ef3"
-- name: KSAStructures
-  git: https://github.com/LaurensDeV/KSAStructures
-  ref: "c24759358381fb10290c61f9a6980b7d832ba3d4"
-- name: KSACars
-  git: https://github.com/LaurensDeV/KSACars
-  ref: "1f0a84f623ef7a8edb0792d5c46c0fecfc2abd7f"
-- name: unscience
-  git: https://github.com/meow-sci/unscience.git
-  ref: "1829b3b298dd0fa5a67342cafff29074c8c29286"
-- name: KSAGolf
-  git: https://github.com/LaurensDeV/KSAGolf.git
-  ref: "f3e6ab72b5b963f615cb4ed41f7765a7bce42688"
+  - name: MPFX
+    git: https://github.com/AMPW-german/MPFX.git
+    ref: fbdeeebca9bd2e0f0001348b6903af3a652cecd0
+  - name: purrtty
+    git: https://github.com/meow-sci/purrtty.git
+    ref: 71da9efe9ed7b8ec533cad7a0bb15bea9f59a9a5
+  - name: KSA_AircraftHUD
+    git: https://github.com/uriahgnu/KSA_AircraftHUD.git
+    ref: 4e4c71719a8355afb1fc608f54d531676bec4ef3
+  - name: KSAStructures
+    git: https://github.com/LaurensDeV/KSAStructures
+    ref: c24759358381fb10290c61f9a6980b7d832ba3d4
+  - name: KSACars
+    git: https://github.com/LaurensDeV/KSACars
+    ref: 1f0a84f623ef7a8edb0792d5c46c0fecfc2abd7f
+  - name: unscience
+    git: https://github.com/meow-sci/unscience.git
+    ref: 1829b3b298dd0fa5a67342cafff29074c8c29286
+  - name: KSAGolf
+    git: https://github.com/LaurensDeV/KSAGolf.git
+    ref: f3e6ab72b5b963f615cb4ed41f7765a7bce42688
+  - name: blasto
+    git: git@github.com:meow-sci/blasto.git
+    ref: 21f7657c42534774001acabcf93289e9412c5242
+  - name: StarMap
+    git: https://github.com/StarMapLoader/StarMap.git
+    ref: 4dc60f8dfeb1d9b035d44af2601d09115c16d2aa
 game:
   build: 2026.10.10.5554
   git: git@github.com:meow-sci/ksa-game-assemblies.git
-  ref: "935a32b4dbc34cbcd16e87d16cf9732eb90030c0"
+  ref: 935a32b4dbc34cbcd16e87d16cf9732eb90030c0
 sources:
-- id: ksa-program
-  repo: ksa-game-assemblies
-  path: current/decomp/KSA/Program.cs
-  resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/Program.cs
-  title: KSA.Program (decompiled, build 2026.10.10.5554)
-- id: ksa-ksacolor
-  repo: ksa-game-assemblies
-  path: current/decomp/KSA/KSAColor.cs
-  resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/KSAColor.cs
-  title: KSA.KSAColor (decompiled, build 2026.10.10.5554)
-- id: ksa-universe
-  repo: ksa-game-assemblies
-  path: current/decomp/KSA/Universe.cs
-  resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/Universe.cs
-  title: KSA.Universe (decompiled, build 2026.10.10.5554)
-- id: brutal-imguiapi-imguiwindowflags
-  repo: ksa-game-assemblies
-  path: current/decomp/Brutal.ImGuiApi/ImGuiWindowFlags.cs
-  resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/Brutal.ImGuiApi/ImGuiWindowFlags.cs
-  title: Brutal.ImGuiApi.ImGuiWindowFlags (decompiled, build 2026.10.10.5554)
+  - id: ksa-program
+    repo: ksa-game-assemblies
+    path: current/decomp/KSA/Program.cs
+    resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/Program.cs
+    title: KSA.Program (decompiled, build 2026.10.10.5554)
+  - id: ksa-ksacolor
+    repo: ksa-game-assemblies
+    path: current/decomp/KSA/KSAColor.cs
+    resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/KSAColor.cs
+    title: KSA.KSAColor (decompiled, build 2026.10.10.5554)
+  - id: ksa-universe
+    repo: ksa-game-assemblies
+    path: current/decomp/KSA/Universe.cs
+    resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/KSA/Universe.cs
+    title: KSA.Universe (decompiled, build 2026.10.10.5554)
+  - id: brutal-imguiapi-imguiwindowflags
+    repo: ksa-game-assemblies
+    path: current/decomp/Brutal.ImGuiApi/ImGuiWindowFlags.cs
+    resource: https://github.com/meow-sci/ksa-game-assemblies/blob/935a32b4dbc34cbcd16e87d16cf9732eb90030c0/current/decomp/Brutal.ImGuiApi/ImGuiWindowFlags.cs
+    title: Brutal.ImGuiApi.ImGuiWindowFlags (decompiled, build 2026.10.10.5554)
+  - id: blasto-integration-build-a-settings-window
+    repo: blasto
+    path: Blasto.GameMod/Mod.Ui.cs
+    resource: https://github.com/meow-sci/blasto/blob/21f7657c42534774001acabcf93289e9412c5242/Blasto.GameMod/Mod.Ui.cs
+    title: Blasto Tune saved terrain effects and diagnose rendering from an ImGui window
 ---
-KSA has no settings API for mods: a mod's settings are an ImGui window it draws itself. The game's own settings pages are `GameSettings` windows drawn by the engine, but nothing registers a mod page into them, so every mod invents a window. The six approaches here cover what goes into one: the layout of many parameters (tables, label gutters, sliders with typed input), colour editing, small panels with tooltips, and a developer panel that always has a way back.
+KSA has no settings API for mods: a mod's settings are an ImGui window it draws itself. The game's own settings pages are `GameSettings` windows drawn by the engine, but nothing registers a mod page into them, so every mod invents a window. The seven approaches here cover what goes into one: the layout of many parameters (tables, label gutters, sliders with typed input), colour editing, small panels with tooltips, a developer panel that always has a way back, and validated live tuning with scene persistence and rendering diagnostics.
 
 ## Engine background
 
@@ -85,6 +133,7 @@ KSA has no settings API for mods: a mod's settings are an ImGui window it draws 
 | 4 | [Menu entry, small window, wrapped tooltips](build-a-settings-window-4.md) | KSAStructures, KSACars | `AlwaysAutoResize`, `###id`, `NoNav`, release-apply sliders | `frame:draw-ui` | Quick; session-only settings |
 | 5 | [Reflected XKCD colour catalogue](build-a-settings-window-5.md) | unscience | Reflection over `KSAColor.Xkcd`, filter combo with swatches | `frame:draw-ui` | Friendly colour names; breaks silently if the class changes |
 | 6 | [Developer panel with a floating reopen button](build-a-settings-window-6.md) | KSAGolf | Reopen button, ModMenu entry, slow-motion speeds | `frame:draw-ui` | Never strands the player; global speed side effect |
+| 7 | [Tune saved terrain effects and diagnose rendering from an ImGui window](build-a-settings-window-7.md) | Blasto | starmap-lifecycle, harmony-prefix, harmony-postfix, imgui-window, imgui-menu, json-config | frame:draw-ui, frame:input, frame:apply-solvers | Validated live tuning and deep diagnostics with hidden-HUD continuity; native patches and resource-aware validation need maintenance |
 
 ## Choosing
 
@@ -92,6 +141,9 @@ KSA has no settings API for mods: a mod's settings are an ImGui window it draws 
 - A few options and some colours that must persist: approach 3, plus the persistence topics.
 - A short list of toggles for a feature mod: approach 4. Add approach 6's reopen button if the panel is closable.
 - Colour by name: approach 5.
+
+
+Blasto adds immutable scene-saved settings, values beyond suggested drag bounds, source-validated hidden-HUD drawing, input guarding and diagnostic visibility controls. Destructive clear actions wait for the settled physics boundary. See [Blasto.GameMod/Mod.Ui.cs](https://github.com/meow-sci/blasto/blob/21f7657c42534774001acabcf93289e9412c5242/Blasto.GameMod/Mod.Ui.cs).[^blasto-integration-build-a-settings-window]
 
 ## See also
 
@@ -102,3 +154,5 @@ KSA has no settings API for mods: a mod's settings are an ImGui window it draws 
 - [List a mod in ModMenu with the ModMenuEntry attribute](../../menus/list-a-mod-in-modmenu/overview.md)
 - [Add a menu to the game's top menu bar](../../menus/add-items-to-the-game-menu-bar/overview.md)
 
+
+[^blasto-integration-build-a-settings-window]: Blasto integration source.

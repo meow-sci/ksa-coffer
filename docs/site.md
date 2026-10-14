@@ -3,7 +3,7 @@ type: Guide
 title: Documentation site
 description: How the Astro Starlight site under site/ renders the content/ bundle in place, how it is built and checked, and how it deploys to GitHub Pages
 tags: [site, starlight, astro, github-pages]
-generated: { by: codex/gpt-6, at: 2026-10-11T13:30:44Z }
+generated: { by: codex/gpt-6, at: 2026-10-14T02:16:21Z }
 status: stable
 sources:
   - id: conventions
@@ -36,10 +36,10 @@ server shows a hint instead).
 | Loader | `site/src/content.config.ts` | Wraps Astro's `glob` loader over `../content`; injects `title` (and hero/splash for the root) into the frontmatter-less `index.md` and `log.md` files; extends `docsSchema` with the custom keys used for display |
 | Link rewrite | `site/src/plugins/remark-okf-links.ts` | Rewrites file-relative `.md` links to site routes (`index.md` maps to its directory); links leaving `content/` become GitHub blob URLs; demotes body h1 to h2 on pages without a frontmatter title |
 | Contextual sidebar | `site/src/routeMiddleware.ts` | The base sidebar lists how-to categories and groups plus the mods; the middleware expands only the current group, topic or mod |
-| Page badges | `site/src/components/PageTitle.astro` | Shows `type`, `difficulty` and non-stable `status` under the title |
+| Page badges | `site/src/components/PageTitle.astro` | Shows `type`, `difficulty` and non-stable `status` under the title; `kind: authoring-tool` displays as Authoring tool |
 | Content freshness | `site/src/components/ContentStatus.astro`, `MarkdownContent.astro`, `site/src/lib/skill-download.ts` | Home page only: last content refresh date/time in UTC and the KSA builds pinned by the content, read from the skill manifest |
 | Skill download | `site/src/components/SkillDownload.astro`, `site/src/lib/skill-download.ts`, hero action in `content.config.ts` and `routeMiddleware.ts` | Home page only: dated archive link, size, UTC skill build date/time and install commands; the middleware resolves the hero link at render time so cached content cannot retain an older filename |
-| Source mods table | `site/src/components/ModAttribution.astro`, `MarkdownContent.astro` | Home page only: one row per mod (author, pinned source commit, license file, feature count, how-to articles and topics citing the mod in `demonstrated_by`), computed from collection frontmatter joined with `data/references.yml` and `attribution/` |
+| Source mods and authoring tools table | `site/src/components/ModAttribution.astro`, `MarkdownContent.astro` | Home page only: one row per reference project (author, pinned source commit, license file, feature count, how-to articles and topics citing it in `demonstrated_by`), computed from collection frontmatter joined with `data/references.yml` and `attribution/` |
 
 The base sidebar is rendered on every one of the ~2,750 pages, so it is kept small on purpose. Do not
 autogenerate the full tree into it.

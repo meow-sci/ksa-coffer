@@ -1,5 +1,6 @@
 # Subdirectories
 
+* [blend-persistent-marks-into-terrain](blend-persistent-marks-into-terrain/index.md) - Blend persistent body-fixed effects into native terrain material shading with private pipelines, isolated storage buffers and explicit version guards
 * [build-a-vulkan-pipeline-for-the-scene-target](build-a-vulkan-pipeline-for-the-scene-target/index.md) - Pipelines compatible with the scene target or free-standing for private targets
 * [capture-rendered-frames](capture-rendered-frames/index.md) - Reading rendered frames and part thumbnails back without stalling the GPU
 * [free-vulkan-resources-safely](free-vulkan-resources-safely/index.md) - Frames-in-flight discipline for freeing images and buffers and for game exit

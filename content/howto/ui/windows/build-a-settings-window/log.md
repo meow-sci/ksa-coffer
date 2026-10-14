@@ -1,5 +1,11 @@
 # Build a mod settings window (and developer panel) history
 
+## 2026-10-13
+* **Update**: Independently reviewed [the Blasto approach](build-a-settings-window-7.md); updated the seven-approach overview and marked excerpt boundaries after checking input, settings and destructive-command ownership.
+
+* **Update**: Integrated Blasto [Tune saved terrain effects and diagnose rendering from an ImGui window](build-a-settings-window-7.md), linked all 1 source feature and preserved existing approaches.
+
+
 ## 2026-10-10
 * **Creation**: Added [overview](overview.md) and 6 how-to articles: [Settings window: slider-plus-input rows, ColorPicker4 on a float4 and Reset buttons](build-a-settings-window-1.md); [Settings window: label-gutter form tables and full-width widgets](build-a-settings-window-2.md); [Settings window: ColorButton popups and a hand-parsed INI file](build-a-settings-window-3.md); [Settings window: a menu entry, a small auto-sized window and wrapped tooltips](build-a-settings-window-4.md); [Settings window: a reflected XKCD colour catalogue behind a filterable picker](build-a-settings-window-5.md); [Settings window: a developer panel opened from a menu, ModMenu or a floating button](build-a-settings-window-6.md). Written from the pinned mod sources and checked against the decompiled game build 2026.10.10.5554.
 * **Update**: Reviewed against build 2026.10.10.5554 and the lifecycle reference: "Related topics, not yet written" lines replaced with links to the topics that now exist; overview `repos`, `lifecycle` and `game_types` widened to the union of the articles.

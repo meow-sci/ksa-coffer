@@ -12,7 +12,7 @@ metadata:
 
 # KSA modding knowledge base
 
-Curated, source-pinned knowledge for writing Kitten Space Agency (KSA) mods with the StarMap loader: {{N_HOWTO}} how-to articles in {{N_TOPICS}} topics ({{N_CATEGORIES}} categories) and {{N_FEATURES}} analyzed features of {{N_MODS}} community mods ({{N_SUBMODS}} submods). Everything is pinned to game build `{{GAME_BUILD}}`. All content lives under `references/`; open only what you need.
+Curated, source-pinned knowledge for writing Kitten Space Agency (KSA) code mods and native asset-only mods: {{N_HOWTO}} how-to articles in {{N_TOPICS}} topics ({{N_CATEGORIES}} categories) and {{N_FEATURES}} analyzed features of {{N_MODS}} community mods and authoring tools ({{N_SUBMODS}} submods). Everything is pinned to game build `{{GAME_BUILD}}`. All content lives under `references/`; open only what you need.
 
 ## Workflow
 
@@ -32,9 +32,9 @@ Each catalog lists every topic and its articles (title and difficulty); the topi
 |---|---|---|
 {{CATEGORY_TABLE}}
 
-## Community mods
+## Community mods and authoring tools
 
-{{N_MODS}} community mods were analyzed feature by feature, each with pinned code references. Open [references/catalog-mods.md](references/catalog-mods.md) when you want a working reference implementation, a mod's architecture, or to see how an existing mod solved a problem. Feature pages are under `references/mods/<mod>/features/`.
+{{N_MODS}} community mods and authoring tools were analyzed feature by feature, each with pinned code references. Open [references/catalog-mods.md](references/catalog-mods.md) when you want a reference implementation, a project's architecture, or to see how an existing project solved a problem. Feature pages are under `references/mods/<mod>/features/`. External tools use `kind: authoring-tool` and `loader: none`; their browser previews are separate from game runtime behavior.
 
 ## Read first for any code mod
 

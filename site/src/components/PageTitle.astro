@@ -3,7 +3,7 @@ import Default from "@astrojs/starlight/components/PageTitle.astro";
 import { Badge } from "@astrojs/starlight/components";
 
 const data = Astro.locals.starlightRoute.entry.data as Record<string, any>;
-const type = data.type as string | undefined;
+const type = data.kind === "authoring-tool" ? "Authoring tool" : (data.type as string | undefined);
 const difficulty = data.difficulty as string | undefined;
 const status = data.status as string | undefined;
 ---

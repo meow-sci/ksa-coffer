@@ -3140,12 +3140,15 @@ categories:
       - Brutal.Numerics.Color
       - KSA.Universe
       - KSA.SimSpeed
+      - KSA.GameSettings
       engine_pointers:
       - current/decomp/KSA/GameSettings.cs (stock settings pages for style comparison)
       - current/decomp/KSA/KSAColor.cs Xkcd (static Color.Preset properties)
       - current/decomp/KSA/Universe.cs SetSimulationSpeed
       lifecycle:
       - frame:draw-ui
+      - frame:input
+      - frame:apply-solvers
       approaches:
       - n: 1
         title: Tabs, three-column table, collapsing headers and ColorPicker4 bound to a float4
@@ -3153,8 +3156,8 @@ categories:
         features:
         - mods/mpfx/features/effect-settings-window
         technique: imgui-window
-        note: 'Slider-plus-input row helper, ColorPicker4 bound to a float4, Reset buttons, pre/post rows. Also folded: ColorPicker4
-          bound to a float4 setting (mpfx): Direct float4 editing with reset. Sub-step: color editing.'
+        note: 'Slider-plus-input row helper, ColorPicker4 bound to a float4, Reset buttons, pre/post rows. Also folded:
+          ColorPicker4 bound to a float4 setting (mpfx): Direct float4 editing with reset. Sub-step: color editing.'
       - n: 2
         title: Label-gutter form tables and full-width widgets
         mod: purrtty
@@ -3184,18 +3187,26 @@ categories:
         features:
         - mods/unscience/features/lib-xkcd-color-catalog
         technique: reflection
-        note: 'Reflect over KSAColor.Xkcd once, cache sorted name/color pairs, serve to a filterable picker. Writer note:
-          the same feature is approach 4 of build-searchable-lists-and-browsers; write the XKCD catalog once here and cross-link,
-          or the other way round.'
+        note: 'Reflect over KSAColor.Xkcd once, cache sorted name/color pairs, serve to a filterable picker. Writer note: the
+          same feature is approach 4 of build-searchable-lists-and-browsers; write the XKCD catalog once here and
+          cross-link, or the other way round.'
       - n: 6
         title: Panel opened from menu, ModMenu or a floating button
         mod: ksagolf
         features:
         - mods/ksagolf/features/developer-panel-and-menu-bar
         technique: imgui-window
-        note: 'Universe.SetSimulationSpeed(new SimSpeed(x)); the engine has no floor. Wrapped tooltips helper. Sub-step to
-          give its own section: a developer panel with a reopen affordance and simulation-speed buttons below the 0.1x floor
-          via Universe.SetSimulationSpeed.'
+        note: 'Universe.SetSimulationSpeed(new SimSpeed(x)); the engine has no floor. Wrapped tooltips helper. Sub-step to give
+          its own section: a developer panel with a reopen affordance and simulation-speed buttons below the 0.1x floor via
+          Universe.SetSimulationSpeed.'
+      - n: 7
+        title: Tune saved terrain effects and diagnose rendering from an ImGui window
+        mod: blasto
+        features:
+        - mods/blasto/features/live-effect-tuning-and-input
+        technique: starmap-lifecycle, harmony-prefix, harmony-postfix, imgui-window, imgui-menu, json-config
+        note: Explain source-verified timing, ownership and failure paths. Distinguish offline validation from live visual
+          confirmation; cover every listed mechanism.
       related:
       - list-a-mod-in-modmenu
       - persist-mod-settings-toml
@@ -5797,14 +5808,17 @@ categories:
       kind: howto
       group: lights-and-particles
       batch: rendering-2
-      summary: KSA clears its light list every frame; a mod submits its own Light instances at the right moment (after ClearLights,
-        before sorting and shadow assignment) for headlights, lamps, flashes and fireballs, and budgets which ones cast shadows.
+      summary: KSA clears its light list every frame; a mod submits its own Light instances at the right moment (after
+        ClearLights, before sorting and shadow assignment) for headlights, lamps, flashes and fireballs, and budgets which
+        ones cast shadows.
       game_types:
       - KSA.Rendering.Lighting.Light
       - KSA.Rendering.Lighting.ILightSystem
       - KSA.Rendering.Lighting.ClusteredLightSystem
       - KSA.Program
       - KSA.PartTree
+      - KSA.LightModule
+      - KSA.Part
       engine_pointers:
       - current/decomp/KSA.Rendering.Lighting/ILightSystem.cs CreateLightInstance, ClearLights
       - current/decomp/KSA.Rendering.Lighting/Light.cs CreateSpotLight
@@ -5813,6 +5827,8 @@ categories:
       - frame:lights
       - frame:pre-render
       - frame:render
+      - tool:authoring
+      - tool:build
       approaches:
       - n: 1
         title: Postfix PartTree.UpdateRenderData per craft with CreateSpotLight
@@ -5820,7 +5836,8 @@ categories:
         features:
         - mods/ksacars/features/headlights-as-spotlights
         technique: harmony-postfix
-        note: Runs after ClearLights and before the light upload, once per craft; toggled by Part.LightSwitch / Vehicle.ToggleLights.
+        note: Runs after ClearLights and before the light upload, once per craft; toggled by Part.LightSwitch /
+          Vehicle.ToggleLights.
       - n: 2
         title: Per-viewport CreateLightInstance from an UpdateStaticObjectRenderData postfix, with a shadow-caster budget
         mod: ksastructures
@@ -5836,6 +5853,14 @@ categories:
         technique: dynamic-lights
         note: The only list the engine re-reads after clearing; plus a compute dispatch for pixels the light pre-pass dropped
           beyond 3.16 km.
+      - n: 4
+        title: Author native cast lights with validated local frames and falloff
+        mod: flexo
+        features:
+        - mods/flexo/features/cast-light-authoring
+        technique: xml-asset
+        note: External browser authoring workflow; distinguish preview and export validation from native asset loading and live
+          in-game verification. Cover every listed reusable mechanism with actionable source-backed steps.
       related:
       - add-invisible-shadow-casters
       - control-part-light-color-and-state
@@ -5923,6 +5948,9 @@ categories:
       - KSA.Rendering.Particles.ParticleEmitterReference
       - KSA.ExplosionSystem
       - KSA.Rendering.Particles.EmitterSpawnPresets
+      - KSA.Rendering.Particles.ParticleSystem
+      - KSA.Celestial
+      - KSA.BubbleOrigin
       engine_pointers:
       - current/decomp/KSA.Rendering.Particles/ParticleEmitter.cs
       - current/decomp/KSA.Rendering.Particles/ParticleEmitterReference.cs
@@ -5933,6 +5961,8 @@ categories:
       - frame:viewports
       - frame:pre-render
       - render:particles
+      - frame:apply-solvers
+      - frame:render
       approaches:
       - n: 1
         title: XML ParticleEmitter assets taken by id from the engine pool
@@ -5955,6 +5985,14 @@ categories:
         - mods/ksarmory/features/ksa-explosions-from-a-point
         technique: engine-explosion-preset
         note: Preset chosen by fireball size, real ambient pressure for pressure-gated stages.
+      - n: 4
+        title: Own and budget surface dust emitters
+        mod: blasto
+        features:
+        - mods/blasto/features/owned-surface-dust-emitters
+        technique: harmony-postfix, native-particles
+        note: Explain source-verified timing, ownership and failure paths. Distinguish offline validation from live visual
+          confirmation; cover every listed mechanism.
       related:
       - choose-a-render-frame-and-anchor-effects
       - draw-exhaust-plumes-without-an-engine
@@ -6043,6 +6081,54 @@ categories:
       merged_from:
       - edit-exhaust-and-cloud-templates-live
       - lay-volumetric-smoke-trails
+    - slug: blend-persistent-marks-into-terrain
+      title: Blend persistent marks into native terrain materials
+      kind: howto
+      group: vulkan-passes
+      batch: add-blasto
+      summary: Blend persistent marks into native terrain materials, using source-backed export or runtime mechanisms and
+        explicit validation limits.
+      game_types:
+      - KSA.PlanetRenderer
+      - KSA.Celestial
+      - KSA.Camera
+      - Core.Renderer
+      - KSA.ShaderReference
+      - RenderCore.Shaders.ShaderCompilerResolve
+      - Brutal.VulkanApi.VkPhysicalDeviceLimits
+      engine_pointers:
+      - current/decomp/KSA/PlanetRenderer.cs
+      - current/decomp/KSA/Program.cs
+      - current/decomp/Core/Renderer.cs
+      - current/decomp/KSA/Camera.cs
+      - current/Content/Core/Shaders/Planet/Planet.frag
+      - current/Content/Core/Shaders/Planet/PlanetTessEvaluation.tese
+      - current/Content/Core/Shaders/Planet/Planet.vert
+      - current/decomp/RenderCore.Shaders/ShaderCompilerResolve.cs
+      - current/decomp/Brutal.VulkanApi/VkPhysicalDeviceLimits.cs
+      lifecycle:
+      - startup:starmap-before-main
+      - event:renderer-build
+      - frame:prepare
+      - frame:post-render
+      - render:planet
+      approaches:
+      - n: 1
+        title: Blend persistent marks into native terrain materials
+        mod: blasto
+        features:
+        - mods/blasto/features/private-terrain-pipeline-swap
+        - mods/blasto/features/frame-viewport-terrain-buffers
+        - mods/blasto/features/terrain-material-shader-injection
+        - mods/blasto/features/unsigned-vulkan-limit-validation
+        technique: harmony-postfix, harmony-prefix, harmony-transpiler, harmony-finalizer, reflection, vulkan-pipeline,
+          vulkan-buffer, native-interop, glsl-shader
+        note: Explain source-verified timing, ownership and failure paths. Distinguish offline validation from live visual
+          confirmation; cover every listed mechanism.
+      related:
+      - insert-a-custom-pass-into-render-game
+      - query-terrain-height-and-line-of-sight
+      - save-mod-state-with-the-scene
   shaders:
     description: The shader-authoring side of KSA modding - writing GLSL post-processing passes, declaring ShaderExtensions
       assets, feeding them parameters from C#, building common screen effects, compute effects in the HDR scene, and replacing
@@ -7987,10 +8073,11 @@ categories:
       group: models-and-textures
       batch: assets-1
       summary: 'Mods that only need a mesh and a look (props, course pieces, held items, ghost tints) declare bare GltfFile
-        and PbrMaterial assets with no Part or StaticObject, and let code pair them by id at runtime. Covers Source, the Diffuse,
-        Normal and AoRoughMetal texture children, unit conventions, see-through tint materials and sharing one atlas and material
-        across many meshes. Also covers authoring the texture set: the Diffuse, Normal and AoRoughMetal channel rules, baking
-        from Blender, generated palette swatches, flat-colour textures and atlas dilation so mipmaps do not bleed.'
+        and PbrMaterial assets with no Part or StaticObject, and let code pair them by id at runtime. Covers Source, the
+        Diffuse, Normal and AoRoughMetal texture children, unit conventions, see-through tint materials and sharing one
+        atlas and material across many meshes. Also covers authoring the texture set: the Diffuse, Normal and AoRoughMetal
+        channel rules, baking from Blender, generated palette swatches, flat-colour textures and atlas dilation so mipmaps
+        do not bleed.'
       game_types:
       - KSA.AssetBundle
       - KSA.Gltf2Reference
@@ -8002,7 +8089,8 @@ categories:
       - KSA.TextureCategory
       engine_pointers:
       - current/decomp/KSA/Gltf2Reference.cs Source, Usage, Material and Image sub-references
-      - current/decomp/KSA/PbrMaterialReference.cs DiffuseReference, NormalReference, PBRMap, EmissiveMap, ThinFilmMap, AlphaMap
+      - current/decomp/KSA/PbrMaterialReference.cs DiffuseReference, NormalReference, PBRMap, EmissiveMap, ThinFilmMap,
+        AlphaMap
       - current/decomp/KSA/TextureReference.cs Category, IsVirtual
       - current/decomp/KSA/ModLibrary.cs AllGltfs, AllMaterials
       - current/decomp/KSA/PbrMaterialReference.cs
@@ -8012,6 +8100,8 @@ categories:
       lifecycle:
       - startup:asset-load
       - startup:all-mods-loaded
+      - tool:authoring
+      - tool:build
       approaches:
       - n: 1
         title: Bare GltfFile and PbrMaterial assets, one shared atlas and material for many meshes
@@ -8019,14 +8109,14 @@ categories:
         features:
         - mods/ksagolf/features/prop-and-course-asset-xml
         technique: xml-asset
-        note: 'Props authored in centimetres, course pieces in metres, ModLibrary.Get by id after asset load. Show the XML
-          for a mesh, an opaque material and a translucent ghost material, and the two required-channel gotcha (Diffuse, Normal
+        note: 'Props authored in centimetres, course pieces in metres, ModLibrary.Get by id after asset load. Show the XML for a
+          mesh, an opaque material and a translucent ghost material, and the two required-channel gotcha (Diffuse, Normal
           and AoRoughMetal are dereferenced without a null check, see author-pbr-texture-sets). Also: Twelve course pieces
           share one texture atlas and one PbrMaterial, and ghost tints reuse every piece glTF with single-colour materials;
           id naming scheme, PieceCatalogue mapping each piece to its glTF id, chiral pieces as a separate mirrored glTF, and
-          the mip bleed risk that makes atlas dilation matter. Sub-step for the writer: the PBR channel rules (Diffuse, Normal
-          and AoRoughMetal mandatory, R occlusion G roughness B metalness, TextureCategory sets the size cap) get their own
-          section here, absorbed from author-pbr-texture-sets.'
+          the mip bleed risk that makes atlas dilation matter. Sub-step for the writer: the PBR channel rules (Diffuse,
+          Normal and AoRoughMetal mandatory, R occlusion G roughness B metalness, TextureCategory sets the size cap) get
+          their own section here, absorbed from author-pbr-texture-sets.'
       - n: 2
         title: Bake diffuse, normal, ORM and emissive maps from Blender and dilate the atlas
         mod: ksacars
@@ -8040,8 +8130,8 @@ categories:
           channel order, Category Vessel, PNG in every slot, and the validator rule that rejects a material with a missing
           mandatory channel before it crashes the renderer. Also: dilate-atlas.py --key 0,255,0 over the baked PNGs; run it
           between bake and export, after the UV layout is frozen; measured numbers on how much of a neighbouring island a
-          margin overwrote. Sub-step for the writer: dilating the atlas between bake and export (absorbed from dilate-baked-texture-atlas)
-          gets its own section so lower mips do not bleed neighbouring islands.'
+          margin overwrote. Sub-step for the writer: dilating the atlas between bake and export (absorbed from
+          dilate-baked-texture-atlas) gets its own section so lower mips do not bleed neighbouring islands.'
       - n: 3
         title: Generated flat-swatch palette atlas with a JSON swatch map
         mod: ksarmory
@@ -8058,6 +8148,15 @@ categories:
         technique: code-generation
         note: numpy and Pillow write the swatch textures alongside the generated atlas, so the mesh, its UVs and its textures
           come from one script and cannot drift.
+      - n: 5
+        title: Author PBR textures and bake emissive paint into native material assets
+        mod: flexo
+        features:
+        - mods/flexo/features/material-and-ktx2-pipeline
+        - mods/flexo/features/emissive-paint-and-ramp-baking
+        technique: xml-asset, ktx2-texture, channel-packing, texture-painting, texture-compositing
+        note: External browser authoring workflow; distinguish preview and export validation from native asset loading and live
+          in-game verification. Cover every listed reusable mechanism with actionable source-backed steps.
       related:
       - asset-xml-element-reference
       - attach-a-prop-to-a-kitten-bone
@@ -8090,13 +8189,17 @@ categories:
       - KSA.MeshAtlasFileReference
       - KSA.PbrMaterialReference
       - KSA.TransformReference
+      - KSA.Part
       engine_pointers:
       - current/decomp/KSA/MeshAtlasFileReference.cs DoLoad
-      - current/decomp/KSA/PartModelModule.cs, current/decomp/KSA/PartModelGlassModule.cs, current/decomp/KSA/MeshViewModule.cs
+      - current/decomp/KSA/PartModelModule.cs, current/decomp/KSA/PartModelGlassModule.cs,
+        current/decomp/KSA/MeshViewModule.cs
       - current/decomp/KSA/PartTemplate.cs, current/decomp/KSA/SubPartTemplate.cs
       - current/Content/Core/CoreFuelTankAAssets.xml (stock MeshView plus PartModel pattern)
       lifecycle:
       - startup:asset-load
+      - tool:authoring
+      - tool:build
       approaches:
       - n: 1
         title: One atlas per vehicle, one SubPart per moving body, glass and hidden subparts
@@ -8105,8 +8208,8 @@ categories:
         - mods/ksacars/features/car-part-assets-glb-pbr
         technique: glb-model
         note: MeshAtlas registers every glTF mesh by name (first wins, node transforms ignored), AoRoughMetal ORM textures,
-          TextureCategory Vessel, emissive channel for lights, PartModelGlass fixed 0.75 opacity with Fresnel, EditorTag Hidden
-          doors, rotation in radians. Pivot recentring is covered by export-glb-from-blender-for-ksa.
+          TextureCategory Vessel, emissive channel for lights, PartModelGlass fixed 0.75 opacity with Fresnel, EditorTag
+          Hidden doors, rotation in radians. Pivot recentring is covered by export-glb-from-blender-for-ksa.
       - n: 2
         title: Shared palette atlas, _VM preview twins and namespaced subpart ids
         mod: ksarmory
@@ -8114,9 +8217,19 @@ categories:
         - mods/ksarmory/features/weapon-part-definitions-xml
         - mods/ksarmory/features/blender-model-pipeline-and-checks
         technique: xml-asset
-        note: Eleven GLB atlases, the three generated parts sharing one flat palette material, MeshView _VM twin declared
-          beside PartModel as Core does, keeping KSArmory_<name>_SubPart apart from atlas mesh names so ids never collide,
-          and the Assets versus GameData file split (game data detail lives in define-a-part-with-game-data).
+        note: Eleven GLB atlases, the three generated parts sharing one flat palette material, MeshView _VM twin declared beside
+          PartModel as Core does, keeping KSArmory_<name>_SubPart apart from atlas mesh names so ids never collide, and the
+          Assets versus GameData file split (game data detail lives in define-a-part-with-game-data).
+      - n: 3
+        title: Import models and author procedural meshes in a browser asset pipeline
+        mod: flexo
+        features:
+        - mods/flexo/features/gltf-model-import
+        - mods/flexo/features/mesh-atlas-and-picking-export
+        - mods/flexo/features/procedural-mesh-and-surface-authoring
+        technique: glb-model, geometry-normalization, mesh-simplification, procedural-geometry
+        note: External browser authoring workflow; distinguish preview and export validation from native asset loading and live
+          in-game verification. Cover every listed reusable mechanism with actionable source-backed steps.
       related:
       - define-a-part-with-game-data
       - define-and-animate-subparts
@@ -8408,11 +8521,11 @@ categories:
       kind: howto
       group: validation
       batch: assets-1
-      summary: 'A bad mesh id, a mistyped texture path or a malformed XML file is a silent failure in KSA: the part renders
+      summary: "A bad mesh id, a mistyped texture path or a malformed XML file is a silent failure in KSA: the part renders
         untextured, invisible or not at all, with nothing in the log. An offline script cross-checks every id against the
-        mod''s own files and Core''s library, checks paths with exact case and that the XML is listed in mod.toml, and runs
-        from the deploy script and CI. Also covers deserializing an AssetBundle with the game serializer, without registering
-        it, for rule-based checks.'
+        mod's own files and Core's library, checks paths with exact case and that the XML is listed in mod.toml, and runs
+        from the deploy script and CI. Also covers deserializing an AssetBundle with the game serializer, without
+        registering it, for rule-based checks."
       game_types:
       - KSA.AssetBundle
       - KSA.MeshAtlasFileReference
@@ -8423,6 +8536,7 @@ categories:
       - KSA.PartTemplate
       - KSA.PhysicalAtmosphereReference
       - KSA.AtmosphereRenderer
+      - KSA.Mod
       engine_pointers:
       - current/decomp/KSA/Mod.cs LoadAssetBundles (only mod.toml-listed XML is read)
       - current/decomp/KSA/MeshAtlasFileReference.cs DoLoad
@@ -8437,6 +8551,7 @@ categories:
       lifecycle:
       - frame:draw-ui
       - startup:asset-load
+      - tool:build
       approaches:
       - n: 1
         title: check-xml.sh and validate-parts.py with an --offline mode
@@ -8447,10 +8562,10 @@ categories:
         technique: offline-asset-validation
         note: 'Well-formedness, SubPart InstanceOf and Material ids resolving locally or in Core, Mesh ids existing in the
           declared atlas, case-exact paths, duplicate top-level ids, run in deploy.sh and a pre-push check-all. Also (merged
-          from testing-and-tooling/check-and-generate-mod-assets-offline approach 2, "Id and path validation against Core
-          in an art pipeline"): Borrowed from assets. Also GLB bounds from accessor min/max and atlas dilation. Merged from
-          check-glb-meshes-for-z-fighting-offline (Mesh checkers bundled with a GLB authoring contract): Borrowed from assets.
-          Zero UV-area faces, coplanar z-fighting, unmaterialed primitives and bad asset references.'
+          from testing-and-tooling/check-and-generate-mod-assets-offline approach 2, "Id and path validation against Core in
+          an art pipeline"): Borrowed from assets. Also GLB bounds from accessor min/max and atlas dilation. Merged from
+          check-glb-meshes-for-z-fighting-offline (Mesh checkers bundled with a GLB authoring contract): Borrowed from
+          assets. Zero UV-area faces, coplanar z-fighting, unmaterialed primitives and bad asset references.'
       - n: 2
         title: Extended checks for generated geometry, ids named in C# and shared planes
         mod: ksarmory
@@ -8459,12 +8574,12 @@ categories:
         - mods/ksastructures/features/asset-and-mesh-validation-tools
         technique: offline-asset-validation
         note: 'XML not listed in mod.toml, ids declared twice including atlas mesh names, launch geometry disagreeing with
-          muzzles.json, planes shared between two subparts as the XML places them, unsized stacking connectors, ids that appear
-          as string constants in the C#, and compiling GLSL with glslang (shaders owns the shader side). Also (merged from
-          testing-and-tooling/check-and-generate-mod-assets-offline approach 1, "validate-parts.py with check-xml.sh" [ksastructures]):
-          Duplicate ids and collisions, mesh names inside GLB atlases, exact-case paths, shared textures, mod.toml assets
-          and ids referenced in C#. Merged from check-glb-meshes-for-z-fighting-offline (checkmesh.py and meshinfo.py): Coplanar
-          bucket test and degenerate UV detection.'
+          muzzles.json, planes shared between two subparts as the XML places them, unsized stacking connectors, ids that
+          appear as string constants in the C#, and compiling GLSL with glslang (shaders owns the shader side). Also (merged
+          from testing-and-tooling/check-and-generate-mod-assets-offline approach 1, "validate-parts.py with check-xml.sh"
+          [ksastructures]): Duplicate ids and collisions, mesh names inside GLB atlases, exact-case paths, shared textures,
+          mod.toml assets and ids referenced in C#. Merged from check-glb-meshes-for-z-fighting-offline (checkmesh.py and
+          meshinfo.py): Coplanar bucket test and degenerate UV detection.'
       - n: 3
         title: XmlHelper.Serializers lookup, parse only, then pure rules over the object tree
         mod: unscience
@@ -8472,10 +8587,18 @@ categories:
         - mods/unscience/features/parts-now-bundle-validation
         technique: xml-serializer
         note: 'BundleParser fetches the AssetBundle serializer from XmlHelper.Serializers, also parses an XDocument with line
-          info, never calls OnDataLoad, and hands the object tree to isolated validation rules; includes the warning that
-          a fresh XmlSerializer(typeof(AssetBundle)) lacks the overrides and silently drops every part component. Sub-step
-          for the writer: deserializing with XmlHelper.Serializers without OnDataLoad (absorbed from deserialize-asset-bundle-with-game-serializer)
-          gets its own section.'
+          info, never calls OnDataLoad, and hands the object tree to isolated validation rules; includes the warning that a
+          fresh XmlSerializer(typeof(AssetBundle)) lacks the overrides and silently drops every part component. Sub-step for
+          the writer: deserializing with XmlHelper.Serializers without OnDataLoad (absorbed from
+          deserialize-asset-bundle-with-game-serializer) gets its own section.'
+      - n: 4
+        title: Supply catalog assets and regression-test browser exports
+        mod: flexo
+        features:
+        - mods/flexo/features/asset-pipeline-and-regression-tooling
+        technique: asset-pipeline, test-fixtures, browser-smoke-tests
+        note: External browser authoring workflow; distinguish preview and export validation from native asset loading and live
+          in-game verification. Cover every listed reusable mechanism with actionable source-backed steps.
       related:
       - load-and-unload-part-mods-at-runtime
       - find-z-fighting-and-degenerate-uvs-in-glb
@@ -8495,7 +8618,8 @@ categories:
       - deserialize-asset-bundle-with-game-serializer
       - check-and-generate-mod-assets-offline
       - validate-asset-xml-offline
-      note: 'Approaches merged into other topics: "make_flight_atmospheres.py emitting AtmosphereTables.Generated.cs" -> generate-measured-atmosphere-tables-offline.'
+      note: 'Approaches merged into other topics: "make_flight_atmospheres.py emitting AtmosphereTables.Generated.cs" ->
+        generate-measured-atmosphere-tables-offline.'
     - slug: debug-xml-patches
       title: Debug XML patches with the step debugger and the session log
       kind: howto
@@ -8552,6 +8676,87 @@ categories:
       - validate-asset-xml-references
       merged_from:
       - testing-and-tooling/debug-xml-patches
+    - slug: author-native-asset-mods-in-a-browser
+      title: Compose and export native asset-only mods in a browser
+      kind: howto
+      group: asset-xml
+      batch: add-flexo-assets
+      summary: Compose and export native asset-only mods in a browser, using source-backed export or runtime mechanisms and
+        explicit validation limits.
+      game_types:
+      - KSA.Mod
+      - KSA.AssetBundle
+      - KSA.PartTemplate
+      - KSA.TransformReference
+      - KSA.QuaternionEx
+      - KSA.Vector3Reference
+      - KSA.FeedsFromReference
+      - KSA.ConsumerFeedWiring
+      - KSA.AsmbVolumetricMassTemplate
+      - KSA.Tank
+      - KSA.BatteryTemplate
+      - KSA.PowerConsumerTemplate
+      engine_pointers:
+      - current/decomp/KSA/AssetBundle.cs
+      - current/decomp/KSA/Mod.cs
+      - current/decomp/KSA/PartTemplate.cs
+      - current/decomp/KSA/TransformReference.cs
+      - current/decomp/KSA/QuaternionEx.cs
+      - current/decomp/KSA/Vector3Reference.cs
+      - current/decomp/KSA/FeedsFromReference.cs
+      - current/decomp/KSA/ConsumerFeedWiring.cs
+      - current/decomp/KSA/AsmbVolumetricMassTemplate.cs
+      lifecycle:
+      - tool:build
+      - tool:authoring
+      approaches:
+      - n: 1
+        title: Compose and export native asset-only mods in a browser
+        mod: flexo
+        features:
+        - mods/flexo/features/native-asset-mod-export
+        - mods/flexo/features/builtin-part-composition
+        - mods/flexo/features/schema-aware-gamedata-roundtrip
+        - mods/flexo/features/isolated-subpart-variants
+        - mods/flexo/features/coordinate-transform-bridge
+        - mods/flexo/features/connector-and-feed-authoring
+        - mods/flexo/features/mass-and-resource-authoring
+        technique: xml-asset, toml-config, browser-file-system, asset-catalog, schema-passthrough, id-remapping, coordinate-conversion
+        note: External browser authoring workflow; distinguish preview and export validation from native asset loading and live
+          in-game verification. Cover every listed reusable mechanism with actionable source-backed steps.
+      related:
+      - mod-xml-load-order
+      - define-a-part-with-game-data
+      - add-a-part-model-with-glb-and-pbr-textures
+    - slug: author-part-colliders-and-convex-hulls
+      title: Author part colliders and convex-hull assets
+      kind: howto
+      group: asset-xml
+      batch: add-flexo-assets
+      summary: Author part colliders and convex-hull assets, using source-backed export or runtime mechanisms and explicit
+        validation limits.
+      game_types:
+      - KSA.ColliderTemplate
+      - KSA.ConvexHullColliderTemplate
+      engine_pointers:
+      - current/decomp/KSA/ColliderTemplate.cs
+      - current/decomp/KSA/ConvexHullColliderTemplate.cs
+      lifecycle:
+      - tool:authoring
+      - tool:build
+      approaches:
+      - n: 1
+        title: Author part colliders and convex-hull assets
+        mod: flexo
+        features:
+        - mods/flexo/features/collider-authoring-and-coverage
+        - mods/flexo/features/convex-hull-atlas-import
+        technique: xml-asset, geometry-validation, glb-model, binary-accessor
+        note: External browser authoring workflow; distinguish preview and export validation from native asset loading and live
+          in-game verification. Cover every listed reusable mechanism with actionable source-backed steps.
+      related:
+      - add-a-part-model-with-glb-and-pbr-textures
+      - validate-asset-xml-references
   physics:
     description: Forces, drag and aero, wheels and suspension, colliders, Bepu, custom motion, terrain contact and physics-safe
       mutation of simulated state, including patches inside the worker-thread vehicle solver.
@@ -8647,9 +8852,9 @@ categories:
       kind: howto
       group: solver
       batch: physics-1
-      summary: Patches on ComputeDerivatives, the atmosphere functions, the flight computer or the constraint sim run on vehicle
-        worker threads, per substep, possibly several at once. This topic collects the patterns the mods use to share data
-        with them without locks, allocation or exceptions.
+      summary: Patches inside vehicle workers run at their target method cadence, including module steps and derivative
+        substeps, possibly concurrently. Compare allocation-conscious calculations, thread-local state and bounded immutable
+        sample handoff to the settled main-thread window; keep UI and rendering out of worker callbacks.
       game_types:
       - KSA.PhysicsStates
       - KSA.PhysicsBubble
@@ -8658,6 +8863,9 @@ categories:
       - KSA.ConstraintSim
       - KSA.KittenLocomotion
       - KSA.FlightComputer
+      - KSA.VehicleUpdateState
+      - KSA.RocketNozzleState
+      - KSA.Universe
       engine_pointers:
       - current/decomp/KSA/VehicleUpdateTask.cs
       - current/decomp/KSA/PhysicsBubble.cs
@@ -8666,6 +8874,7 @@ categories:
       - physics:vehicle-solver
       - physics:bepu
       - frame:dispatch-solvers
+      - frame:apply-solvers
       approaches:
       - n: 1
         title: Pure, allocation-free, never-throwing code over the in arguments
@@ -8684,8 +8893,8 @@ categories:
         - mods/realatmospheres/features/measured-flight-atmospheres
         - mods/ksastructures/features/dry-volume-below-sea-level
         technique: reflection
-        note: ConditionalWeakTable keyed on the game's reference object, populated in a load-time postfix, read by allocation-free
-          prefixes on the worker. Also volatile array swaps for data that changes at runtime.
+        note: ConditionalWeakTable keyed on the game's reference object, populated in a load-time postfix, read by
+          allocation-free prefixes on the worker. Also volatile array swaps for data that changes at runtime.
       - n: 3
         title: Concurrent registries keyed by reference
         mod: unscience
@@ -8693,8 +8902,8 @@ categories:
         - mods/unscience/features/kitchen-sink-g-load-protection
         - mods/unscience/features/the-tick-vessel-indestructibility
         technique: reflection
-        note: ConcurrentDictionary with ReferenceEqualityComparer written by the UI and read by workers, an IsDisposed check
-          on read and a per-frame prune on the main thread.
+        note: ConcurrentDictionary with ReferenceEqualityComparer written by the UI and read by workers, an IsDisposed check on
+          read and a per-frame prune on the main thread.
       - n: 4
         title: Volatile snapshot handoff from worker patches to the main thread
         mod: ksagolf
@@ -8702,25 +8911,34 @@ categories:
         - mods/ksagolf/features/course-colliders-as-clutter
         - mods/ksastructures/features/first-person-kitten-view
         technique: worker-thread-patch
-        note: Worker prefixes on ConstraintSim passes and KittenLocomotion.StepGrounded read an immutable snapshot published
-          by the main thread and write results through volatile fields; one sim per prefix call, no shared mutable state.
+        note: Worker prefixes on ConstraintSim passes and KittenLocomotion.StepGrounded read an immutable snapshot published by
+          the main thread and write results through volatile fields; one sim per prefix call, no shared mutable state.
       - n: 5
         title: Identify the vehicle a callback runs for with a ThreadStatic set in a prefix and cleared in a finalizer
         mod: ksastructures
         features:
         - mods/ksastructures/features/terrain-height-roof-override
         technique: harmony-finalizer
-        note: Functions like GetTerrainHeightFromDirCce do not receive the vehicle. A Priority.First prefix on Vehicle.PrepareWorker
-          sets a thread-static and a Priority.Last finalizer clears it, so later patches can tell vehicle-driven calls from
-          camera and UI calls.
+        note: Functions like GetTerrainHeightFromDirCce do not receive the vehicle. A Priority.First prefix on
+          Vehicle.PrepareWorker sets a thread-static and a Priority.Last finalizer clears it, so later patches can tell
+          vehicle-driven calls from camera and UI calls.
       - n: 6
         title: Immutable commands published before the solver job is queued
         mod: ksa-advancedflightcomputer
         features:
         - mods/ksa-advancedflightcomputer/features/flight-computer-command-sink
         technique: harmony-postfix
-        note: A single postfix on FlightComputer.ComputeControl runs every mod actuator writer on the worker, each consuming
-          an immutable command handed over at PrepareWorker time, with wake and off-rails requests merged into the stock output.
+        note: A single postfix on FlightComputer.ComputeControl runs every mod actuator writer on the worker, each consuming an
+          immutable command handed over at PrepareWorker time, with wake and off-rails requests merged into the stock
+          output.
+      - n: 7
+        title: Sample nozzle thrust on the solver and hand exposure to the main thread
+        mod: blasto
+        features:
+        - mods/blasto/features/worker-nozzle-exposure-handoff
+        technique: harmony-postfix, background-thread
+        note: Explain source-verified timing, ownership and failure paths. Distinguish offline validation from live visual
+          confirmation; cover every listed mechanism.
       related:
       - mutate-vehicles-at-a-physics-safe-point
       - replace-the-stock-aerodynamic-force-model
@@ -10394,14 +10612,15 @@ categories:
       group: parts
       batch: vehicles-and-parts-1
       summary: Declare IVASeat entries and EVADoor modules on mesh-less hidden subparts, pair them by SeatId, understand the
-        eye offset and the 1 m boarding reach, and keep kittens in an open craft visible when another vehicle is the controlled
-        one.
+        eye offset and the 1 m boarding reach, and keep kittens in an open craft visible when another vehicle is the
+        controlled one.
       game_types:
       - KSA.IVASeat
       - KSA.EVADoor
       - KSA.EVADoorTemplate
       - KSA.KittenEva
       - KSA.Vehicle
+      - KSA.Vector3Reference
       engine_pointers:
       - current/decomp/KSA/IVASeat.cs
       - current/decomp/KSA/EVADoor.cs
@@ -10409,6 +10628,8 @@ categories:
       lifecycle:
       - startup:asset-load
       - frame:render
+      - tool:authoring
+      - tool:build
       approaches:
       - n: 1
         title: IVASeat in PartGameData plus EVADoor on a hidden subpart
@@ -10424,12 +10645,21 @@ categories:
         - mods/ksastructures/features/office-furniture-craft
         technique: xml-asset
         note: Same schema on a chair part; shows the minimum viable seat and door.
+      - n: 3
+        title: Author IVA seats and validate their transforms before exporting XML
+        mod: flexo
+        features:
+        - mods/flexo/features/iva-seat-authoring
+        technique: xml-asset, coordinate-conversion
+        note: External browser authoring workflow; distinguish preview and export validation from native asset loading and live
+          in-game verification. Cover every listed reusable mechanism with actionable source-backed steps.
       related:
       - define-a-part-with-game-data
       - spawn-an-eva-kitten-from-code
       - take-control-of-another-vehicle
       - animate-and-draw-seated-kitten-crew
-      note: 'Approaches merged into other topics: "Draw seated crew on craft that are not being flown" -> animate-and-draw-seated-kitten-crew.'
+      note: 'Approaches merged into other topics: "Draw seated crew on craft that are not being flown" ->
+        animate-and-draw-seated-kitten-crew.'
     - slug: evolve-a-shipped-part-without-breaking-saves
       title: Change a shipped part without breaking saves
       kind: howto
@@ -10494,6 +10724,7 @@ categories:
       - KSA.SubPartTemplate
       - KSA.PartTree
       - KSA.SubPart
+      - KSA.KeyframeAnimationData
       engine_pointers:
       - current/decomp/KSA/Part.cs PositionParentAsmb, Asmb2ParentAsmb, ResetCachedPosMatrixValues
       - current/decomp/KSA/SubPartTemplate.cs
@@ -10504,6 +10735,8 @@ categories:
       - frame:after-on-frame
       - frame:celestials
       - frame:viewports
+      - tool:authoring
+      - tool:build
       approaches:
       - n: 1
         title: Pose wheels, arms and blades from StarMapAfterGui with a hidden-UI fallback
@@ -10513,9 +10746,9 @@ categories:
         - mods/ksacars/features/car-part-assets-glb-pbr
         technique: starmap-lifecycle
         note: 'Author the subparts in the GLB/XML, then FrameLatch plus StarMapAfterOnFrame fallback; hiding a subpart. Also
-          (merged from rendering/animate-subparts-from-code approach 1, "Write transforms and reset caches from StarMapAfterGui
-          with a frame latch"): Wheels, coil-overs, steering wheel, iris blades; FrameLatch with a StarMapAfterOnFrame fallback
-          when the HUD is hidden.'
+          (merged from rendering/animate-subparts-from-code approach 1, "Write transforms and reset caches from
+          StarMapAfterGui with a frame latch"): Wheels, coil-overs, steering wheel, iris blades; FrameLatch with a
+          StarMapAfterOnFrame fallback when the HUD is hidden.'
       - n: 2
         title: Articulated turret mounts, rate-limited, with sibling chains
         mod: ksarmory
@@ -10538,9 +10771,18 @@ categories:
         - mods/ksarmory/features/articulated-mount-subparts
         technique: scale-to-hide
         note: '[folded from hide-show-and-fly-subparts-as-projectiles: give it its own section] Anchor to the tube and add
-          travel since launch. Also (merged from rendering/animate-subparts-from-code approach 2, "Projectiles as hidden launcher
-          subparts placed at the simulated position"): Transform in Ego relative to the tube plus travel since launch; sim/render
-          split.'
+          travel since launch. Also (merged from rendering/animate-subparts-from-code approach 2, "Projectiles as hidden
+          launcher subparts placed at the simulated position"): Transform in Ego relative to the tube plus travel since
+          launch; sim/render split.'
+      - n: 5
+        title: Author and import keyframe clips and bake native GLB animations
+        mod: flexo
+        features:
+        - mods/flexo/features/keyframe-animation-authoring
+        - mods/flexo/features/animation-import-and-linear-baking
+        technique: glb-model, keyframe-animation, matrix-composition, animation-baking, curve-fitting
+        note: External browser authoring workflow; distinguish preview and export validation from native asset loading and live
+          in-game verification. Cover every listed reusable mechanism with actionable source-backed steps.
       related:
       - ray-cast-against-vessel-meshes-and-terrain
       - evolve-a-shipped-part-without-breaking-saves
@@ -11418,6 +11660,57 @@ categories:
       - classify-threats-by-closest-point-of-approach
       - model-radar-search-and-lock
       - gate-automation-with-an-explainable-ladder
+    - slug: design-engine-game-data
+      title: Design engine GameData and solid-motor grains
+      kind: howto
+      group: staging-and-engines
+      batch: add-flexo-workflows
+      summary: Design engine GameData and solid-motor grains, using source-backed export or runtime mechanisms and explicit
+        validation limits.
+      game_types:
+      - KSA.RocketTemplate
+      - KSA.CombustorTemplate
+      - KSA.DeLavalNozzleConfig
+      - KSA.PartTemplate
+      - KSA.RocketThrusterControllerTemplate
+      - KSA.GimbalController
+      - KSA.SolidMotor
+      - KSA.SolidMotorTemplate
+      - KSA.SolidGrainSegment
+      - KSA.SolidMotorNozzle
+      - KSA.PartTree
+      - KSA.GrainGeometryTemplate
+      engine_pointers:
+      - current/decomp/KSA/RocketTemplate.cs
+      - current/decomp/KSA/CombustorTemplate.cs
+      - current/decomp/KSA/DeLavalNozzleConfig.cs
+      - current/decomp/KSA/PartTemplate.cs
+      - current/decomp/KSA/RocketThrusterControllerTemplate.cs
+      - current/decomp/KSA/GimbalController.cs
+      - current/decomp/KSA/SolidMotor.cs
+      - current/decomp/KSA/SolidMotorTemplate.cs
+      - current/decomp/KSA/SolidGrainSegment.cs
+      - current/decomp/KSA/GrainGeometryTemplate.cs
+      - current/decomp/KSA/SolidMotorNozzle.cs
+      - current/decomp/KSA/PartTree.cs
+      lifecycle:
+      - tool:authoring
+      approaches:
+      - n: 1
+        title: Design engine GameData and solid-motor grains
+        mod: flexo
+        features:
+        - mods/flexo/features/engine-design-and-validation
+        - mods/flexo/features/propulsion-design-wizards
+        - mods/flexo/features/solid-motor-grain-design
+        technique: xml-asset, pure-model, numerical-preview, scoped-references, transactional-editing, procedural-geometry,
+          lookup-table, numerical-integration
+        note: External browser authoring workflow; distinguish preview and export validation from native asset loading and live
+          in-game verification. Cover every listed reusable mechanism with actionable source-backed steps.
+      related:
+      - compute-engine-thrust-at-ambient-pressure
+      - define-a-part-with-game-data
+      - author-native-asset-mods-in-a-browser
   flight-and-orbits:
     description: Reading a vehicle's flight state and orbit, working in KSA's coordinate frames and epochs, driving the flight
       computer and burns from a mod, extending the stock Transfer Planner, transfer and encounter math, targets, map-view
@@ -14397,12 +14690,12 @@ categories:
       kind: howto
       group: terrain
       batch: celestials-1
-      summary: 'KSA has no terrain raycast a mod can use; it has Celestial.GetTerrainHeightFromDirCcf/Cce/Cci(direction, accurate),
-        returning metres above MeanRadius along a direction from the body centre. This topic covers picking the frame entry
-        point, clamping to sea level, what the accurate flag drops (every procedural modifier, including levelling decals)
-        and how to keep accurate queries affordable, and builds on it a line-of-sight test: sphere test first, then fixed-budget
-        sampling of the band below the terrain ceiling, or a radar-horizon mask. Also covers reading the height directly below
-        a craft with the Ccf overload for hover and touchdown.'
+      summary: 'KSA has no terrain raycast a mod can use; it has Celestial.GetTerrainHeightFromDirCcf/Cce/Cci(direction,
+        accurate), returning metres above MeanRadius along a direction from the body centre. This topic covers picking the
+        frame entry point, clamping to sea level, what the accurate flag drops (every procedural modifier, including
+        levelling decals) and how to keep accurate queries affordable, and builds on it a line-of-sight test: sphere test
+        first, then fixed-budget sampling of the band below the terrain ceiling, or a radar-horizon mask. Also covers
+        reading the height directly below a craft with the Ccf overload for hover and touchdown.'
       game_types:
       - KSA.Celestial
       - KSA.Astronomical
@@ -14434,6 +14727,7 @@ categories:
       - frame:celestials
       - frame:after-on-frame
       - frame:dispatch-solvers
+      - frame:apply-solvers
       approaches:
       - n: 1
         title: Ccf versus Cce entry points, sea clamp, and a no-claim result type; Document what accurate changes and sample
@@ -14442,26 +14736,27 @@ categories:
         features:
         - mods/ksagolf/features/terrain-height-queries
         technique: custom-physics
-        note: 'Cce direction from position minus centre in Ecl (Cce shares ecliptic axes), Ccf for body-fixed positions; passing
-          one to the other rotates by the planet''s current phase; sea detected by OceanReference non-null with Density >
-          0, never IsValid; ITerrainHeights.TryHeight false means no claim, never zero. Bicubic vs bilinear, modifier loop
-          gated, early returns when no heightmap or biome materials, single-precision direction pack giving a third of a metre
-          staircase on Earth; physics samples accurate true with a 0.25 m arc reuse; TerrainImpactFinder samples false. Sub-step
-          of the height-query topic: what accurate true/false changes and how to cache; give it its own section. LineOfSight
-          (segment vs sphere strictly between endpoints, horizon range as the sum of tangent lengths) and TerrainMask.TryBandBelow
-          solving the quadratic; no-claim samples treated as unknown, not zero. Ceiling bound: MaxTerrainRadius - MeanRadius
-          + 8,000 m, not MaxTerrainHeightApprox. Sub-step: line of sight built on the height query; give it its own section.'
+        note: "Cce direction from position minus centre in Ecl (Cce shares ecliptic axes), Ccf for body-fixed positions; passing
+          one to the other rotates by the planet's current phase; sea detected by OceanReference non-null with Density > 0,
+          never IsValid; ITerrainHeights.TryHeight false means no claim, never zero. Bicubic vs bilinear, modifier loop
+          gated, early returns when no heightmap or biome materials, single-precision direction pack giving a third of a
+          metre staircase on Earth; physics samples accurate true with a 0.25 m arc reuse; TerrainImpactFinder samples
+          false. Sub-step of the height-query topic: what accurate true/false changes and how to cache; give it its own
+          section. LineOfSight (segment vs sphere strictly between endpoints, horizon range as the sum of tangent lengths)
+          and TerrainMask.TryBandBelow solving the quadratic; no-claim samples treated as unknown, not zero. Ceiling bound:
+          MaxTerrainRadius - MeanRadius + 8,000 m, not MaxTerrainHeightApprox. Sub-step: line of sight built on the height
+          query; give it its own section."
       - n: 2
-        title: Answer as a body centre and surface radius, pick the body by depth below the mean sphere; Radar horizon mask
-          over non-accurate height samples
+        title: Answer as a body centre and surface radius, pick the body by depth below the mean sphere; Radar horizon mask over
+          non-accurate height samples
         mod: ksarmory
         features:
         - mods/ksarmory/features/terrain-ground-impact-test
         technique: terrain-query
-        note: 'IGroundTest.TryGround returns centreEcl and surfaceRadius so a round tests its height every sub-step by subtraction;
-          nearest body by depth below MeanRadius with last-body caching; any exception or non-finite answers false. TerrainHeights(body)
-          with accurate false via KsaWorld.IsHiddenByTerrain, tens of samples per contact per scan. Sub-step: line of sight
-          built on the height query; give it its own section.'
+        note: 'IGroundTest.TryGround returns centreEcl and surfaceRadius so a round tests its height every sub-step by
+          subtraction; nearest body by depth below MeanRadius with last-body caching; any exception or non-finite answers
+          false. TerrainHeights(body) with accurate false via KsaWorld.IsHiddenByTerrain, tens of samples per contact per
+          scan. Sub-step: line of sight built on the height query; give it its own section.'
       - n: 3
         title: Cache decorator that reuses a sample until near the ground or moved
         mod: ksarmory
@@ -14478,11 +14773,19 @@ categories:
         features:
         - mods/ksa-advancedflightcomputer/features/terminal-hover-touchdown
         technique: harmony-prefix
-        note: 'Sub-step folded from query-terrain-height-under-a-point (give it its own section): Ask a celestial for the
-          ground height under a direction vector, choose between the Ccf and Cce overloads and between fast and accurate sampling,
-          and use it for hover and touchdown. Rotate the position into the body-fixed frame and use the Ccf overload; non-finite
-          results fall back to zero. Also cover the Ccf versus Cce overloads and fast versus accurate (bicubic with procedural
-          modifiers) sampling, using the per-wheel Cce accurate call as the contrast.'
+        note: 'Sub-step folded from query-terrain-height-under-a-point (give it its own section): Ask a celestial for the ground
+          height under a direction vector, choose between the Ccf and Cce overloads and between fast and accurate sampling,
+          and use it for hover and touchdown. Rotate the position into the body-fixed frame and use the Ccf overload;
+          non-finite results fall back to zero. Also cover the Ccf versus Cce overloads and fast versus accurate (bicubic
+          with procedural modifiers) sampling, using the per-wheel Cce accurate call as the contrast.'
+      - n: 5
+        title: Intersect exhaust rays with terrain and classify dry surfaces
+        mod: blasto
+        features:
+        - mods/blasto/features/terrain-plume-intersection
+        technique: harmony-postfix, custom-physics
+        note: Explain source-verified timing, ownership and failure paths. Distinguish offline validation from live visual
+          confirmation; cover every listed mechanism.
       related:
       - measure-slope-and-detect-ground-contact-on-terrain
       - override-terrain-height-for-roofs-and-platforms
@@ -14633,9 +14936,9 @@ categories:
       batch: celestials-1
       summary: Static objects declared in XML are stood on a planet by LandmarkReferences in the body template's Locations
         list; adding an IsLaunchPad landmark in code before the engine resolves static objects gets a multi-part building
-        with render models and Bepu colliders kittens can walk on. The engine culls it from inside a dug pit (terrain sampled
-        with accurate false), so a postfix can redraw it per viewport; and anything stood on the ground must be anchored in
-        the body-fixed frame so it follows rotation, survives floating-origin shifts and restores from a save.
+        with render models and Bepu colliders kittens can walk on. The engine culls it from inside a dug pit (terrain
+        sampled with accurate false), so a postfix can redraw it per viewport; and anything stood on the ground must be
+        anchored in the body-fixed frame so it follows rotation, survives floating-origin shifts and restores from a save.
       game_types:
       - KSA.LandmarkReference
       - KSA.LocationReference
@@ -14653,6 +14956,7 @@ categories:
       - KSA.IViewport
       - KSA.JobSystems
       - KSA.Universe
+      - KSA.SystemTemplate
       engine_pointers:
       - current/decomp/KSA/LandmarkReference.cs
       - current/decomp/KSA/LocationReference.cs GetAxesCcf, UpdateStaticObjectRenderData
@@ -14674,20 +14978,22 @@ categories:
       - frame:draw-ui
       - event:save
       - event:load
+      - tool:authoring
+      - tool:build
       approaches:
       - n: 1
-        title: Append IsLaunchPad LandmarkReferences to Earth's CelestialTemplate at StarMapAllModsLoaded; Postfix UpdateStaticObjectRenderData
-          and call StaticObject.UpdateRenderData with your own matrix
+        title: Append IsLaunchPad LandmarkReferences to Earth's CelestialTemplate at StarMapAllModsLoaded; Postfix
+          UpdateStaticObjectRenderData and call StaticObject.UpdateRenderData with your own matrix
         mod: ksastructures
         features:
         - mods/ksastructures/features/office-landmarks-static-objects
         technique: xml-asset
-        note: 'StaticSubObject + StaticObject XML with GroundOffset, SurfaceHeight, FootprintRadius; Latitude and Longitude
-          as RadianReferences and OnDataLoad(Mod.Empty) to compute ForwardCcf; AllModsLoaded precedes AttachGameData so ResolveAll
-          picks the landmark up; asset frame +X up, +Y east, +Z north; the nearest launch pad within 300 m is a body''s only
-          static collider (use it as a doorway). Runs inside Program.Render per visible viewport; same matrix the engine would
-          have built (axes plus up * GroundOffset); only when the tangent-plane cull hid it. Sub-step of the landmark approach:
-          redraw when the engine culls the object; give it its own section.'
+        note: "StaticSubObject + StaticObject XML with GroundOffset, SurfaceHeight, FootprintRadius; Latitude and Longitude as
+          RadianReferences and OnDataLoad(Mod.Empty) to compute ForwardCcf; AllModsLoaded precedes AttachGameData so
+          ResolveAll picks the landmark up; asset frame +X up, +Y east, +Z north; the nearest launch pad within 300 m is a
+          body's only static collider (use it as a doorway). Runs inside Program.Render per visible viewport; same matrix
+          the engine would have built (axes plus up * GroundOffset); only when the tangent-plane cull hid it. Sub-step of
+          the landmark approach: redraw when the engine culls the object; give it its own section."
       - n: 2
         title: GroundAnchor (Celestial, Ccf position, normal) composed each frame into a camera-relative matrix
         mod: unscience
@@ -14696,10 +15002,10 @@ categories:
         - mods/unscience/features/sphinx-static-object-render-hooks
         technique: glb-model
         note: 'FrameCcf x Ccf2Cce x translation(camera.GetPositionEgo(body)); east from UnitZ x radial with a pole fallback;
-          placed by terrain click or beside a vessel after waiting for solvers; drawn through postfixes on StaticObjectRenderer;
-          restored from scene saves. PlacementMath.GroundedLocal (scale 0.01 to 1000 per axis, rotations X Y Z in degrees)
-          grounds and centres from the import bounds; tested with 200 random cases. Distinct problem within the topic: anchoring
-          mod-drawn models (not landmarks) in the body-fixed frame.'
+          placed by terrain click or beside a vessel after waiting for solvers; drawn through postfixes on
+          StaticObjectRenderer; restored from scene saves. PlacementMath.GroundedLocal (scale 0.01 to 1000 per axis,
+          rotations X Y Z in degrees) grounds and centres from the import bounds; tested with 200 random cases. Distinct
+          problem within the topic: anchoring mod-drawn models (not landmarks) in the body-fixed frame.'
       - n: 3
         title: Course frame anchored at the kitten and saved as latitude, longitude, heading and floor height
         mod: ksagolf
@@ -14712,6 +15018,15 @@ categories:
           plus 2 cm and releveled to the highest corner; saved as lat/lon/heading/floor height above ground rather than an
           absolute radius; meshes drawn per viewport after ClearBuckets with Ccf2Cce plus ego translation. Distinct problem
           within the topic: anchoring mod-drawn models (not landmarks) in the body-fixed frame.'
+      - n: 4
+        title: Compose static objects and export launch sites into system XML
+        mod: flexo
+        features:
+        - mods/flexo/features/static-object-composition
+        - mods/flexo/features/launch-site-system-export
+        technique: xml-asset, template-composition, coordinate-adapter, reference-remapping
+        note: External browser authoring workflow; distinguish preview and export validation from native asset loading and live
+          in-game verification. Cover every listed reusable mechanism with actionable source-backed steps.
       related:
       - exclude-or-replace-ground-clutter
       - add-terrain-decals-and-dig-a-site
@@ -14732,9 +15047,9 @@ categories:
       kind: howto
       group: terrain
       batch: celestials-1
-      summary: KSA clears ground clutter only around the first four launch pads in a body's Locations list, so a mod-added
-        pad needs its exclusion zones refilled by a postfix (the zones are baked at load). Separately, chosen clutter types
-        on one body can be swapped for imported models with their own materials, scale and colliders by building private native
+      summary: KSA clears ground clutter only around the first four launch pads in a body's Locations list, so a mod-added pad
+        needs its exclusion zones refilled by a postfix (the zones are baked at load). Separately, chosen clutter types on
+        one body can be swapped for imported models with their own materials, scale and colliders by building private native
         clutter bundles at the solver-dispatch window, with originals kept for exact undo; and since KSA 5447, knocked-out
         or displaced instances must be remembered per grid spacing and replayed across swaps and saves.
       game_types:
@@ -14757,6 +15072,9 @@ categories:
       - KSA.BubbleClutterStatics
       - KSA.CelestialTemplate
       - KSA.GameSave
+      - KSA.AssetBundle
+      - KSA.SerializedReference
+      - KSA.SystemTemplate
       engine_pointers:
       - current/decomp/KSA/GroundClutterPlacementData.cs PopulateLaunchPadExclusionZones, BuildEcotypeData
       - current/decomp/KSA/ClutterEcotypeRenderData.cs BuildRenderResources
@@ -14765,7 +15083,8 @@ categories:
       - current/decomp/KSA/GroundClutterRenderer.cs RebuildFrameResources, Dispose
       - current/decomp/KSA/GroundClutterPlacementData.cs
       - current/decomp/KSA/GroundClutterLodReference.cs BuildMaterialIndirection (private)
-      - current/decomp/KSA/GroundClutterPlacementData.cs SerializeSave, DeserializeDisplacedObject, ExcludeCell, GetExclusionData
+      - current/decomp/KSA/GroundClutterPlacementData.cs SerializeSave, DeserializeDisplacedObject, ExcludeCell,
+        GetExclusionData
       - current/decomp/KSA/GroundClutterRenderer.cs ExclusionData, QueueExclusionUpload
       - current/decomp/KSA/Universe.cs SyncGroundClutter
       lifecycle:
@@ -14776,6 +15095,7 @@ categories:
       - event:renderer-rebuild
       - event:load
       - event:save
+      - tool:build
       approaches:
       - n: 1
         title: Harmony postfix on the private PopulateLaunchPadExclusionZones with ____celestial injection
@@ -14793,20 +15113,29 @@ categories:
         - mods/unscience/features/pebbles-ground-clutter-replacement
         - mods/unscience/features/pebbles-private-clutter-materials
         technique: harmony-prefix
-        note: 'Wait for the cloth and vehicle workers, swap placement data and bubble statics in one window; postfix RebuildFrameResources
-          and prefix Dispose so a renderer recreation rebuilds or releases the override; HiddenUiFrameHook replays updates
-          while the HUD is hidden. Collider authoring and GLB import are the physics and assets topics. Distinct problem within
-          the topic: replacing clutter meshes, materials and colliders.'
+        note: 'Wait for the cloth and vehicle workers, swap placement data and bubble statics in one window; postfix
+          RebuildFrameResources and prefix Dispose so a renderer recreation rebuilds or releases the override;
+          HiddenUiFrameHook replays updates while the HUD is hidden. Collider authoring and GLB import are the physics and
+          assets topics. Distinct problem within the topic: replacing clutter meshes, materials and colliders.'
       - n: 3
         title: Per-grid memory with AND-merge, public-API snapshot and replay, native plus sidecar saves
         mod: unscience
         features:
         - mods/unscience/features/pebbles-clutter-state-persistence
         technique: save-sidecar
-        note: 'Memory keyed by ecotype and separation; removed instances are never resurrected; snapshot before BubbleClutterStatics.Clear
-          so in-flight objects keep pose and velocity; replay skips slots that no longer exist; native saves cover stock grids,
-          the sidecar covers override-only grids. Sub-step of the replacement approach: carrying knocked-out and displaced
-          instances across swaps and saves; give it its own section.'
+        note: 'Memory keyed by ecotype and separation; removed instances are never resurrected; snapshot before
+          BubbleClutterStatics.Clear so in-flight objects keep pose and velocity; replay skips slots that no longer exist;
+          native saves cover stock grids, the sidecar covers override-only grids. Sub-step of the replacement approach:
+          carrying knocked-out and displaced instances across swaps and saves; give it its own section.'
+      - n: 4
+        title: Audit and update an offline ground-clutter generator for current asset contracts
+        mod: flexo
+        features:
+        - mods/flexo/features/offline-ground-clutter-generation
+        technique: xml-asset, glb-model, texture-atlas, offline-generation
+        note: The implemented Flexo generator targets an older game contract. Explain current-build material registration and
+          random-selection mismatches; show source-grounded adaptation or explicit unresolved steps. Do not present
+          unmodified generated output as validated for the pinned game.
       related:
       - place-static-objects-on-a-planet-surface
       - add-terrain-decals-and-dig-a-site
@@ -16837,6 +17166,30 @@ categories:
       - draw-a-different-skinned-pose-into-the-shadow-pass
       - hide-a-kitten-from-its-own-first-person-view
       - keep-the-shadow-of-a-hidden-body
+    - slug: bake-kitten-poses-as-static-meshes
+      title: Bake kitten poses into static asset meshes
+      kind: howto
+      group: appearance
+      batch: add-flexo-workflows
+      summary: Bake kitten poses into static asset meshes, using source-backed export or runtime mechanisms and explicit
+        validation limits.
+      game_types: []
+      engine_pointers: []
+      lifecycle:
+      - tool:authoring
+      - tool:build
+      approaches:
+      - n: 1
+        title: Bake kitten poses into static asset meshes
+        mod: flexo
+        features:
+        - mods/flexo/features/kitten-pose-baking
+        technique: glb-model, cpu-pose-baking
+        note: External browser authoring workflow; distinguish preview and export validation from native asset loading and live
+          in-game verification. Cover every listed reusable mechanism with actionable source-backed steps.
+      related:
+      - reach-a-kittens-avatar-and-skeleton
+      - add-a-part-model-with-glb-and-pbr-textures
   persistence:
     description: Where a mod keeps its files, how it reads and writes settings (ini, json, toml), and how it ties its own
       data to KSA's native saves - detecting loads and saves, sidecars, scene records, stable ids, window layouts and user
@@ -17092,11 +17445,11 @@ categories:
       group: saves
       batch: persistence-1
       summary: 'For many features with native objects to rebuild, capture each feature as a versioned JSON record at save
-        time, validate every record before the world is touched on load, reset old ownership in reverse order, replay restores
-        in order after KSA rebuilds the world, and retain records that cannot be restored. The third approach is the mechanism
-        underneath: patch GameSave.Populate, UncompressedSave.Write and Load, and Universe.DeserializeSave and LoadSystem
-        to publish capture, write, reset and restore callbacks, validate incoming data before anything is destroyed, and replay
-        world replacement at the PrepareFrame handoff.'
+        time, validate every record before the world is touched on load, reset old ownership in reverse order, replay
+        restores in order after KSA rebuilds the world, and retain records that cannot be restored. The third approach is
+        the mechanism underneath: patch GameSave.Populate, UncompressedSave.Write and Load, and Universe.DeserializeSave and
+        LoadSystem to publish capture, write, reset and restore callbacks, validate incoming data before anything is
+        destroyed, and replay world replacement at the PrepareFrame handoff.'
       game_types:
       - KSA.GameSave
       - KSA.UncompressedSave
@@ -17105,6 +17458,7 @@ categories:
       - KSA.GameSaves
       - KSA.JobSystems
       - KSA.Program
+      - KSA.PlanetRenderer
       engine_pointers:
       - current/decomp/KSA/GameSave.cs Populate
       - current/decomp/KSA/UncompressedSave.cs Write, Load
@@ -17118,6 +17472,9 @@ categories:
       - frame:prepare
       - frame:draw-ui
       - frame:input
+      - frame:apply-solvers
+      - event:game-dispose
+      - event:starmap-unload
       approaches:
       - n: 1
         title: ISaveParticipant records through a game-independent coordinator
@@ -17137,8 +17494,8 @@ categories:
         - mods/unscience/features/unscience-scene-save-sidecar
         technique: save-sidecar
         note: Populate postfix stores the document in a ConditionalWeakTable keyed by the GameSave, the Write postfix publishes
-          it only when the native write succeeded, a write without a capture is reported rather than filled with fresh state,
-          and a missing sidecar means reset everything, restore nothing.
+          it only when the native write succeeded, a write without a capture is reported rather than filled with fresh
+          state, and a missing sidecar means reset everything, restore nothing.
       - n: 3
         title: Eight static callbacks over five patched methods, loads replayed at the frame handoff
         mod: unscience
@@ -17146,8 +17503,20 @@ categories:
         - mods/unscience/features/lib-native-save-hooks
         technique: harmony-prefix
         note: Exact-signature binding with rollback on failure, the deferral prefix that re-queues the same native call, worker
-          joins before reset, preflight validation of incoming UniverseData, finalizers that turn silent native read failures
-          into errors, and per-callback try/catch isolation. Includes the call-chain table from console, windows and multiplayer.
+          joins before reset, preflight validation of incoming UniverseData, finalizers that turn silent native read
+          failures into errors, and per-callback try/catch isolation. Includes the call-chain table from console, windows
+          and multiplayer.
+      - n: 4
+        title: Persist body-fixed exposure sites with save-bound sidecar transactions
+        mod: blasto
+        features:
+        - mods/blasto/features/persistent-exposure-site-store
+        - mods/blasto/features/save-bound-sidecar-transactions
+        - mods/blasto/features/scene-reset-and-native-cleanup
+        technique: spatial-index, immutable-snapshot, harmony-postfix, harmony-prefix, harmony-finalizer, save-sidecar,
+          json-config, starmap-lifecycle
+        note: Explain source-verified timing, ownership and failure paths. Distinguish offline validation from live visual
+          confirmation; cover every listed mechanism.
       related:
       - identify-vessels-and-parts-across-saves
       - detect-save-load
@@ -17572,10 +17941,10 @@ categories:
       kind: howto
       group: user-data
       batch: persistence-1
-      summary: 'Store what the player creates rather than what the mod configures: editable color schemes and themes (including
-        the byte-to-float round trip ImGui color pickers need and name-clash rules between bundled and user files), effect
-        presets exported to XML, user-built layouts as versioned JSON anchored to a body, and imported PNG, GLB or sound files
-        copied into a catalog folder and referenced by name so a saved scene can reproduce them.'
+      summary: 'Store what the player creates rather than what the mod configures: editable color schemes and themes
+        (including the byte-to-float round trip ImGui color pickers need and name-clash rules between bundled and user
+        files), effect presets exported to XML, user-built layouts as versioned JSON anchored to a body, and imported PNG,
+        GLB or sound files copied into a catalog folder and referenced by name so a saved scene can reproduce them.'
       game_types:
       - Brutal.ImGuiApi.ImGui
       - KSA.SerializedId
@@ -17592,6 +17961,8 @@ categories:
       - frame:draw-ui
       - event:starmap-unload
       - startup:asset-load
+      - tool:authoring
+      - tool:build
       approaches:
       - n: 1
         title: Named palettes in a sectioned ini, byte4 colors with ColorEdit4 round trip
@@ -17624,27 +17995,38 @@ categories:
         features:
         - mods/mpfx/features/xml-effect-profiles
         technique: xml-asset
-        note: Registration in OnDataLoad, why in-game profiles are never written back automatically, ShouldSerialize methods
-          and DefaultValue attributes to keep exports short, and copying the result to the clipboard from an ImGui window.
+        note: Registration in OnDataLoad, why in-game profiles are never written back automatically, ShouldSerialize methods and
+          DefaultValue attributes to keep exports short, and copying the result to the clipboard from an ImGui window.
       - n: 5
         title: Snake_case JSON course file, append-only piece ids, drift warning on load
         mod: ksagolf
         features:
         - mods/ksagolf/features/course-grid-and-save-file
         technique: json-config
-        note: Lat/lon from the body-fixed up vector with the same convention as Celestial.GetDirCcfFromLatLon, heading of
-          the grid axis, floor height above the ground so terrain changes between builds do not strand the course; unknown
-          piece ids dropped and named rather than thrown; the immutable grid model, port-on-edge design and undo stacks are
-          only mentioned, not taught.
+        note: Lat/lon from the body-fixed up vector with the same convention as Celestial.GetDirCcfFromLatLon, heading of the
+          grid axis, floor height above the ground so terrain changes between builds do not strand the course; unknown piece
+          ids dropped and named rather than thrown; the immutable grid model, port-on-edge design and undo stacks are only
+          mentioned, not taught.
       - n: 6
         title: SharedFileLibrary with import caps, (n) suffixes and a shared ImGui browser
         mod: unscience
         features:
         - mods/unscience/features/lib-shared-file-library
         technique: save-sidecar
-        note: Catalog folders under the .unscience data folder, FullPath rejecting separators, Import choosing stem (n).ext
-          and copying with overwrite false, GLB selection ids that mix catalog files with built-in meshes. The ImGui browser
+        note: Catalog folders under the .unscience data folder, FullPath rejecting separators, Import choosing stem (n).ext and
+          copying with overwrite false, GLB selection ids that mix catalog files with built-in meshes. The ImGui browser
           itself is covered by build-a-filesystem-file-picker.
+      - n: 7
+        title: Keep browser projects isolated and persist archives with custom assets
+        mod: flexo
+        features:
+        - mods/flexo/features/project-persistence-and-archives
+        - mods/flexo/features/multi-part-project-isolation
+        - mods/flexo/features/undoable-action-chains
+        technique: indexeddb, json-config, archive-packaging, document-registry, id-remapping, xml-asset, pure-model,
+          transactional-editing, state-machine
+        note: External browser authoring workflow; distinguish preview and export validation from native asset loading and live
+          in-game verification. Cover every listed reusable mechanism with actionable source-backed steps.
       related:
       - build-a-settings-window
       - persist-mod-settings-as-json
@@ -19721,11 +20103,11 @@ categories:
       kind: howto
       group: offline-tests
       batch: testing-and-tooling-1
-      summary: 'Choose where the game boundary sits (a folder, an assembly, a shared source file or a compile-gated half)
-        so the maths, models, parsers and state machines compile with no KSA assembly, then build a test project that runs
-        on any machine and in CI: link the game-free sources, assert physical invariants and edge cases, make clocks and threads
-        deterministic, gate slow or platform-specific tests behind an opt-in switch, and wire it to dotnet test or a console
-        exit code.'
+      summary: 'Choose where the game boundary sits (a folder, an assembly, a shared source file or a compile-gated half) so
+        the maths, models, parsers and state machines compile with no KSA assembly, then build a test project that runs on
+        any machine and in CI: link the game-free sources, assert physical invariants and edge cases, make clocks and
+        threads deterministic, gate slow or platform-specific tests behind an opt-in switch, and wire it to dotnet test or a
+        console exit code.'
       game_types:
       - Brutal.Numerics.double3
       - KSA.Vehicle
@@ -19738,6 +20120,7 @@ categories:
       lifecycle:
       - thread:background
       - event:headless-test-run
+      - tool:build
       approaches:
       - n: 1
         title: xUnit project linking a game-free Sim folder wholesale
@@ -19749,11 +20132,11 @@ categories:
         - mods/ksastructures/features/headless-tests-and-ci
         technique: msbuild
         note: 'The csproj uses Compile Include of ../src/Mod/Sim/**/*.cs and references no KSA assembly. About 290 tests in
-          KSAGolf. tools/test.sh wraps it for the pre-push hook and CI. Merged from split-game-adapters-from-pure-logic (Sim/
-          and Ksa/ folders in one project, with the boundary enforced by the test project): All KSA-free logic lives under
-          Sim/ and everything that names a KSA type under Ksa/. Even parsing of bridge commands is a Sim type. The test project
-          links Sim/** and references only the numerics assemblies, so a stray KSA type is a compile error. Say what belongs
-          on each side (frame bookkeeping, physics, parsing vs reflection, ImGui, patches).'
+          KSAGolf. tools/test.sh wraps it for the pre-push hook and CI. Merged from split-game-adapters-from-pure-logic
+          (Sim/ and Ksa/ folders in one project, with the boundary enforced by the test project): All KSA-free logic lives
+          under Sim/ and everything that names a KSA type under Ksa/. Even parsing of bridge commands is a Sim type. The
+          test project links Sim/** and references only the numerics assemblies, so a stray KSA type is a compile error. Say
+          what belongs on each side (frame bookkeeping, physics, parsing vs reflection, ImGui, patches).'
       - n: 2
         title: Console test executable with invariant checks and non-zero exit
         mod: ksaero
@@ -19761,12 +20144,12 @@ categories:
         - mods/ksaero/features/headless-model-tests
         - mods/ksa-deltavmap/features/offline-layout-and-math-tests
         technique: msbuild
-        note: 'A plain Exe that source-links the model and asserts axisymmetry, force decomposition, monotonic drag, continuity
+        note: "A plain Exe that source-links the model and asserts axisymmetry, force decomposition, monotonic drag, continuity
           and overlap invariants against synthetic trees and stock reference values. No test framework dependency; exit code
           is the verdict. Merged from split-game-adapters-from-pure-logic (Share individual pure files with Compile Include
-          and Compile Remove): AeroModel.cs and DeltaVMap''s layout engine and math kernels are game-type-free by convention
+          and Compile Remove): AeroModel.cs and DeltaVMap's layout engine and math kernels are game-type-free by convention
           and compiled into both the mod and a test exe. The mod removes files from its own build when a harness test links
-          them. Cheapest option for a small mod.'
+          them. Cheapest option for a small mod."
       - n: 3
         title: Console checks against Python reference fixtures
         mod: ksa-advancedflightcomputer
@@ -19775,10 +20158,10 @@ categories:
         - mods/ksa-advancedflightcomputer/features/solver-problem-json-replay
         technique: console-checks
         note: 'Solver outputs compared with JAX and CVXPY reference fixtures from a CI script, so numerics are checked against
-          an independent implementation rather than against themselves. Merged from split-game-adapters-from-pure-logic (Separate
-          game-free assemblies joined by ProjectReference, with the game-facing adapter beside them): Numerics and solver
-          code in their own csprojs with no game references; single game-facing files are linked into small test executables;
-          the serialized problem type lives on the game-free side so the mod and the offline console share it.'
+          an independent implementation rather than against themselves. Merged from split-game-adapters-from-pure-logic
+          (Separate game-free assemblies joined by ProjectReference, with the game-facing adapter beside them): Numerics and
+          solver code in their own csprojs with no game references; single game-facing files are linked into small test
+          executables; the serialized problem type lives on the game-free side so the mod and the offline console share it.'
       - n: 4
         title: NUnit suites with property tests and silent-on-success rules
         mod: purrtty
@@ -19786,11 +20169,11 @@ categories:
         - mods/purrtty/features/headless-test-suites
         technique: nunit
         note: 'Four NUnit projects, FsCheck properties, game types kept out of tested layers, reference assemblies used only
-          where cheap, and a no-fixed-sleep and silent-on-success convention. Merged from make-time-gated-code-deterministic-in-tests
-          (Sentinel flush and bounded polling instead of sleeps): A sentinel written through the pipe proves everything before
-          it was processed; waits are bounded polls, never fixed sleeps. Merged from gate-slow-or-platform-specific-tests
-          (OS-gated real-PTY tests next to portable ones): Real PTY tests run per operating system in the three-OS CI matrix;
-          everything else is portable.'
+          where cheap, and a no-fixed-sleep and silent-on-success convention. Merged from
+          make-time-gated-code-deterministic-in-tests (Sentinel flush and bounded polling instead of sleeps): A sentinel
+          written through the pipe proves everything before it was processed; waits are bounded polls, never fixed sleeps.
+          Merged from gate-slow-or-platform-specific-tests (OS-gated real-PTY tests next to portable ones): Real PTY tests
+          run per operating system in the three-OS CI matrix; everything else is portable.'
       - n: 5
         title: Compile-gated Game/ half joined by partial methods
         mod: gatos
@@ -19799,9 +20182,17 @@ categories:
         - mods/gatos/features/build-deploy-and-ci
         technique: msbuild
         note: 'Folded from split-game-adapters-from-pure-logic (sub-step: give the boundary choice its own section). Borrowed
-          from getting-started. The whole Game/ folder drops out of compilation when KSA.dll is absent, so CI builds and tests
-          everything else with no game files. Merged from gate-slow-or-platform-specific-tests (Assert.Ignore unless an environment
-          variable is set): TestEnv gates real-VM tests on GATOS_IT=1; CI turns it on under KVM.'
+          from getting-started. The whole Game/ folder drops out of compilation when KSA.dll is absent, so CI builds and
+          tests everything else with no game files. Merged from gate-slow-or-platform-specific-tests (Assert.Ignore unless
+          an environment variable is set): TestEnv gates real-VM tests on GATOS_IT=1; CI turns it on under KVM.'
+      - n: 6
+        title: Validate production terrain math and shader transformations offline
+        mod: blasto
+        features:
+        - mods/blasto/features/offline-rendering-validation
+        technique: headless-tests, shader-validation, build-packaging
+        note: Explain source-verified timing, ownership and failure paths. Distinguish offline validation from live visual
+          confirmation; cover every listed mechanism.
       related:
       - run-mod-simulation-in-a-headless-rig
       - headless-test-harness-for-game-mods
@@ -20320,3 +20711,30 @@ categories:
       - degrade-one-feature-on-api-drift
       note: 'Approaches merged into other topics: "A validated reflection-handle class that lets each feature refuse to load"
         -> validate-patch-targets-and-detect-game-update-breakage.'
+    - slug: build-a-browser-asset-preview
+      title: Build a browser asset preview with shared commands and embedded views
+      kind: howto
+      group: offline-tests
+      batch: add-flexo-workflows
+      summary: Build a browser asset preview with shared commands and embedded views, using source-backed export or runtime
+        mechanisms and explicit validation limits.
+      game_types: []
+      engine_pointers: []
+      lifecycle:
+      - tool:authoring
+      - tool:build
+      approaches:
+      - n: 1
+        title: Build a browser asset preview with shared commands and embedded views
+        mod: flexo
+        features:
+        - mods/flexo/features/demand-driven-preview
+        - mods/flexo/features/command-registry-and-mode-routing
+        - mods/flexo/features/embedded-part-preview
+        technique: on-demand-rendering, shader-adaptation, command-registry, state-machine, asset-pipeline, embedded-viewer,
+          session-state
+        note: External browser authoring workflow; distinguish preview and export validation from native asset loading and live
+          in-game verification. Cover every listed reusable mechanism with actionable source-backed steps.
+      related:
+      - validate-asset-xml-references
+      - persist-user-created-presets-and-content

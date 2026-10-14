@@ -45,16 +45,16 @@ mod-xml-load-order: done  # assets/asset-xml; overview + 1 reference article; pe
 resolve-asset-ids-and-mod-relative-paths: done  # assets/asset-xml; overview + 2 approaches; ids are per registry (AllParts vs AllMeshes), correcting the plan note that SubPart and mesh ids collide
 register-custom-xml-asset-type: done  # assets/asset-xml; overview + 3 approaches; ShaderExtensions still depends on KittenExtensions for KxAsset
 ship-and-share-data-files-between-mods: done  # assets/asset-xml; overview + 4 approaches
-declare-gltf-and-pbr-material-assets: done  # assets/models-and-textures; overview + 4 approaches; three-channel rule applies to the part and static-object render paths, GpuMaterialSystem defaults missing channels
-add-a-part-model-with-glb-and-pbr-textures: done  # assets/models-and-textures; overview + 2 approaches; KSA.GlbImport.PartAssetBundler used as engine evidence
+declare-gltf-and-pbr-material-assets: done  # assets/models-and-textures; overview + 5 approaches; three-channel rule applies to the part and static-object render paths, GpuMaterialSystem defaults missing channels; added Flexo approach 5; independently reviewed 2026-10-13
+add-a-part-model-with-glb-and-pbr-textures: done  # assets/models-and-textures; overview + 3 approaches; KSA.GlbImport.PartAssetBundler used as engine evidence; added Flexo approach 3; independently reviewed 2026-10-13
 export-glb-from-blender-for-ksa: done  # assets/models-and-textures; overview + 4 approaches
 import-glb-models-at-runtime: done  # assets/models-and-textures; overview + 3 approaches
 composite-png-over-stock-texture: done  # assets/models-and-textures; overview + 2 approaches; BC7-resident claim comes from the mod comment (Core texture binaries not in the game checkout)
 find-z-fighting-and-degenerate-uvs-in-glb: done  # assets/validation; overview + 3 approaches
-validate-asset-xml-references: done  # assets/validation; overview + 3 approaches
+validate-asset-xml-references: done  # assets/validation; overview + 4 approaches; added Flexo approach 4; independently reviewed 2026-10-13
 debug-xml-patches: done  # assets/validation; overview + 2 approaches
 mutate-vehicles-at-a-physics-safe-point: done  # physics/solver; overview + 4 approaches; verified against build 2026.10.10.5554
-write-worker-thread-safe-solver-patches: done  # physics/solver; overview + 6 approaches
+write-worker-thread-safe-solver-patches: done  # physics/solver; overview + 7 approaches; added Blasto approach 7; independently reviewed 2026-10-13
 inject-forces-and-impulses-at-the-physics-safe-point: done  # physics/solver; overview + 5 approaches
 keep-a-pushed-craft-off-rails: done  # physics/solver; overview + 2 approaches
 simulate-bodies-outside-the-vehicle-system: done  # physics/mod-simulation; overview + 6 approaches
@@ -93,9 +93,9 @@ make-a-vehicle-indestructible: done  # 4 articles
 scale-a-vessel-or-its-parts-at-runtime: done  # 4 articles
 define-a-part-with-game-data: done  # 3 articles, XML names checked against PartTemplate/XmlLoader
 ship-ready-made-craft: done  # 3 articles
-add-crew-seats-and-eva-doors: done  # 2 articles
+add-crew-seats-and-eva-doors: done  # 2 articles; added Flexo approach 3; independently reviewed 2026-10-13
 evolve-a-shipped-part-without-breaking-saves: done  # 2 articles
-define-and-animate-subparts: done  # 4 articles
+define-and-animate-subparts: done  # 4 articles; added Flexo approach 5; independently reviewed 2026-10-13
 load-and-unload-part-mods-at-runtime: done  # 3 articles; ModLibrary.TryGet<PartTemplate> has no part branch (verified in decomp)
 read-live-part-module-state: done  # 2 articles
 refill-or-drain-resources: done  # 3 articles; stock change-buffer alternative is an adapted snippet
@@ -149,7 +149,7 @@ subclass-the-stock-imguiwindow: done  # ui/windows; overview + 5
 match-the-stock-console-ui-style: done  # ui/windows; overview + 4; purrTTY rename comment claims ## ids are stable across title changes, flagged as likely wrong (## hashes the whole string; ### is the stable-id form), not tested in game
 build-a-tabbed-imgui-window: done  # ui/windows; overview + 5; KER pop-out sections shown via Harmony postfix on Vehicle.OnDrawUi
 show-live-vehicle-data-in-a-window: done  # ui/windows; overview + 3; controlled-vehicle-always-drawn claim and Harmony GameViewport/IGameViewport binding taken from the KER feature pages (CelestialSystem.OnDrawUi checked in decomp)
-build-a-settings-window: done  # ui/windows; overview + 6; KSArmory/KSAStructures/KSAGolf comments claim BeginMainMenuBar sits beside File/Universe, corrected against decomp (KSA never calls it); ModMenu behaviour unverified (not in corpus)
+build-a-settings-window: done  # ui/windows; overview + 6; KSArmory/KSAStructures/KSAGolf comments claim BeginMainMenuBar sits beside File/Universe, corrected against decomp (KSA never calls it); ModMenu behaviour unverified (not in corpus); added Blasto approach 7; independently reviewed 2026-10-13
 build-searchable-lists-and-browsers: done  # ui/windows; overview + 6; ImInputString length caching checked in the ImGui binding; edit-returns-true behaviour is standard Dear ImGui semantics, inferred not tested
 show-alerts-and-popups-in-game: done  # ui/windows; overview + 2
 show-a-dialog-during-loading: done  # ui/windows; overview + 2; StarMap/KittenExtensions pump copies omit WaitForPreviousPresent/UpdateMainRenderPass compared with ConfirmMods, flagged as inferred harmless
@@ -200,9 +200,9 @@ grow-game-gpu-buffers-for-runtime-content: done  # rendering/meshes; overview + 
 add-invisible-shadow-casters: done  # rendering/meshes; overview + 1; single approach; needs GameSettings.ShowVesselInCascadeShadows for the sun path; PrepareShadowCasters does not run in the update phase
 hide-parts-or-subparts-from-rendering: done  # rendering/meshes; overview + 6; Part setters already call ResetCachedPosMatrixValues in build 5554 (explicit calls redundant); part glass is drawn in the main view only; gatOS IVA flip does not exclude ShadowProxy templates
 keep-vessels-rendered-at-any-distance: done  # rendering/meshes; overview + 4; Vehicle.IsLargeEnoughToRender is public in build 5554 (KSArmory duplicates the formula); GetWorldMatrix is non-virtual and only called by KittenEva.UpdateRenderData
-add-dynamic-lights-to-the-world: done  # rendering/lights-and-particles; overview + 3; LightDebug.AddToLightSystem runs only for the Clustered FrameViewport; plan says UpdateStaticObjectRenderData approach is per viewport (confirmed, called per visible viewport in UpdateRenderingResources)
+add-dynamic-lights-to-the-world: done  # rendering/lights-and-particles; overview + 3; LightDebug.AddToLightSystem runs only for the Clustered FrameViewport; plan says UpdateStaticObjectRenderData approach is per viewport (confirmed, called per visible viewport in UpdateRenderingResources); added Flexo approach 4; independently reviewed 2026-10-13
 control-part-light-color-and-state: done  # rendering/lights-and-particles; overview + 5; LightModule.Template, TemplateData fields and PartTemplate.Components are public in build 5554 (mods use string reflection); EasingHelper is unscience's ksa-abstractions.lib, not a game type
-spawn-particle-effects: done  # rendering/lights-and-particles; overview + 3; InheritVelocity is copied onto the emitter but not read for celestial-parented emitters in build 5554; Burst self-returns, Endless needs Kill
+spawn-particle-effects: done  # rendering/lights-and-particles; overview + 3; InheritVelocity is copied onto the emitter but not read for celestial-parented emitters in build 5554; Burst self-returns, Endless needs Kill; added Blasto approach 4; independently reviewed 2026-10-13
 draw-exhaust-plumes-without-an-engine: done  # rendering/lights-and-particles; overview + 5; plan engine pointer RocketNozzle.UpdatePlumeData does not exist in build 5554 (ComputePlumeData is the function); mod-submitted instances never enter the plume hierarchy
 get-part-points-in-vehicle-and-world-frames: done  # 5 articles; Connector.PositionVehicleAsmb scale claim derived from the decomp formula, plan lifecycle frame:after-on-frame not used (mod hooks are frame:input and frame:draw-ui)
 anchor-to-parts-across-vehicle-changes: done  # 4 articles; MeasureTools patches no editor entry point, article 4 adds a labelled adapted postfix for editor:on-frame
@@ -210,11 +210,11 @@ draw-an-engine-diagram-from-nozzle-positions: done  # 1 article; per-tank propel
 give-inert-parts-behaviour-by-part-id: done  # 3 articles (decoy simulation folded into article 2); Part.Id is the instance name else template Id per decomp
 track-and-classify-craft: done  # 4 articles
 target-and-gate-automated-weapons: done  # 3 articles (radar and ladder folded in)
-query-terrain-height-and-line-of-sight: done  # celestials/terrain; overview + 4 articles; Ccf/Cce entry points, sea clamp, accurate flag section, sphere-then-band line of sight, centre+radius ground test, cache decorator, hover height; notes Vehicle.GetRadarAltitude as the engine equivalent
+query-terrain-height-and-line-of-sight: done  # celestials/terrain; overview + 5 articles; Ccf/Cce entry points, sea clamp, accurate flag section, sphere-then-band line of sight, centre+radius ground test, cache decorator, hover height; notes Vehicle.GetRadarAltitude as the engine equivalent; added Blasto approach 5; independently reviewed 2026-10-13
 measure-slope-and-detect-ground-contact-on-terrain: done  # celestials/terrain; overview + 3 articles (gradient, 1 m cross-product normal, per-frame sphere contact with refinement)
 add-terrain-decals-and-dig-a-site: done  # celestials/terrain; overview + 2 articles; AltitudeOffset Km read raw (metres) verified against DecalModifierReference.ToRenderData/Evaluate
-place-static-objects-on-a-planet-surface: done  # celestials/terrain; overview + 3 articles (landmarks + render postfix, GroundAnchor matrix, kitten-anchored course frame)
-exclude-or-replace-ground-clutter: done  # celestials/terrain; overview + 3 articles (exclusion-zone postfix, private bundle swap at cloth prefix, per-grid memory and sidecar)
+place-static-objects-on-a-planet-surface: done  # celestials/terrain; overview + 4 articles (landmarks + render postfix, GroundAnchor matrix, kitten-anchored course frame); added Flexo approach 4; independently reviewed 2026-10-13
+exclude-or-replace-ground-clutter: done  # celestials/terrain; overview + 4 articles (exclusion-zone postfix, private bundle swap at cloth prefix, per-grid memory and sidecar); added Flexo approach 4; independently reviewed 2026-10-13
 click-a-planet-to-get-latitude-and-longitude: done  # celestials/terrain; overview + 2 articles (sphere pick + haversine, Rodrigues arc with limb break)
 define-atmospheres-and-cloud-layers-in-system-xml: done  # celestials/atmospheres-and-rings; overview + 3 articles; AtmosphereReference.IsValid has no call site in build 5554 so the Ozone/StartHeight requirement is described as a convention
 generate-measured-atmosphere-tables-offline: done  # celestials/atmospheres-and-rings; overview + 1 article
@@ -230,7 +230,7 @@ read-and-replace-star-binaries: done  # celestials/systems-and-stars; overview +
 save-and-load-the-game-from-code: done  # persistence/saves; overview + 3 articles
 detect-save-load: done  # persistence/saves; overview + 6 articles
 save-mod-state-with-the-game-save: done  # persistence/saves; overview + 3 articles
-save-mod-state-with-the-scene: done  # persistence/saves; overview + 3 articles
+save-mod-state-with-the-scene: done  # persistence/saves; overview + 4 articles; added Blasto approach 4; independently reviewed 2026-10-13
 identify-vessels-and-parts-across-saves: done  # persistence/saves; overview + 4 articles
 keep-mod-vehicles-out-of-saves: done  # persistence/saves; overview + 1 article
 persist-mod-settings-ini: done  # persistence/settings-formats; overview + 4 articles
@@ -238,7 +238,7 @@ persist-mod-settings-as-json: done  # persistence/settings-formats; overview + 2
 persist-mod-settings-toml: done  # persistence/settings-formats; overview + 3 articles
 write-and-load-config-files-safely: done  # persistence/settings-formats; overview + 4 articles
 choose-where-a-mod-stores-its-files: done  # persistence/user-data; overview + 5 articles; unload-time paths: StarMap removes all patches before StarMapUnload so the instance-path redirect is gone
-persist-user-created-presets-and-content: done  # persistence/user-data; overview + 6 articles; MPFX writes nothing back (export-and-paste only); build-a-filesystem-file-picker named in prose until written
+persist-user-created-presets-and-content: done  # persistence/user-data; overview + 7 articles; MPFX writes nothing back (export-and-paste only); build-a-filesystem-file-picker named in prose until written; added Flexo approach 7; independently reviewed 2026-10-13
 persist-imgui-window-state: done  # persistence/user-data; overview + 3 articles; early LoadIniSettingsFromMemory interaction with the host ini and the unload-time ImGui context are unverified (native library)
 reach-a-kittens-avatar-and-skeleton: done  # kittens/characters; overview + 4 articles
 define-a-kitten-character-in-asset-xml: done  # kittens/characters; overview + 1 article
@@ -292,7 +292,7 @@ visual-regression-for-mods: done  # testing-and-tooling/in-game-testing; overvie
 run-unattended-scenarios-and-report-a-verdict: done  # testing-and-tooling/in-game-testing; overview + 3 articles
 live-tweak-constants-in-game: done  # testing-and-tooling/in-game-testing; overview + 1 article
 measure-and-budget-mod-performance: done  # testing-and-tooling/in-game-testing; overview + 6 articles
-unit-test-mod-logic-without-game: done  # testing-and-tooling/offline-tests; overview + 5 articles
+unit-test-mod-logic-without-game: done  # testing-and-tooling/offline-tests; overview + 6 articles; added Blasto approach 6; independently reviewed 2026-10-13
 run-mod-simulation-in-a-headless-rig: done  # testing-and-tooling/offline-tests; overview + 3 articles
 headless-test-harness-for-game-mods: done  # testing-and-tooling/offline-tests; overview + 2 articles; HeadlessHarness is external, its API described only as the consumer mods use it
 test-harmony-patches-without-the-game: done  # testing-and-tooling/offline-tests; overview + 3 articles; purrTTY's throwaway patch-apply app is not checked in, sample labelled adapted
@@ -310,3 +310,9 @@ lay-out-a-tree-or-graph-diagram: done  # ui/draw-lists; overview + 4 articles, a
 load-a-custom-font-into-imgui: done  # ui/draw-lists; overview + 4 articles; approach 4 is an untested adapted guard: a game font-settings change calls RegenerateFonts, which clears the atlas, and no reference mod re-adds its fonts
 compose-reduced-star-systems: done  # celestials/systems-and-stars; overview + 1 article; native system XML, optional local body requires permitted textures; no runtime or VRAM test
 place-starting-vessels-in-custom-systems: done  # celestials/systems-and-stars; overview + 1 article; Testing-only starter, selected start settings can override its parent/situation
+blend-persistent-marks-into-terrain: done  # rendering/vulkan-passes; overview + 1 article; added Blasto approach 1; independently reviewed 2026-10-13
+author-native-asset-mods-in-a-browser: done  # assets/asset-xml; overview + 1 article; added Flexo approach 1; independently reviewed 2026-10-13
+author-part-colliders-and-convex-hulls: done  # assets/asset-xml; overview + 1 article; added Flexo approach 1; independently reviewed 2026-10-13
+design-engine-game-data: done  # vehicles-and-parts/staging-and-engines; overview + 1 article; added Flexo approach 1; independently reviewed 2026-10-13
+bake-kitten-poses-as-static-meshes: done  # kittens/appearance; overview + 1 article; added Flexo approach 1; independently reviewed 2026-10-13
+build-a-browser-asset-preview: done  # testing-and-tooling/offline-tests; overview + 1 article; added Flexo approach 1; independently reviewed 2026-10-13

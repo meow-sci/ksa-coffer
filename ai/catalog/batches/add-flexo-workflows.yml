@@ -1,0 +1,558 @@
+batch: add-flexo-workflows
+note: Write or review only assigned_approach and topic overview/log, preserving existing article links and content.
+topics:
+  - category: vehicles-and-parts
+    slug: design-engine-game-data
+    title: Design engine GameData and solid-motor grains
+    kind: howto
+    group: staging-and-engines
+    batch: add-flexo-workflows
+    summary: Design engine GameData and solid-motor grains, using source-backed export or runtime mechanisms and explicit
+      validation limits.
+    game_types:
+      - KSA.RocketTemplate
+      - KSA.CombustorTemplate
+      - KSA.DeLavalNozzleConfig
+      - KSA.PartTemplate
+      - KSA.RocketThrusterControllerTemplate
+      - KSA.GimbalController
+      - KSA.SolidMotor
+      - KSA.SolidMotorTemplate
+      - KSA.SolidGrainSegment
+      - KSA.SolidMotorNozzle
+      - KSA.PartTree
+      - KSA.GrainGeometryTemplate
+    engine_pointers:
+      - current/decomp/KSA/RocketTemplate.cs
+      - current/decomp/KSA/CombustorTemplate.cs
+      - current/decomp/KSA/DeLavalNozzleConfig.cs
+      - current/decomp/KSA/PartTemplate.cs
+      - current/decomp/KSA/RocketThrusterControllerTemplate.cs
+      - current/decomp/KSA/GimbalController.cs
+      - current/decomp/KSA/SolidMotor.cs
+      - current/decomp/KSA/SolidMotorTemplate.cs
+      - current/decomp/KSA/SolidGrainSegment.cs
+      - current/decomp/KSA/GrainGeometryTemplate.cs
+      - current/decomp/KSA/SolidMotorNozzle.cs
+      - current/decomp/KSA/PartTree.cs
+    lifecycle:
+      - tool:authoring
+    approaches:
+      - n: 1
+        title: Design engine GameData and solid-motor grains
+        mod: flexo
+        features:
+          - mods/flexo/features/engine-design-and-validation
+          - mods/flexo/features/propulsion-design-wizards
+          - mods/flexo/features/solid-motor-grain-design
+        technique: xml-asset, pure-model, numerical-preview, scoped-references, transactional-editing, procedural-geometry,
+          lookup-table, numerical-integration
+        note: External browser authoring workflow; distinguish preview and export validation from native asset loading and live
+          in-game verification. Cover every listed reusable mechanism with actionable source-backed steps.
+    related:
+      - compute-engine-thrust-at-ambient-pressure
+      - define-a-part-with-game-data
+      - author-native-asset-mods-in-a-browser
+    assigned_approach: 1
+    existing_topic: false
+  - category: kittens
+    slug: bake-kitten-poses-as-static-meshes
+    title: Bake kitten poses into static asset meshes
+    kind: howto
+    group: appearance
+    batch: add-flexo-workflows
+    summary: Bake kitten poses into static asset meshes, using source-backed export or runtime mechanisms and explicit
+      validation limits.
+    game_types: []
+    engine_pointers: []
+    lifecycle:
+      - tool:authoring
+      - tool:build
+    approaches:
+      - n: 1
+        title: Bake kitten poses into static asset meshes
+        mod: flexo
+        features:
+          - mods/flexo/features/kitten-pose-baking
+        technique: glb-model, cpu-pose-baking
+        note: External browser authoring workflow; distinguish preview and export validation from native asset loading and live
+          in-game verification. Cover every listed reusable mechanism with actionable source-backed steps.
+    related:
+      - reach-a-kittens-avatar-and-skeleton
+      - add-a-part-model-with-glb-and-pbr-textures
+    assigned_approach: 1
+    existing_topic: false
+  - category: persistence
+    slug: persist-user-created-presets-and-content
+    title: Persist user-created palettes, presets and content files
+    kind: howto
+    group: user-data
+    batch: persistence-1
+    summary: "Store what the player creates rather than what the mod configures: editable color schemes and themes
+      (including the byte-to-float round trip ImGui color pickers need and name-clash rules between bundled and user
+      files), effect presets exported to XML, user-built layouts as versioned JSON anchored to a body, and imported PNG,
+      GLB or sound files copied into a catalog folder and referenced by name so a saved scene can reproduce them."
+    game_types:
+      - Brutal.ImGuiApi.ImGui
+      - KSA.SerializedId
+      - KSA.IKeyed
+      - KSA.ModLibrary
+      - KSA.Celestial
+      - KSA.Universe
+      - KSA.CelestialSystem
+    engine_pointers:
+      - current/decomp/KSA/ModLibrary.cs (asset registration and Get<T>)
+      - current/decomp/KSA/Celestial.cs GetDirCcfFromLatLon (convention for latitude and longitude)
+    lifecycle:
+      - startup:all-mods-loaded
+      - frame:draw-ui
+      - event:starmap-unload
+      - startup:asset-load
+      - tool:authoring
+      - tool:build
+    approaches:
+      - n: 1
+        title: Named palettes in a sectioned ini, byte4 colors with ColorEdit4 round trip
+        mod: ksa-measuretools
+        features:
+          - mods/ksa-measuretools/features/color-palettes-persistence
+        technique: imgui-window
+        note: Four shipped palettes plus user palettes, active index, derived alpha shades from the pending color, Restore
+          default palettes that re-adds by name.
+      - n: 2
+        title: Bundled and user theme TOML files in alacritty format, user wins on name clash
+        mod: purrtty
+        features:
+          - mods/purrtty/features/toml-themes-and-settings
+        technique: toml-config
+        note: Theme catalog merges a code-built default, the bundled folder and the user folder; 16 colors expand to a 256-color
+          palette; custom colors persist only when saved as a named theme.
+      - n: 3
+        title: Override-only color table in the main config
+        mod: ksa-public-telemetry
+        features:
+          - mods/ksa-public-telemetry/features/json-config-in-documents
+          - mods/ksa-public-telemetry/features/live-tuning-and-palette-reflection
+        technique: json-config
+        note: "Only colors that differ from the compiled defaults are stored, as #RRGGBBAA keyed by field name, so changed
+          defaults reach players who never customised."
+      - n: 4
+        title: KxAsset profile type, XmlSerializer export trimmed with DefaultValue and ShouldSerialize
+        mod: mpfx
+        features:
+          - mods/mpfx/features/xml-effect-profiles
+        technique: xml-asset
+        note: Registration in OnDataLoad, why in-game profiles are never written back automatically, ShouldSerialize methods and
+          DefaultValue attributes to keep exports short, and copying the result to the clipboard from an ImGui window.
+      - n: 5
+        title: Snake_case JSON course file, append-only piece ids, drift warning on load
+        mod: ksagolf
+        features:
+          - mods/ksagolf/features/course-grid-and-save-file
+        technique: json-config
+        note: Lat/lon from the body-fixed up vector with the same convention as Celestial.GetDirCcfFromLatLon, heading of the
+          grid axis, floor height above the ground so terrain changes between builds do not strand the course; unknown
+          piece ids dropped and named rather than thrown; the immutable grid model, port-on-edge design and undo stacks
+          are only mentioned, not taught.
+      - n: 6
+        title: SharedFileLibrary with import caps, (n) suffixes and a shared ImGui browser
+        mod: unscience
+        features:
+          - mods/unscience/features/lib-shared-file-library
+        technique: save-sidecar
+        note: Catalog folders under the .unscience data folder, FullPath rejecting separators, Import choosing stem (n).ext and
+          copying with overwrite false, GLB selection ids that mix catalog files with built-in meshes. The ImGui browser
+          itself is covered by build-a-filesystem-file-picker.
+      - n: 7
+        title: Keep browser projects isolated and persist archives with custom assets
+        mod: flexo
+        features:
+          - mods/flexo/features/project-persistence-and-archives
+          - mods/flexo/features/multi-part-project-isolation
+          - mods/flexo/features/undoable-action-chains
+        technique: indexeddb, json-config, archive-packaging, document-registry, id-remapping, xml-asset, pure-model,
+          transactional-editing, state-machine
+        note: External browser authoring workflow; distinguish preview and export validation from native asset loading and live
+          in-game verification. Cover every listed reusable mechanism with actionable source-backed steps.
+    related:
+      - build-a-settings-window
+      - persist-mod-settings-as-json
+      - persist-mod-settings-toml
+      - weld-one-vessel-to-another
+      - build-searchable-lists-and-browsers
+      - save-mod-state-with-the-scene
+      - choose-where-a-mod-stores-its-files
+      - write-and-load-config-files-safely
+      - place-static-objects-on-a-planet-surface
+    merged_from:
+      - persist-named-color-palettes
+      - ship-presets-as-xml-assets-and-export-them
+      - import-user-files-into-a-mod-catalog
+      - save-user-built-layouts-as-versioned-json-files
+    assigned_approach: 7
+    existing_topic: true
+  - category: testing-and-tooling
+    slug: build-a-browser-asset-preview
+    title: Build a browser asset preview with shared commands and embedded views
+    kind: howto
+    group: offline-tests
+    batch: add-flexo-workflows
+    summary: Build a browser asset preview with shared commands and embedded views, using source-backed export or runtime
+      mechanisms and explicit validation limits.
+    game_types: []
+    engine_pointers: []
+    lifecycle:
+      - tool:authoring
+      - tool:build
+    approaches:
+      - n: 1
+        title: Build a browser asset preview with shared commands and embedded views
+        mod: flexo
+        features:
+          - mods/flexo/features/demand-driven-preview
+          - mods/flexo/features/command-registry-and-mode-routing
+          - mods/flexo/features/embedded-part-preview
+        technique: on-demand-rendering, shader-adaptation, command-registry, state-machine, asset-pipeline, embedded-viewer,
+          session-state
+        note: External browser authoring workflow; distinguish preview and export validation from native asset loading and live
+          in-game verification. Cover every listed reusable mechanism with actionable source-backed steps.
+    related:
+      - validate-asset-xml-references
+      - persist-user-created-presets-and-content
+    assigned_approach: 1
+    existing_topic: false
+  - category: assets
+    slug: validate-asset-xml-references
+    title: Validate asset XML ids and paths before launching the game (offline)
+    kind: howto
+    group: validation
+    batch: assets-1
+    summary: "A bad mesh id, a mistyped texture path or a malformed XML file is a silent failure in KSA: the part renders
+      untextured, invisible or not at all, with nothing in the log. An offline script cross-checks every id against the
+      mod's own files and Core's library, checks paths with exact case and that the XML is listed in mod.toml, and runs
+      from the deploy script and CI. Also covers deserializing an AssetBundle with the game serializer, without
+      registering it, for rule-based checks."
+    game_types:
+      - KSA.AssetBundle
+      - KSA.MeshAtlasFileReference
+      - KSA.ModLibrary
+      - KSA.XmlHelper
+      - KSA.XmlLoader
+      - KSA.SerializedId
+      - KSA.PartTemplate
+      - KSA.PhysicalAtmosphereReference
+      - KSA.AtmosphereRenderer
+      - KSA.Mod
+    engine_pointers:
+      - current/decomp/KSA/Mod.cs LoadAssetBundles (only mod.toml-listed XML is read)
+      - current/decomp/KSA/MeshAtlasFileReference.cs DoLoad
+      - current/decomp/KSA/XmlHelper.cs Serializers, AttributeOverrides
+      - current/decomp/KSA/XmlLoader.cs Load<T>, Deserialize<T> (OnDataLoad only runs in Load)
+      - current/decomp/KSA/AssetBundle.cs OnDataLoad (registers templates)
+      - current/decomp/KSA/ModLibrary.cs
+      - current/Content/Core (shared atlases and ids)
+      - current/decomp/KSA/PhysicalAtmosphereReference.cs
+      - current/Content/Core/Shaders (atmosphere shaders)
+      - current/decomp/KSA/AtmosphereRenderer.cs
+    lifecycle:
+      - frame:draw-ui
+      - startup:asset-load
+      - tool:build
+    approaches:
+      - n: 1
+        title: check-xml.sh and validate-parts.py with an --offline mode
+        mod: ksacars
+        features:
+          - mods/ksacars/features/art-and-audio-pipeline-tooling
+          - mods/ksagolf/features/glb-authoring-and-mesh-checks
+        technique: offline-asset-validation
+        note: 'Well-formedness, SubPart InstanceOf and Material ids resolving locally or in Core, Mesh ids existing in the
+          declared atlas, case-exact paths, duplicate top-level ids, run in deploy.sh and a pre-push check-all. Also
+          (merged from testing-and-tooling/check-and-generate-mod-assets-offline approach 2, "Id and path validation
+          against Core in an art pipeline"): Borrowed from assets. Also GLB bounds from accessor min/max and atlas
+          dilation. Merged from check-glb-meshes-for-z-fighting-offline (Mesh checkers bundled with a GLB authoring
+          contract): Borrowed from assets. Zero UV-area faces, coplanar z-fighting, unmaterialed primitives and bad
+          asset references.'
+      - n: 2
+        title: Extended checks for generated geometry, ids named in C# and shared planes
+        mod: ksarmory
+        features:
+          - mods/ksarmory/features/blender-model-pipeline-and-checks
+          - mods/ksastructures/features/asset-and-mesh-validation-tools
+        technique: offline-asset-validation
+        note: 'XML not listed in mod.toml, ids declared twice including atlas mesh names, launch geometry disagreeing with
+          muzzles.json, planes shared between two subparts as the XML places them, unsized stacking connectors, ids that
+          appear as string constants in the C#, and compiling GLSL with glslang (shaders owns the shader side). Also
+          (merged from testing-and-tooling/check-and-generate-mod-assets-offline approach 1, "validate-parts.py with
+          check-xml.sh" [ksastructures]): Duplicate ids and collisions, mesh names inside GLB atlases, exact-case paths,
+          shared textures, mod.toml assets and ids referenced in C#. Merged from check-glb-meshes-for-z-fighting-offline
+          (checkmesh.py and meshinfo.py): Coplanar bucket test and degenerate UV detection.'
+      - n: 3
+        title: XmlHelper.Serializers lookup, parse only, then pure rules over the object tree
+        mod: unscience
+        features:
+          - mods/unscience/features/parts-now-bundle-validation
+        technique: xml-serializer
+        note: "BundleParser fetches the AssetBundle serializer from XmlHelper.Serializers, also parses an XDocument with line
+          info, never calls OnDataLoad, and hands the object tree to isolated validation rules; includes the warning
+          that a fresh XmlSerializer(typeof(AssetBundle)) lacks the overrides and silently drops every part component.
+          Sub-step for the writer: deserializing with XmlHelper.Serializers without OnDataLoad (absorbed from
+          deserialize-asset-bundle-with-game-serializer) gets its own section."
+      - n: 4
+        title: Supply catalog assets and regression-test browser exports
+        mod: flexo
+        features:
+          - mods/flexo/features/asset-pipeline-and-regression-tooling
+        technique: asset-pipeline, test-fixtures, browser-smoke-tests
+        note: External browser authoring workflow; distinguish preview and export validation from native asset loading and live
+          in-game verification. Cover every listed reusable mechanism with actionable source-backed steps.
+    related:
+      - load-and-unload-part-mods-at-runtime
+      - find-z-fighting-and-degenerate-uvs-in-glb
+      - add-a-part-model-with-glb-and-pbr-textures
+      - resolve-asset-ids-and-mod-relative-paths
+      - register-custom-xml-asset-type
+      - asset-xml-element-reference
+      - run-repo-checks-from-a-pre-push-hook-and-ci
+      - define-a-part-with-game-data
+      - generate-measured-atmosphere-tables-offline
+      - branch-per-body-inside-shared-game-shaders
+      - check-mod-shaders-offline-with-glslang
+      - define-atmospheres-and-cloud-layers-in-system-xml
+      - take-screenshots-from-code
+      - extend-stock-sky-and-cloud-shaders
+    merged_from:
+      - deserialize-asset-bundle-with-game-serializer
+      - check-and-generate-mod-assets-offline
+      - validate-asset-xml-offline
+    note: 'Approaches merged into other topics: "make_flight_atmospheres.py emitting AtmosphereTables.Generated.cs" ->
+      generate-measured-atmosphere-tables-offline.'
+    assigned_approach: 4
+    existing_topic: true
+  - category: celestials
+    slug: place-static-objects-on-a-planet-surface
+    title: Place a static object on a planet surface at a latitude and longitude, and keep it anchored
+    kind: howto
+    group: terrain
+    batch: celestials-1
+    summary: Static objects declared in XML are stood on a planet by LandmarkReferences in the body template's Locations
+      list; adding an IsLaunchPad landmark in code before the engine resolves static objects gets a multi-part building
+      with render models and Bepu colliders kittens can walk on. The engine culls it from inside a dug pit (terrain
+      sampled with accurate false), so a postfix can redraw it per viewport; and anything stood on the ground must be
+      anchored in the body-fixed frame so it follows rotation, survives floating-origin shifts and restores from a save.
+    game_types:
+      - KSA.LandmarkReference
+      - KSA.LocationReference
+      - KSA.CelestialTemplate
+      - KSA.StaticObject
+      - KSA.StaticObjectTemplate
+      - KSA.StaticSubObjectTemplate
+      - KSA.ConstraintSim
+      - KSA.ModLibrary
+      - KSA.Celestial
+      - KSA.Camera
+      - KSA.Program
+      - KSA.Cursor
+      - KSA.Vehicle
+      - KSA.IViewport
+      - KSA.JobSystems
+      - KSA.Universe
+      - KSA.SystemTemplate
+    engine_pointers:
+      - current/decomp/KSA/LandmarkReference.cs
+      - current/decomp/KSA/LocationReference.cs GetAxesCcf, UpdateStaticObjectRenderData
+      - current/decomp/KSA/CelestialTemplate.cs Locations
+      - current/decomp/KSA/StaticObject.cs ResolveAll, Find
+      - current/decomp/KSA/ConstraintSim.cs ResolveLaunchPads, UpdateStaticObjectCollider
+      - current/decomp/KSA/ModLibrary.cs AttachGameData
+      - current/decomp/KSA/LocationReference.cs UpdateStaticObjectRenderData
+      - current/decomp/KSA/Camera.cs IsVisibleTo
+      - current/decomp/KSA/StaticObject.cs UpdateRenderData
+      - current/decomp/KSA/Celestial.cs GetTerrainHeightFromDirCcf, GetCcf2Cce
+      - current/decomp/KSA/Camera.cs GetPositionEgo
+      - current/decomp/KSA/StaticObjectRenderer.cs UpdateRenderData
+      - current/decomp/KSA/JobSystems.cs VehicleSolver
+    lifecycle:
+      - startup:all-mods-loaded
+      - frame:render
+      - physics:bepu
+      - frame:draw-ui
+      - event:save
+      - event:load
+      - tool:authoring
+      - tool:build
+    approaches:
+      - n: 1
+        title: Append IsLaunchPad LandmarkReferences to Earth's CelestialTemplate at StarMapAllModsLoaded; Postfix
+          UpdateStaticObjectRenderData and call StaticObject.UpdateRenderData with your own matrix
+        mod: ksastructures
+        features:
+          - mods/ksastructures/features/office-landmarks-static-objects
+        technique: xml-asset
+        note: "StaticSubObject + StaticObject XML with GroundOffset, SurfaceHeight, FootprintRadius; Latitude and Longitude as
+          RadianReferences and OnDataLoad(Mod.Empty) to compute ForwardCcf; AllModsLoaded precedes AttachGameData so
+          ResolveAll picks the landmark up; asset frame +X up, +Y east, +Z north; the nearest launch pad within 300 m is
+          a body's only static collider (use it as a doorway). Runs inside Program.Render per visible viewport; same
+          matrix the engine would have built (axes plus up * GroundOffset); only when the tangent-plane cull hid it.
+          Sub-step of the landmark approach: redraw when the engine culls the object; give it its own section."
+      - n: 2
+        title: GroundAnchor (Celestial, Ccf position, normal) composed each frame into a camera-relative matrix
+        mod: unscience
+        features:
+          - mods/unscience/features/sphinx-glb-statics-placement
+          - mods/unscience/features/sphinx-static-object-render-hooks
+        technique: glb-model
+        note: "FrameCcf x Ccf2Cce x translation(camera.GetPositionEgo(body)); east from UnitZ x radial with a pole fallback;
+          placed by terrain click or beside a vessel after waiting for solvers; drawn through postfixes on
+          StaticObjectRenderer; restored from scene saves. PlacementMath.GroundedLocal (scale 0.01 to 1000 per axis,
+          rotations X Y Z in degrees) grounds and centres from the import bounds; tested with 200 random cases. Distinct
+          problem within the topic: anchoring mod-drawn models (not landmarks) in the body-fixed frame."
+      - n: 3
+        title: Course frame anchored at the kitten and saved as latitude, longitude, heading and floor height
+        mod: ksagolf
+        features:
+          - mods/ksagolf/features/course-grid-and-save-file
+          - mods/ksagolf/features/minigolf-course-builder
+          - mods/ksagolf/features/mod-mesh-draw-hook
+        technique: custom-physics
+        note: "Body-fixed frame with up from the feet direction, +J from the facing projected to horizontal, floor at terrain
+          plus 2 cm and releveled to the highest corner; saved as lat/lon/heading/floor height above ground rather than
+          an absolute radius; meshes drawn per viewport after ClearBuckets with Ccf2Cce plus ego translation. Distinct
+          problem within the topic: anchoring mod-drawn models (not landmarks) in the body-fixed frame."
+      - n: 4
+        title: Compose static objects and export launch sites into system XML
+        mod: flexo
+        features:
+          - mods/flexo/features/static-object-composition
+          - mods/flexo/features/launch-site-system-export
+        technique: xml-asset, template-composition, coordinate-adapter, reference-remapping
+        note: External browser authoring workflow; distinguish preview and export validation from native asset loading and live
+          in-game verification. Cover every listed reusable mechanism with actionable source-backed steps.
+    related:
+      - exclude-or-replace-ground-clutter
+      - add-terrain-decals-and-dig-a-site
+      - add-static-colliders-to-physics-bubbles
+      - sample-the-ground-under-each-wheel
+      - build-a-moving-platform-kittens-can-ride
+      - query-terrain-height-and-line-of-sight
+      - draw-mod-meshes-with-the-engine-renderers
+      - choose-a-render-frame-and-anchor-effects
+      - anchor-and-pick-points-on-bodies
+      - ray-cast-against-vessel-meshes-and-terrain
+    merged_from:
+      - place-a-static-object-landmark-on-a-planet
+      - draw-a-static-object-the-engine-culls
+      - anchor-a-placed-model-to-the-ground
+    assigned_approach: 4
+    existing_topic: true
+  - category: celestials
+    slug: exclude-or-replace-ground-clutter
+    title: Keep grass, rocks and trees off a custom site, and replace or preserve a planet's ground clutter
+    kind: howto
+    group: terrain
+    batch: celestials-1
+    summary: KSA clears ground clutter only around the first four launch pads in a body's Locations list, so a mod-added pad
+      needs its exclusion zones refilled by a postfix (the zones are baked at load). Separately, chosen clutter types on
+      one body can be swapped for imported models with their own materials, scale and colliders by building private
+      native clutter bundles at the solver-dispatch window, with originals kept for exact undo; and since KSA 5447,
+      knocked-out or displaced instances must be remembered per grid spacing and replayed across swaps and saves.
+    game_types:
+      - KSA.GroundClutterPlacementData
+      - KSA.ClutterCubeCellGrid
+      - KSA.ClutterEcotypeRenderData
+      - KSA.ClutterEcotypePhysicalData
+      - KSA.GroundClutterRenderer
+      - KSA.PlanetRenderer
+      - KSA.LandmarkReference
+      - KSA.StaticObject
+      - KSA.Celestial
+      - KSA.Camera
+      - KSA.Universe
+      - KSA.GroundClutterReference
+      - KSA.ClutterEcotypeReference
+      - KSA.ClutterObjectTemplate
+      - KSA.GroundClutterLodReference
+      - KSA.PhysicsBubble
+      - KSA.BubbleClutterStatics
+      - KSA.CelestialTemplate
+      - KSA.GameSave
+      - KSA.AssetBundle
+      - KSA.SerializedReference
+      - KSA.SystemTemplate
+    engine_pointers:
+      - current/decomp/KSA/GroundClutterPlacementData.cs PopulateLaunchPadExclusionZones, BuildEcotypeData
+      - current/decomp/KSA/ClutterEcotypeRenderData.cs BuildRenderResources
+      - current/decomp/KSA/PlanetRenderer.cs RebuildGroundClutterResources
+      - current/decomp/KSA/Universe.cs ExecuteNextClothSolvers, SyncGroundClutter
+      - current/decomp/KSA/GroundClutterRenderer.cs RebuildFrameResources, Dispose
+      - current/decomp/KSA/GroundClutterPlacementData.cs
+      - current/decomp/KSA/GroundClutterLodReference.cs BuildMaterialIndirection (private)
+      - current/decomp/KSA/GroundClutterPlacementData.cs SerializeSave, DeserializeDisplacedObject, ExcludeCell,
+        GetExclusionData
+      - current/decomp/KSA/GroundClutterRenderer.cs ExclusionData, QueueExclusionUpload
+      - current/decomp/KSA/Universe.cs SyncGroundClutter
+    lifecycle:
+      - startup:all-mods-loaded
+      - startup:game-loaded
+      - frame:dispatch-solvers
+      - frame:draw-ui
+      - event:renderer-rebuild
+      - event:load
+      - event:save
+      - tool:build
+    approaches:
+      - n: 1
+        title: Harmony postfix on the private PopulateLaunchPadExclusionZones with ____celestial injection
+        mod: ksastructures
+        features:
+          - mods/ksastructures/features/ground-clutter-exclusion-zones
+        technique: harmony-postfix
+        note: AccessTools.Method by name for the private target; four nearest pads with positive FootprintRadius to the main
+          camera (the lift landmark has footprint 0 so is never a candidate); engine's formula float4(ForwardCcf,
+          (Footprint + 50 m) / MeanRadius); zones are evaluated once at renderer build.
+      - n: 2
+        title: Prefix on ExecuteNextClothSolvers builds private bundles; originals captured for exact restore
+        mod: unscience
+        features:
+          - mods/unscience/features/pebbles-ground-clutter-replacement
+          - mods/unscience/features/pebbles-private-clutter-materials
+        technique: harmony-prefix
+        note: "Wait for the cloth and vehicle workers, swap placement data and bubble statics in one window; postfix
+          RebuildFrameResources and prefix Dispose so a renderer recreation rebuilds or releases the override;
+          HiddenUiFrameHook replays updates while the HUD is hidden. Collider authoring and GLB import are the physics
+          and assets topics. Distinct problem within the topic: replacing clutter meshes, materials and colliders."
+      - n: 3
+        title: Per-grid memory with AND-merge, public-API snapshot and replay, native plus sidecar saves
+        mod: unscience
+        features:
+          - mods/unscience/features/pebbles-clutter-state-persistence
+        technique: save-sidecar
+        note: "Memory keyed by ecotype and separation; removed instances are never resurrected; snapshot before
+          BubbleClutterStatics.Clear so in-flight objects keep pose and velocity; replay skips slots that no longer
+          exist; native saves cover stock grids, the sidecar covers override-only grids. Sub-step of the replacement
+          approach: carrying knocked-out and displaced instances across swaps and saves; give it its own section."
+      - n: 4
+        title: Audit and update an offline ground-clutter generator for current asset contracts
+        mod: flexo
+        features:
+          - mods/flexo/features/offline-ground-clutter-generation
+        technique: xml-asset, glb-model, texture-atlas, offline-generation
+        note: The implemented Flexo generator targets an older game contract. Explain current-build material registration and
+          random-selection mismatches; show source-grounded adaptation or explicit unresolved steps. Do not present
+          unmodified generated output as validated for the pinned game.
+    related:
+      - place-static-objects-on-a-planet-surface
+      - add-terrain-decals-and-dig-a-site
+      - patch-a-private-game-method-by-name
+      - give-ground-clutter-custom-colliders
+      - change-loaded-game-data-and-make-the-renderer-notice
+      - handle-renderer-rebuilds
+      - mutate-vehicles-at-a-physics-safe-point
+      - detect-save-load
+      - save-mod-state-with-the-scene
+    merged_from:
+      - keep-ground-clutter-off-a-site
+      - replace-ground-clutter-on-a-body
+      - keep-clutter-removals-across-swaps-and-saves
+    assigned_approach: 4
+    existing_topic: true

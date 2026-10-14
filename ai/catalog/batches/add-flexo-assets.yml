@@ -1,0 +1,473 @@
+batch: add-flexo-assets
+note: Write or review only assigned_approach and topic overview/log, preserving existing article links and content.
+topics:
+  - category: assets
+    slug: author-native-asset-mods-in-a-browser
+    title: Compose and export native asset-only mods in a browser
+    kind: howto
+    group: asset-xml
+    batch: add-flexo-assets
+    summary: Compose and export native asset-only mods in a browser, using source-backed export or runtime mechanisms and
+      explicit validation limits.
+    game_types:
+      - KSA.Mod
+      - KSA.AssetBundle
+      - KSA.PartTemplate
+      - KSA.TransformReference
+      - KSA.QuaternionEx
+      - KSA.Vector3Reference
+      - KSA.FeedsFromReference
+      - KSA.ConsumerFeedWiring
+      - KSA.AsmbVolumetricMassTemplate
+      - KSA.Tank
+      - KSA.BatteryTemplate
+      - KSA.PowerConsumerTemplate
+    engine_pointers:
+      - current/decomp/KSA/AssetBundle.cs
+      - current/decomp/KSA/Mod.cs
+      - current/decomp/KSA/PartTemplate.cs
+      - current/decomp/KSA/TransformReference.cs
+      - current/decomp/KSA/QuaternionEx.cs
+      - current/decomp/KSA/Vector3Reference.cs
+      - current/decomp/KSA/FeedsFromReference.cs
+      - current/decomp/KSA/ConsumerFeedWiring.cs
+      - current/decomp/KSA/AsmbVolumetricMassTemplate.cs
+    lifecycle:
+      - tool:build
+      - tool:authoring
+    approaches:
+      - n: 1
+        title: Compose and export native asset-only mods in a browser
+        mod: flexo
+        features:
+          - mods/flexo/features/native-asset-mod-export
+          - mods/flexo/features/builtin-part-composition
+          - mods/flexo/features/schema-aware-gamedata-roundtrip
+          - mods/flexo/features/isolated-subpart-variants
+          - mods/flexo/features/coordinate-transform-bridge
+          - mods/flexo/features/connector-and-feed-authoring
+          - mods/flexo/features/mass-and-resource-authoring
+        technique: xml-asset, toml-config, browser-file-system, asset-catalog, schema-passthrough, id-remapping,
+          coordinate-conversion
+        note: External browser authoring workflow; distinguish preview and export validation from native asset loading and live
+          in-game verification. Cover every listed reusable mechanism with actionable source-backed steps.
+    related:
+      - mod-xml-load-order
+      - define-a-part-with-game-data
+      - add-a-part-model-with-glb-and-pbr-textures
+    assigned_approach: 1
+    existing_topic: false
+  - category: assets
+    slug: add-a-part-model-with-glb-and-pbr-textures
+    title: Add a part's art with its own GLB model and PBR textures
+    kind: howto
+    group: models-and-textures
+    batch: assets-1
+    summary: "Turn a Blender export into a placeable part: a MeshAtlas for the GLB, a PbrMaterial for its textures, SubPart
+      templates pairing a mesh with a material (PartModel, MeshView preview twin, PartModelGlass windows, mesh-less
+      hidden subparts) and a Part that instances the subparts with Transform positions. Game data (mass, colliders,
+      connectors) is the sibling topic."
+    game_types:
+      - KSA.PartTemplate
+      - KSA.SubPartTemplate
+      - KSA.PartInstance
+      - KSA.PartModelModule
+      - KSA.PartModelGlassModule
+      - KSA.MeshViewModule
+      - KSA.MeshAtlasFileReference
+      - KSA.PbrMaterialReference
+      - KSA.TransformReference
+      - KSA.Part
+    engine_pointers:
+      - current/decomp/KSA/MeshAtlasFileReference.cs DoLoad
+      - current/decomp/KSA/PartModelModule.cs, current/decomp/KSA/PartModelGlassModule.cs,
+        current/decomp/KSA/MeshViewModule.cs
+      - current/decomp/KSA/PartTemplate.cs, current/decomp/KSA/SubPartTemplate.cs
+      - current/Content/Core/CoreFuelTankAAssets.xml (stock MeshView plus PartModel pattern)
+    lifecycle:
+      - startup:asset-load
+      - tool:authoring
+      - tool:build
+    approaches:
+      - n: 1
+        title: One atlas per vehicle, one SubPart per moving body, glass and hidden subparts
+        mod: ksacars
+        features:
+          - mods/ksacars/features/car-part-assets-glb-pbr
+        technique: glb-model
+        note: MeshAtlas registers every glTF mesh by name (first wins, node transforms ignored), AoRoughMetal ORM textures,
+          TextureCategory Vessel, emissive channel for lights, PartModelGlass fixed 0.75 opacity with Fresnel, EditorTag
+          Hidden doors, rotation in radians. Pivot recentring is covered by export-glb-from-blender-for-ksa.
+      - n: 2
+        title: Shared palette atlas, _VM preview twins and namespaced subpart ids
+        mod: ksarmory
+        features:
+          - mods/ksarmory/features/weapon-part-definitions-xml
+          - mods/ksarmory/features/blender-model-pipeline-and-checks
+        technique: xml-asset
+        note: Eleven GLB atlases, the three generated parts sharing one flat palette material, MeshView _VM twin declared beside
+          PartModel as Core does, keeping KSArmory_<name>_SubPart apart from atlas mesh names so ids never collide, and
+          the Assets versus GameData file split (game data detail lives in define-a-part-with-game-data).
+      - n: 3
+        title: Import models and author procedural meshes in a browser asset pipeline
+        mod: flexo
+        features:
+          - mods/flexo/features/gltf-model-import
+          - mods/flexo/features/mesh-atlas-and-picking-export
+          - mods/flexo/features/procedural-mesh-and-surface-authoring
+        technique: glb-model, geometry-normalization, mesh-simplification, procedural-geometry
+        note: External browser authoring workflow; distinguish preview and export validation from native asset loading and live
+          in-game verification. Cover every listed reusable mechanism with actionable source-backed steps.
+    related:
+      - define-a-part-with-game-data
+      - define-and-animate-subparts
+      - evolve-a-shipped-part-without-breaking-saves
+      - export-glb-from-blender-for-ksa
+      - validate-asset-xml-references
+      - declare-gltf-and-pbr-material-assets
+    assigned_approach: 3
+    existing_topic: true
+  - category: assets
+    slug: declare-gltf-and-pbr-material-assets
+    title: Declare glTF meshes and PBR materials in asset XML and author their texture sets
+    kind: howto
+    group: models-and-textures
+    batch: assets-1
+    summary: "Mods that only need a mesh and a look (props, course pieces, held items, ghost tints) declare bare GltfFile
+      and PbrMaterial assets with no Part or StaticObject, and let code pair them by id at runtime. Covers Source, the
+      Diffuse, Normal and AoRoughMetal texture children, unit conventions, see-through tint materials and sharing one
+      atlas and material across many meshes. Also covers authoring the texture set: the Diffuse, Normal and AoRoughMetal
+      channel rules, baking from Blender, generated palette swatches, flat-colour textures and atlas dilation so mipmaps
+      do not bleed."
+    game_types:
+      - KSA.AssetBundle
+      - KSA.Gltf2Reference
+      - KSA.PbrMaterialReference
+      - KSA.TextureReference
+      - KSA.TexturePowerReference
+      - KSA.FileReference
+      - KSA.ModLibrary
+      - KSA.TextureCategory
+    engine_pointers:
+      - current/decomp/KSA/Gltf2Reference.cs Source, Usage, Material and Image sub-references
+      - current/decomp/KSA/PbrMaterialReference.cs DiffuseReference, NormalReference, PBRMap, EmissiveMap, ThinFilmMap,
+        AlphaMap
+      - current/decomp/KSA/TextureReference.cs Category, IsVirtual
+      - current/decomp/KSA/ModLibrary.cs AllGltfs, AllMaterials
+      - current/decomp/KSA/PbrMaterialReference.cs
+      - current/decomp/KSA/TextureReference.cs Category, Manifest, DoLoad
+      - current/Content/Core/Textures (stock channel conventions)
+      - current/decomp/KSA/TextureReference.cs (mip generation and KTX path)
+    lifecycle:
+      - startup:asset-load
+      - startup:all-mods-loaded
+      - tool:authoring
+      - tool:build
+    approaches:
+      - n: 1
+        title: Bare GltfFile and PbrMaterial assets, one shared atlas and material for many meshes
+        mod: ksagolf
+        features:
+          - mods/ksagolf/features/prop-and-course-asset-xml
+        technique: xml-asset
+        note: "Props authored in centimetres, course pieces in metres, ModLibrary.Get by id after asset load. Show the XML for a
+          mesh, an opaque material and a translucent ghost material, and the two required-channel gotcha (Diffuse,
+          Normal and AoRoughMetal are dereferenced without a null check, see author-pbr-texture-sets). Also: Twelve
+          course pieces share one texture atlas and one PbrMaterial, and ghost tints reuse every piece glTF with
+          single-colour materials; id naming scheme, PieceCatalogue mapping each piece to its glTF id, chiral pieces as
+          a separate mirrored glTF, and the mip bleed risk that makes atlas dilation matter. Sub-step for the writer:
+          the PBR channel rules (Diffuse, Normal and AoRoughMetal mandatory, R occlusion G roughness B metalness,
+          TextureCategory sets the size cap) get their own section here, absorbed from author-pbr-texture-sets."
+      - n: 2
+        title: Bake diffuse, normal, ORM and emissive maps from Blender and dilate the atlas
+        mod: ksacars
+        features:
+          - mods/ksacars/features/car-part-assets-glb-pbr
+          - mods/ksacars/features/art-and-audio-pipeline-tooling
+          - mods/unscience/features/parts-now-bundle-validation
+          - mods/ksagolf/features/glb-authoring-and-mesh-checks
+        technique: glb-model
+        note: "Bake recipes from the ksa-blender skill (diffuse without lighting, metalness routed through emission), ORM
+          channel order, Category Vessel, PNG in every slot, and the validator rule that rejects a material with a
+          missing mandatory channel before it crashes the renderer. Also: dilate-atlas.py --key 0,255,0 over the baked
+          PNGs; run it between bake and export, after the UV layout is frozen; measured numbers on how much of a
+          neighbouring island a margin overwrote. Sub-step for the writer: dilating the atlas between bake and export
+          (absorbed from dilate-baked-texture-atlas) gets its own section so lower mips do not bleed neighbouring
+          islands."
+      - n: 3
+        title: Generated flat-swatch palette atlas with a JSON swatch map
+        mod: ksarmory
+        features:
+          - mods/ksarmory/features/blender-model-pipeline-and-checks
+        technique: palette-atlas
+        note: palette.py writes Diffuse, PBR and Normal PNGs as a 4x4 grid of 128 px swatches plus palette.json with each
+          swatch's UV centre; box-projecting faces into a swatch gives untextured hard-surface parts a full PBR set.
+      - n: 4
+        title: Flat-colour textures emitted by a geometry script
+        mod: ksastructures
+        features:
+          - mods/ksastructures/features/generated-deep-ramp
+        technique: code-generation
+        note: numpy and Pillow write the swatch textures alongside the generated atlas, so the mesh, its UVs and its textures
+          come from one script and cannot drift.
+      - n: 5
+        title: Author PBR textures and bake emissive paint into native material assets
+        mod: flexo
+        features:
+          - mods/flexo/features/material-and-ktx2-pipeline
+          - mods/flexo/features/emissive-paint-and-ramp-baking
+        technique: xml-asset, ktx2-texture, channel-packing, texture-painting, texture-compositing
+        note: External browser authoring workflow; distinguish preview and export validation from native asset loading and live
+          in-game verification. Cover every listed reusable mechanism with actionable source-backed steps.
+    related:
+      - asset-xml-element-reference
+      - attach-a-prop-to-a-kitten-bone
+      - draw-mod-meshes-with-the-engine-renderers
+      - export-glb-from-blender-for-ksa
+      - resolve-asset-ids-and-mod-relative-paths
+      - import-glb-models-at-runtime
+      - composite-png-over-stock-texture
+      - paint-vessel-parts-with-custom-colours
+      - find-z-fighting-and-degenerate-uvs-in-glb
+    merged_from:
+      - author-pbr-texture-sets
+      - dilate-baked-texture-atlas
+    assigned_approach: 5
+    existing_topic: true
+  - category: assets
+    slug: author-part-colliders-and-convex-hulls
+    title: Author part colliders and convex-hull assets
+    kind: howto
+    group: asset-xml
+    batch: add-flexo-assets
+    summary: Author part colliders and convex-hull assets, using source-backed export or runtime mechanisms and explicit
+      validation limits.
+    game_types:
+      - KSA.ColliderTemplate
+      - KSA.ConvexHullColliderTemplate
+    engine_pointers:
+      - current/decomp/KSA/ColliderTemplate.cs
+      - current/decomp/KSA/ConvexHullColliderTemplate.cs
+    lifecycle:
+      - tool:authoring
+      - tool:build
+    approaches:
+      - n: 1
+        title: Author part colliders and convex-hull assets
+        mod: flexo
+        features:
+          - mods/flexo/features/collider-authoring-and-coverage
+          - mods/flexo/features/convex-hull-atlas-import
+        technique: xml-asset, geometry-validation, glb-model, binary-accessor
+        note: External browser authoring workflow; distinguish preview and export validation from native asset loading and live
+          in-game verification. Cover every listed reusable mechanism with actionable source-backed steps.
+    related:
+      - add-a-part-model-with-glb-and-pbr-textures
+      - validate-asset-xml-references
+    assigned_approach: 1
+    existing_topic: false
+  - category: vehicles-and-parts
+    slug: add-crew-seats-and-eva-doors
+    title: Add crew seats and EVA doors to a part
+    kind: howto
+    group: parts
+    batch: vehicles-and-parts-1
+    summary: Declare IVASeat entries and EVADoor modules on mesh-less hidden subparts, pair them by SeatId, understand the
+      eye offset and the 1 m boarding reach, and keep kittens in an open craft visible when another vehicle is the
+      controlled one.
+    game_types:
+      - KSA.IVASeat
+      - KSA.EVADoor
+      - KSA.EVADoorTemplate
+      - KSA.KittenEva
+      - KSA.Vehicle
+      - KSA.Vector3Reference
+    engine_pointers:
+      - current/decomp/KSA/IVASeat.cs
+      - current/decomp/KSA/EVADoor.cs
+      - current/decomp/KSA/Vehicle.cs UpdateSeatedCrewRenderData
+    lifecycle:
+      - startup:asset-load
+      - frame:render
+      - tool:authoring
+      - tool:build
+    approaches:
+      - n: 1
+        title: IVASeat in PartGameData plus EVADoor on a hidden subpart
+        mod: ksacars
+        features:
+          - mods/ksacars/features/seats-and-eva-doors
+        technique: xml-asset
+        note: Position is the eye point (model drawn 0.63 m lower); door SeatId names the seat.
+      - n: 2
+        title: Seat and door for furniture
+        mod: ksastructures
+        features:
+          - mods/ksastructures/features/office-furniture-craft
+        technique: xml-asset
+        note: Same schema on a chair part; shows the minimum viable seat and door.
+      - n: 3
+        title: Author IVA seats and validate their transforms before exporting XML
+        mod: flexo
+        features:
+          - mods/flexo/features/iva-seat-authoring
+        technique: xml-asset, coordinate-conversion
+        note: External browser authoring workflow; distinguish preview and export validation from native asset loading and live
+          in-game verification. Cover every listed reusable mechanism with actionable source-backed steps.
+    related:
+      - define-a-part-with-game-data
+      - spawn-an-eva-kitten-from-code
+      - take-control-of-another-vehicle
+      - animate-and-draw-seated-kitten-crew
+    note: 'Approaches merged into other topics: "Draw seated crew on craft that are not being flown" ->
+      animate-and-draw-seated-kitten-crew.'
+    assigned_approach: 3
+    existing_topic: true
+  - category: rendering
+    slug: add-dynamic-lights-to-the-world
+    title: Add dynamic spot and point lights to the world from a mod
+    kind: howto
+    group: lights-and-particles
+    batch: rendering-2
+    summary: KSA clears its light list every frame; a mod submits its own Light instances at the right moment (after
+      ClearLights, before sorting and shadow assignment) for headlights, lamps, flashes and fireballs, and budgets which
+      ones cast shadows.
+    game_types:
+      - KSA.Rendering.Lighting.Light
+      - KSA.Rendering.Lighting.ILightSystem
+      - KSA.Rendering.Lighting.ClusteredLightSystem
+      - KSA.Program
+      - KSA.PartTree
+      - KSA.LightModule
+      - KSA.Part
+    engine_pointers:
+      - current/decomp/KSA.Rendering.Lighting/ILightSystem.cs CreateLightInstance, ClearLights
+      - current/decomp/KSA.Rendering.Lighting/Light.cs CreateSpotLight
+      - current/decomp/KSA.Rendering.Lighting/LightDebug.cs
+    lifecycle:
+      - frame:lights
+      - frame:pre-render
+      - frame:render
+      - tool:authoring
+      - tool:build
+    approaches:
+      - n: 1
+        title: Postfix PartTree.UpdateRenderData per craft with CreateSpotLight
+        mod: ksacars
+        features:
+          - mods/ksacars/features/headlights-as-spotlights
+        technique: harmony-postfix
+        note: Runs after ClearLights and before the light upload, once per craft; toggled by Part.LightSwitch /
+          Vehicle.ToggleLights.
+      - n: 2
+        title: Per-viewport CreateLightInstance from an UpdateStaticObjectRenderData postfix, with a shadow-caster budget
+        mod: ksastructures
+        features:
+          - mods/ksastructures/features/garage-spot-lights
+        technique: dynamic-lights
+        note: Flag the nearest lamps up to MaxShadowCasters, leave slots for parts and exhaust.
+      - n: 3
+        title: Push a point light through the public LightDebug list
+        mod: ksarmory
+        features:
+          - mods/ksarmory/features/fireball-light-injection
+        technique: dynamic-lights
+        note: The only list the engine re-reads after clearing; plus a compute dispatch for pixels the light pre-pass dropped
+          beyond 3.16 km.
+      - n: 4
+        title: Author native cast lights with validated local frames and falloff
+        mod: flexo
+        features:
+          - mods/flexo/features/cast-light-authoring
+        technique: xml-asset
+        note: External browser authoring workflow; distinguish preview and export validation from native asset loading and live
+          in-game verification. Cover every listed reusable mechanism with actionable source-backed steps.
+    related:
+      - add-invisible-shadow-casters
+      - control-part-light-color-and-state
+      - modify-the-hdr-scene-with-a-compute-pass
+    assigned_approach: 4
+    existing_topic: true
+  - category: vehicles-and-parts
+    slug: define-and-animate-subparts
+    title: Define articulated subparts and mounts, animate and hide them from code
+    kind: howto
+    group: parts
+    batch: vehicles-and-parts-1
+    summary: "Export one SubPart per moving body recentred on its pivot, then write the parent-relative transform every
+      frame (and reset cached matrices) for wheels, arms, turrets, mounts and gimbals. Covers chains XML cannot nest,
+      rate limits and roll-nod pointing. Also covers: Hide subparts and fly them as projectiles of their launcher."
+    game_types:
+      - KSA.Part
+      - KSA.SubPartTemplate
+      - KSA.PartTree
+      - KSA.SubPart
+      - KSA.KeyframeAnimationData
+    engine_pointers:
+      - current/decomp/KSA/Part.cs PositionParentAsmb, Asmb2ParentAsmb, ResetCachedPosMatrixValues
+      - current/decomp/KSA/SubPartTemplate.cs
+      - current/decomp/KSA/Part.cs Scale, PositionParentAsmb
+    lifecycle:
+      - startup:asset-load
+      - frame:draw-ui
+      - frame:after-on-frame
+      - frame:celestials
+      - frame:viewports
+      - tool:authoring
+      - tool:build
+    approaches:
+      - n: 1
+        title: Pose wheels, arms and blades from StarMapAfterGui with a hidden-UI fallback
+        mod: ksacars
+        features:
+          - mods/ksacars/features/pose-subparts-at-runtime
+          - mods/ksacars/features/car-part-assets-glb-pbr
+        technique: starmap-lifecycle
+        note: 'Author the subparts in the GLB/XML, then FrameLatch plus StarMapAfterOnFrame fallback; hiding a subpart. Also
+          (merged from rendering/animate-subparts-from-code approach 1, "Write transforms and reset caches from
+          StarMapAfterGui with a frame latch"): Wheels, coil-overs, steering wheel, iris blades; FrameLatch with a
+          StarMapAfterOnFrame fallback when the HUD is hidden.'
+      - n: 2
+        title: Articulated turret mounts, rate-limited, with sibling chains
+        mod: ksarmory
+        features:
+          - mods/ksarmory/features/articulated-mount-subparts
+        technique: subpart-transform-write
+        note: Pods and arrays are siblings composed by the mod; latch on refusal.
+      - n: 3
+        title: Optical director heads with roll-nod gimbals
+        mod: ksarmory
+        features:
+          - mods/ksarmory/features/optical-director-heads
+        technique: gimbal-geometry
+        note: Roll about the centreline, nod within it, keyhole kept out of the command.
+      - n: 4
+        title: Scale-to-hide and parent-frame transform writes
+        mod: ksarmory
+        features:
+          - mods/ksarmory/features/rounds-as-hidden-launcher-subparts
+          - mods/ksarmory/features/articulated-mount-subparts
+        technique: scale-to-hide
+        note: '[folded from hide-show-and-fly-subparts-as-projectiles: give it its own section] Anchor to the tube and add
+          travel since launch. Also (merged from rendering/animate-subparts-from-code approach 2, "Projectiles as hidden
+          launcher subparts placed at the simulated position"): Transform in Ego relative to the tube plus travel since
+          launch; sim/render split.'
+      - n: 5
+        title: Author and import keyframe clips and bake native GLB animations
+        mod: flexo
+        features:
+          - mods/flexo/features/keyframe-animation-authoring
+          - mods/flexo/features/animation-import-and-linear-baking
+        technique: glb-model, keyframe-animation, matrix-composition, animation-baking, curve-fitting
+        note: External browser authoring workflow; distinguish preview and export validation from native asset loading and live
+          in-game verification. Cover every listed reusable mechanism with actionable source-backed steps.
+    related:
+      - ray-cast-against-vessel-meshes-and-terrain
+      - evolve-a-shipped-part-without-breaking-saves
+      - hide-parts-or-subparts-from-rendering
+      - choose-a-render-frame-and-anchor-effects
+    merged_from:
+      - hide-show-and-fly-subparts-as-projectiles
+      - animate-subparts-from-code
+    assigned_approach: 5
+    existing_topic: true

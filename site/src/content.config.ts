@@ -28,18 +28,18 @@ function okfLoader() {
             extra = {
               title: "KSA Coffer",
               description:
-                "A knowledge corpus for building Kitten Space Agency mods: how-to articles and analyzed community mods",
+                "A knowledge corpus for building Kitten Space Agency mods: how-to articles, community mods and authoring tools",
               template: "splash",
               hero: {
                 tagline:
-                  "A knowledge corpus for building Kitten Space Agency mods: how-to articles and analyzed community mods",
+                  "A knowledge corpus for building Kitten Space Agency mods: how-to articles, community mods and authoring tools",
                 // Starlight does not prefix hero action links with the base path.
                 actions: [
                   { text: "Browse how-to articles", link: `${BASE}howto/`, icon: "right-arrow", variant: "primary" },
-                  { text: "Browse analyzed mods", link: `${BASE}mods/`, variant: "minimal" },
+                  { text: "Browse mods and tools", link: `${BASE}mods/`, variant: "minimal" },
                   // The route middleware resolves this to the current dated archive at render time.
                   { text: "Download agent skill", link: "#agent-skill", icon: "download", variant: "secondary" },
-                  { text: "Source mods", link: "#source-mods", variant: "minimal" },
+                  { text: "Source projects", link: "#source-mods", variant: "minimal" },
                 ],
               },
             };
@@ -62,6 +62,8 @@ export const collections = {
     schema: docsSchema({
       extend: z.object({
         type: loose,
+        kind: z.string().optional(),
+        loader: z.string().optional(),
         status: loose,
         difficulty: loose,
         mod: loose,

@@ -1,6 +1,8 @@
 # Subdirectories
 
+* [blasto](blasto/index.md) - Persistent exhaust marks, terrain material integration, owned surface dust, save-bound state and offline validation
 * [compendium](compendium/index.md) - Celestial encyclopedia window that joins a cross-mod JSON catalog with the live star-system tree and, through Harmony patches on the navball, gauges and flight computer, lets fixed stars and barycenters act as navigation-only targets
+* [flexo](flexo/index.md) - Browser authoring of native asset-only mods, geometry, textures, animations, engine data and reusable editor workflows
 * [gatos](gatos/index.md) - A KSA mod that boots a real Alpine Linux in a QEMU microVM beside the game, exposes live telemetry and controls as a 9P /sim filesystem plus HTTP, MQTT, MCP and serial APIs, and adds programmable camera, paint, decal, audio and physics features on top
 * [kitten-engineer-redux](kitten-engineer-redux/index.md) - Small StarMap mod in the spirit of Kerbal Engineer Redux that adds a staging and mass analysis panel to the vehicle editor and a configurable flight HUD with orbit, suicide-burn, planner, alert and telemetry-graph sections, all drawn from Harmony postfixes on the game's own UI methods
 * [kittenextensions](kittenextensions/index.md) - Foundational StarMap library mod that runs XPath patches over one combined XML document built from every installed mod's data files and lets other mods register new XML asset types, by redirecting the game's XmlLoader calls and extending its XmlSerializer overrides

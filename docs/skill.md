@@ -3,7 +3,7 @@ type: Guide
 title: Agent Skill build
 description: How scripts/skill_build.ts compiles the content/ bundle into the ksa-modding Agent Skill under dist/skill/, what the skill contains and how it is validated
 tags: [skill, agent-skills, build, dist]
-generated: { by: codex/gpt-6, at: 2026-10-11T13:30:44Z }
+generated: { by: codex/gpt-6, at: 2026-10-14T02:16:21Z }
 status: stable
 sources:
   - id: spec
@@ -26,11 +26,14 @@ about two seconds and never needs to read the corpus into an agent's context.
 | `SKILL.md` | Rendered from `scripts/skill/SKILL.template.md`: workflow, category table, gotchas, live counts and the game build pin |
 | `references/howto/`, `references/mods/` | The corpus tree with frontmatter slimmed to a whitelist and `log.md` files dropped, so file-relative links keep working |
 | `references/catalog-howto-<category>.md` | Per category: groups, topics (overview link and description) and articles (title and difficulty) |
-| `references/catalog-mods.md` | One entry per mod: repo, license, author, loader, description, features index |
+| `references/catalog-mods.md` | One entry per mod or authoring tool: repo, license, author, loader, description, features index |
 | `references/lifecycle.md`, `references/techniques.md` | Vocabulary sections extracted from [Content bundle conventions](content-conventions.md) |
 | `references/ATTRIBUTION.md`, `assets/licenses/`, `LICENSE` | Licensing of this repo and of the quoted mod code |
 | `assets/index.jsonl` | One metadata record per concept page (title, description, tags, techniques, hooks, lifecycle, game types, ...) |
 | `scripts/search.py` | Stdlib-only keyword search over the index, copied from `scripts/skill/search.py` |
+
+The frontmatter whitelist and search index preserve `kind: authoring-tool` and `loader: none` for external tools.
+Their `tool:authoring` and `tool:build` lifecycle phases remain distinct from KSA runtime phases.
 
 ## Progressive disclosure
 
