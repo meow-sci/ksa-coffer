@@ -77,7 +77,9 @@ GitHub Pages artifact flow (repo Pages source: GitHub Actions). It runs on pushe
 lockfile, the workspace file or the workflow itself, and on manual dispatch. Checkout uses
 `fetch-depth: 0` so content history remains available on site-only deployments. The skill is published
 under `https://meow.science.fail/ksa-coffer/downloads/` as
-`ksa-modding-YYYY-MM-DDTHHmmssZ.tar.gz`; the home page links to the manifest's exact filename. `site`
+`ksa-modding-YYYY-MM-DDTHHmmssZ.tar.gz`; the home page links to the manifest's exact filename. An identical
+copy is published as `https://meow.science.fail/ksa-coffer/downloads/ksa-modding-latest.tar.gz`, a stable URL
+for external consumers. `site`
 and `base` in `site/astro.config.ts` must match the published URL.
 
 [^conventions]: Content bundle conventions

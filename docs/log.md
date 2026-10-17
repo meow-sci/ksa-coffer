@@ -1,5 +1,8 @@
 # Project documentation history
 
+## 2026-10-17
+* **Update**: The skill build now also writes `ksa-modding-latest.tar.gz`, an identical copy of the timestamped tarball, so the deployed site exposes a stable download URL; documented in [Agent Skill build](skill.md) and [Documentation site](site.md).
+
 ## 2026-10-13
 * **Update**: Preserved external-tool classification in the [site](site.md) page badge and [skill](skill.md) search index; normalized SSH repository remotes into browser source links in the site attribution table.
 * **Update**: Extended [Content bundle conventions](content-conventions.md) for external authoring tools, their authoring/build lifecycle phases and truthful producer metadata; kept the shared mods bundle structure.

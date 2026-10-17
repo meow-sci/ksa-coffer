@@ -61,6 +61,10 @@ must end in `.tar.gz`; the build inserts its UTC timestamp before that suffix. F
 so it extracts straight into a skills directory. On macOS the build passes `--no-mac-metadata` and
 `COPYFILE_DISABLE=1` to keep `._` files out.
 
+The build also writes a byte-identical copy next to it named `<base>-latest.tar.gz`
+(`ksa-modding-latest.tar.gz`), so external consumers have a stable URL for the newest archive. The
+manifest still points at the timestamped file.
+
 After successfully packing, it writes a sibling `<base>.json` manifest (`ksa-modding.json` for the
 site) with `filename`, `builtAt`, `contentRefreshedAt` and `gameBuilds`. The refresh timestamp comes
 from the last Git commit changing `content/`, with the latest OKF generation/verification timestamp

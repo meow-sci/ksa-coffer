@@ -10,7 +10,8 @@
  * Validates the result and exits non-zero on failure. With --tarball, also packs the validated skill
  * directory into a gzipped tar (top-level entry ksa-modding/) using the system `tar`; the docs site
  * build uses --tarball site/public/downloads/ksa-modding.tar.gz as a base name: a UTC timestamp
- * is inserted before .tar.gz and a sibling ksa-modding.json records download/content metadata.
+ * is inserted before .tar.gz and a sibling ksa-modding.json records download/content metadata. An
+ * identical copy named ksa-modding-latest.tar.gz gives external consumers a stable URL.
  * Runs on Node 24; needs the `yaml` package.
  */
 
@@ -498,9 +499,12 @@ function main(): number {
       stdio: 'inherit',
       env: { ...process.env, COPYFILE_DISABLE: '1' },
     });
+    // Byte-identical copy under a stable name for external consumers (not recorded in the manifest).
+    const latest = `${base}-latest.tar.gz`;
+    copyFileSync(tarball, latest);
     // Written only after packing succeeds; both home-page download links read this manifest.
     writeOut(`${base}.json`, JSON.stringify({ filename: basename(tarball), builtAt, contentRefreshedAt, gameBuilds }, null, 2) + '\n');
-    console.log(`tarball: ${relative(ROOT, tarball)} (${(statSync(tarball).size / 1048576).toFixed(1)} MB)`);
+    console.log(`tarball: ${relative(ROOT, tarball)} (${(statSync(tarball).size / 1048576).toFixed(1)} MB); stable copy: ${relative(ROOT, latest)}`);
     console.log(`metadata: ${relative(ROOT, `${base}.json`)}; content refreshed ${contentRefreshedAt}; KSA ${gameBuild}`);
   }
   return 0;
